@@ -9,6 +9,11 @@ export interface Target {
   /** The origin the browser loads the app from; also the base of every request URL. */
   origin: string;
   fetch(request: Request): Promise<Response>;
+  /**
+   * True for a real Cloudflare edge, which sets CF-Connecting-IP itself and
+   * refuses a request that already carries one.
+   */
+  edge?: boolean;
 }
 
 let ipCounter = 0;
@@ -20,14 +25,19 @@ export class Browser {
   readonly ip = `2001:db8::${(++ipCounter).toString(16)}`;
   userAgent = "TestBrowser/1.0";
 
-  constructor(
-    readonly app: Target,
-    readonly authenticator: SoftwareAuthenticator,
-  ) {}
+  readonly app: Target;
+  readonly authenticator: SoftwareAuthenticator;
+
+  // Plain fields, not parameter properties, so that Node can strip the types
+  // when a script imports this file.
+  constructor(app: Target, authenticator: SoftwareAuthenticator) {
+    this.app = app;
+    this.authenticator = authenticator;
+  }
 
   async request(method: string, path: string, body?: unknown, headers: Record<string, string> = {}) {
     const h = new Headers({
-      "CF-Connecting-IP": this.ip,
+      ...(this.app.edge ? {} : { "CF-Connecting-IP": this.ip }),
       "User-Agent": this.userAgent,
       ...headers,
     });

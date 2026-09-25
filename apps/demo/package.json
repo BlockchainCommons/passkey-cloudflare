@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "typecheck": "wrangler types --strict-vars=false >/dev/null && tsc --noEmit",
+    "typecheck": "wrangler types --strict-vars=false >/dev/null && tsc --noEmit && tsc --noEmit -p scripts",
     "test": "vitest run",
     "test:e2e": "playwright test"
   },
@@ -15,6 +15,7 @@
     "@cloudflare/vitest-pool-workers": "^0.22.0",
     "@cloudflare/workers-types": "^5.20260925.1",
     "@playwright/test": "^1.63.0",
+    "@types/node": "^26.6.3",
     "typescript": "^7.0.2",
     "vitest": "^4.1.11",
     "wrangler": "^4.140.0"
