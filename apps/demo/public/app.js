@@ -121,16 +121,35 @@ function revealChoices(reason) {
 }
 
 /**
+ * Show the entry page. A browser without immediate mediation cannot say "no
+ * passkey here" without a sheet to cancel, so register and recover show at once;
+ * with it, they wait for Continue to find no passkey.
+ */
+async function showEntry() {
+  show("entry");
+  if (await supportsImmediateMediation()) $("choices").hidden = true;
+  else revealChoices("If you do not have a passkey here yet, register; if you lost yours, recover.");
+}
+
+// The two ways a browser may spell an immediate request: the proposal's
+// mediation value, and Chrome's `uiMode`, which rejects the other as a TypeError.
+const IMMEDIATE_REQUESTS = [{ mediation: "immediate" }, { uiMode: "immediate" }];
+
+/**
  * Ask for any passkey this site knows, with immediate mediation where the
- * browser supports it. Some browsers report the capability but reject the
- * value; those fall back to an ordinary request.
+ * browser supports it. An immediate request needs the click's user activation
+ * and rejects at once with no sheet when this device has no passkey for the
+ * site. A browser that rejects every spelling as malformed falls back to an
+ * ordinary request.
  */
 async function getPasskey(options) {
   if (await supportsImmediateMediation()) {
-    try {
-      return { immediate: true, credential: await navigator.credentials.get({ publicKey: requestOptions(options), mediation: "immediate" }) };
-    } catch (error) {
-      if (!(error instanceof TypeError)) throw Object.assign(error, { immediate: true });
+    for (const immediate of IMMEDIATE_REQUESTS) {
+      try {
+        return { immediate: true, credential: await navigator.credentials.get({ publicKey: requestOptions(options), ...immediate }) };
+      } catch (error) {
+        if (!(error instanceof TypeError)) throw Object.assign(error, { immediate: true });
+      }
     }
   }
   return { immediate: false, credential: await navigator.credentials.get({ publicKey: requestOptions(options) }) };
@@ -260,7 +279,7 @@ function row(cells, action) {
 async function showHome() {
   const meResponse = await fetch("/me");
   if (meResponse.status === 401) {
-    show("entry");
+    await showEntry();
     return;
   }
   const me = await meResponse.json();
@@ -345,11 +364,11 @@ $("rotate-codes").addEventListener("click", guard(rotateCodes));
 $("rotate-now").addEventListener("click", guard(rotateCodes));
 $("logout").addEventListener("click", guard(async () => {
   await post("/auth/logout");
-  show("entry");
+  await showEntry();
 }));
 $("logout-everywhere").addEventListener("click", guard(async () => {
   await post("/auth/logout-everywhere");
-  show("entry");
+  await showEntry();
 }));
 $("operator-form").addEventListener("submit", guard(operatorAction));
 
