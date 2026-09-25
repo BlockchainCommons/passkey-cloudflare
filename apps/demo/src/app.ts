@@ -48,6 +48,35 @@ const STATUS: Record<PasskeyErrorCode, number> = {
   "member-name-unavailable": 409,
 };
 
+function operatorIds(env: Env): Set<string> {
+  return new Set(
+    env.OPERATOR_RECORD_IDS.split(",")
+      .map((id) => id.trim())
+      .filter(Boolean),
+  );
+}
+
+function operatorLog(env: Env) {
+  return env.OPERATOR_LOG.get(env.OPERATOR_LOG.idFromName("global"));
+}
+
+/** A handler for an operator who has stepped up. The operator role is this app's, not the library's. */
+function operator(handler: (call: Call, operatorId: string) => Promise<Response>): Handler {
+  return async (call) => {
+    const principal = await call.passkeys.authenticate(sessionValueFrom(call.request));
+    if (!principal) return error(401, "not logged in");
+    if (!operatorIds(call.env).has(principal.recordId)) return error(403, "not an operator");
+    await call.passkeys.requireStepUp(call.ctx, sessionValueFrom(call.request));
+    return handler(call, principal.recordId);
+  };
+}
+
+/** Resolve an operator action's target, named by member name or record id. */
+async function target(call: Call): Promise<string | null> {
+  if (typeof call.body.recordId === "string") return call.body.recordId;
+  return call.passkeys.resolveMemberName(call.body.memberName);
+}
+
 function authed(handler: AuthedHandler): Handler {
   return async (call) => {
     const principal = await call.passkeys.authenticate(sessionValueFrom(call.request));
@@ -98,6 +127,39 @@ const POST: Record<string, Handler> = {
     return json({ recordId }, { headers: { "Set-Cookie": sessionCookie(session) } });
   },
 
+  "/auth/rebind/options": async ({ passkeys, ctx, body }) => json(await passkeys.rebindOptions(ctx, body.link)),
+
+  "/auth/rebind/verify": async ({ passkeys, ctx, body }) => {
+    const outcome = await passkeys.ceremony(ctx, "rebind", () => passkeys.rebind(ctx, body.link, body.response));
+    if (!outcome.ok) return outcome.response;
+    const { recordId, session } = outcome.value;
+    return json({ recordId }, { headers: { "Set-Cookie": sessionCookie(session) } });
+  },
+
+  "/operator/rebind-links": operator(async (call, operatorId) => {
+    const targetId = await target(call);
+    if (!targetId) return error(404, "not found");
+    const link = await call.passkeys.createRebindLink(call.ctx, targetId);
+    await operatorLog(call.env).append({ operatorId, action: "create-rebind-link", targetId, at: call.ctx.now });
+    return json({ link: `${call.env.ORIGIN}/rebind#${link}` });
+  }),
+
+  "/operator/suspend": operator(async (call, operatorId) => {
+    const targetId = await target(call);
+    if (!targetId) return error(404, "not found");
+    await call.passkeys.suspend(call.ctx, targetId);
+    await operatorLog(call.env).append({ operatorId, action: "suspend", targetId, at: call.ctx.now });
+    return json({ ok: true });
+  }),
+
+  "/operator/resume": operator(async (call, operatorId) => {
+    const targetId = await target(call);
+    if (!targetId) return error(404, "not found");
+    await call.passkeys.resume(call.ctx, targetId);
+    await operatorLog(call.env).append({ operatorId, action: "resume", targetId, at: call.ctx.now });
+    return json({ ok: true });
+  }),
+
   "/auth/step-up/options": async ({ passkeys, ctx, request }) =>
     json(await passkeys.stepUpOptions(ctx, sessionValueFrom(request))),
 
@@ -139,6 +201,8 @@ const GET: Record<string, Handler> = {
 
   "/me/credentials": async ({ passkeys, ctx, request }) =>
     json({ credentials: await passkeys.credentials(ctx, sessionValueFrom(request)) }),
+
+  "/operator/log": operator(async ({ env }) => json({ entries: await operatorLog(env).list() })),
 
   "/me/sessions": async ({ passkeys, request }) => {
     const sessions = await passkeys.sessions(sessionValueFrom(request));

@@ -9,6 +9,7 @@ export const SESSION_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
 export const STEP_UP_WINDOW_MS = 10 * 60 * 1000;
 export const RECOVERY_ATTEMPTS_PER_HOUR = 5;
 const HOUR_MS = 60 * 60 * 1000;
+export const REBIND_LINK_LIFETIME_MS = 24 * HOUR_MS;
 
 export interface NewSession {
   id: string;
@@ -76,6 +77,12 @@ CREATE TABLE IF NOT EXISTS recovery_codes (
 );
 CREATE TABLE IF NOT EXISTS recovery_attempts (
   at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS rebind_tokens (
+  token_hash TEXT PRIMARY KEY,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  used_at INTEGER
 );
 `;
 
@@ -342,6 +349,54 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
       this.insertSession(input.session, input.now);
       return { ok: true };
     });
+  }
+
+  /** Store a single-use rebind token for this record. */
+  createRebindToken(tokenHash: string, now: number): RecordResult {
+    if (!this.recordRow()) return { ok: false, cause: "unknown-record" };
+    this.sql.exec(
+      "INSERT INTO rebind_tokens (token_hash, created_at, expires_at) VALUES (?, ?, ?)",
+      tokenHash,
+      now,
+      now + REBIND_LINK_LIFETIME_MS,
+    );
+    return { ok: true };
+  }
+
+  /** Redeem a rebind token: bind the new credential and mint a session, in one transaction. */
+  rebind(input: { tokenHash: string; credential: VerifiedCredential; session: NewSession; now: number }): RecordResult {
+    const refused = this.refusalFor();
+    if (refused) return { ok: false, cause: refused };
+    return this.ctx.storage.transactionSync((): RecordResult => {
+      const used = this.sql
+        .exec(
+          "UPDATE rebind_tokens SET used_at = ? WHERE token_hash = ? AND used_at IS NULL AND expires_at > ? RETURNING 1",
+          input.now,
+          input.tokenHash,
+          input.now,
+        )
+        .toArray();
+      if (used.length === 0) return { ok: false, cause: "bad-rebind-link" };
+      this.insertCredential(input.credential, input.now);
+      this.insertSession(input.session, input.now);
+      return { ok: true };
+    });
+  }
+
+  /** Suspend the principal: end all its sessions and refuse its logins. Returns the sessions ended. */
+  suspend(now: number): RecordResult<{ sessionIds: string[] }> {
+    if (!this.recordRow()) return { ok: false, cause: "unknown-record" };
+    return this.ctx.storage.transactionSync(() => {
+      this.sql.exec("UPDATE record SET suspended_at = COALESCE(suspended_at, ?)", now);
+      const sessionIds = this.sql.exec<{ id: string }>("DELETE FROM sessions RETURNING id").toArray().map((r) => r.id);
+      return { ok: true as const, sessionIds };
+    });
+  }
+
+  resume(): RecordResult {
+    if (!this.recordRow()) return { ok: false, cause: "unknown-record" };
+    this.sql.exec("UPDATE record SET suspended_at = NULL");
+    return { ok: true };
   }
 
   /** Replace every recovery code for a stepped-up session. */

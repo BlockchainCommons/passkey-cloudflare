@@ -21,8 +21,14 @@ export async function mintSession(recordId: string): Promise<MintedSession> {
   return { id: toBase64Url(randomBytes(12)), value: `${recordId}.${token}`, tokenHash: await sha256Hex(token) };
 }
 
-/** Split a presented session value into its record id and token hash. */
-export async function parseSessionValue(
+/** A single-use rebind link token, `recordId.token`. */
+export async function mintRebindToken(recordId: string): Promise<{ value: string; tokenHash: string }> {
+  const token = toBase64Url(randomBytes(32));
+  return { value: `${recordId}.${token}`, tokenHash: await sha256Hex(token) };
+}
+
+/** Split a presented `recordId.token` value (a session or a rebind link) into its record id and token hash. */
+export async function parseRecordToken(
   value: string | null | undefined,
 ): Promise<{ recordId: string; tokenHash: string } | null> {
   if (!value) return null;

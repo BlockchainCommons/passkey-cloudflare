@@ -14,11 +14,12 @@ export interface HarnessOptions extends AppOptions {
 export function testApp(options: HarnessOptions = {}) {
   const { vars, ...appOptions } = options;
   const app = createApp(appOptions);
-  const testEnv = { ...env, ...vars } as Env;
   return {
+    /** Configuration variables, read on every request, so a test can change them. */
+    vars: { ...vars } as Partial<Env>,
     async fetch(request: Request): Promise<Response> {
       const ctx = createExecutionContext();
-      const response = await app.fetch(request, testEnv, ctx);
+      const response = await app.fetch(request, { ...env, ...this.vars } as Env, ctx);
       await waitOnExecutionContext(ctx);
       return response;
     },

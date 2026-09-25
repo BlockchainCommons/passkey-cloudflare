@@ -11,7 +11,8 @@ export {
   MemberNameRegistry,
 } from "passkey-cloudflare";
 
+export { OperatorLog } from "./operator-log.ts";
+
 // Bound in wrangler.jsonc and implemented in later slices.
 export class RateLimiter extends DurableObject {}
 export class CeremonyFailures extends DurableObject {}
-export class OperatorLog extends DurableObject {}

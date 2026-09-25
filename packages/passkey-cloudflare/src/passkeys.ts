@@ -6,7 +6,13 @@ import { isValidMemberName, memberNameKey, type MemberNameRegistry } from "./app
 import { sha256Hex, toBase64Url } from "./encoding.ts";
 import type { CredentialIndex } from "./identity/credential-index.ts";
 import type { IdentityRecord, Principal, SessionSummary } from "./identity/record.ts";
-import { hashRecoveryCode, mintRecoveryCodes, mintSession, parseSessionValue } from "./identity/secrets.ts";
+import {
+  hashRecoveryCode,
+  mintRebindToken,
+  mintRecoveryCodes,
+  mintSession,
+  parseRecordToken,
+} from "./identity/secrets.ts";
 import {
   claimedChallenge,
   creationOptions,
@@ -141,7 +147,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
 
   /** The presented session, which must be live. */
   async function liveSession(sessionValue: string | null | undefined, now: number) {
-    const parsed = await parseSessionValue(sessionValue);
+    const parsed = await parseRecordToken(sessionValue);
     const principal = parsed ? await record(parsed.recordId).authenticate(parsed.tokenHash, now) : null;
     if (!parsed || !principal) throw new PasskeyError("not-logged-in");
     return { ...parsed, sessionId: principal.sessionId };
@@ -261,7 +267,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
 
     /** End the presented session. */
     async logout(sessionValue: string | null | undefined): Promise<void> {
-      const parsed = await parseSessionValue(sessionValue);
+      const parsed = await parseRecordToken(sessionValue);
       if (!parsed) return;
       const sessionId = await record(parsed.recordId).revokeSession(parsed.tokenHash);
       if (sessionId) await revoked({ reason: "logout", recordId: parsed.recordId, sessionIds: [sessionId] });
@@ -269,7 +275,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
 
     /** End every session of the presented session's record. Returns false if it was not live. */
     async logoutEverywhere(sessionValue: string | null | undefined): Promise<boolean> {
-      const parsed = await parseSessionValue(sessionValue);
+      const parsed = await parseRecordToken(sessionValue);
       if (!parsed) return false;
       const sessionIds = await record(parsed.recordId).revokeAllSessions(parsed.tokenHash, clock());
       if (!sessionIds) return false;
@@ -278,7 +284,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
     },
 
     async sessions(sessionValue: string | null | undefined): Promise<SessionSummary[] | null> {
-      const parsed = await parseSessionValue(sessionValue);
+      const parsed = await parseRecordToken(sessionValue);
       if (!parsed) return null;
       return record(parsed.recordId).listSessions(parsed.tokenHash, clock());
     },
@@ -459,9 +465,84 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       return { recordId, session: session.value };
     },
 
+    /** The presented session, if it is live and stepped up within the window; otherwise a PasskeyError. */
+    async requireStepUp(ctx: RequestContext, sessionValue: string | null | undefined) {
+      const session = await steppedUpSession(sessionValue, ctx.now);
+      return { recordId: session.recordId, sessionId: session.sessionId };
+    },
+
+    async resolveMemberName(memberName: string): Promise<string | null> {
+      return isValidMemberName(memberName) ? names().resolve(memberName) : null;
+    },
+
+    /**
+     * Create a single-use, expiring rebind link value for a record. Who may do
+     * this is the application's decision.
+     */
+    async createRebindLink(ctx: RequestContext, recordId: string): Promise<string> {
+      const token = await mintRebindToken(recordId);
+      const done = await record(recordId).createRebindToken(token.tokenHash, ctx.now);
+      if (!done.ok) throw new PasskeyError("not-found");
+      return token.value;
+    },
+
+    async rebindOptions(ctx: RequestContext, link: string) {
+      const parsed = await parseRecordToken(typeof link === "string" ? link : "");
+      const memberName = parsed ? await names().nameOf(parsed.recordId) : null;
+      if (!parsed || !memberName) throw new PasskeyError("not-found");
+      const label = await labels(parsed.recordId).mint(ctx.now);
+      const challenge = await issueChallenge("rebind", { recordId: parsed.recordId, label }, ctx.now);
+      return creationOptions({ rp: config.rp, challenge, userName: `${memberName} (${label})` });
+    },
+
+    /** Redeem a rebind link with a new passkey, minting a session. */
+    async rebind(ctx: RequestContext, link: string, response: RegistrationResponseJSON) {
+      const { challenge, payload } = await consumeChallenge<{ recordId: string; label: string }>(
+        "rebind",
+        response,
+        ctx.now,
+      );
+      const parsed = await parseRecordToken(typeof link === "string" ? link : "");
+      if (!parsed || parsed.recordId !== payload.recordId) throw new CeremonyRefusal("bad-rebind-link");
+      const recordId = parsed.recordId;
+      let credential;
+      try {
+        credential = await verifyRegistration(response, { rp: config.rp, challenge });
+      } catch (error) {
+        if (error instanceof CeremonyRefusal) throw new CeremonyRefusal(error.reason, recordId);
+        throw error;
+      }
+      if (!(await index().put(credential.id, recordId))) throw new CeremonyRefusal("credential-exists", recordId);
+      const session = await mintSession(recordId);
+      const done = await record(recordId).rebind({
+        tokenHash: parsed.tokenHash,
+        credential,
+        session: { id: session.id, tokenHash: session.tokenHash, userAgent: ctx.userAgent },
+        now: ctx.now,
+      });
+      if (!done.ok) {
+        await index().delete(credential.id);
+        throw new CeremonyRefusal(done.cause, recordId);
+      }
+      await labels(recordId).bind(payload.label, credential.id, ctx.now);
+      return { recordId, session: session.value };
+    },
+
+    /** Suspend a principal: its sessions end now and its logins are refused. */
+    async suspend(ctx: RequestContext, recordId: string): Promise<void> {
+      const done = await record(recordId).suspend(ctx.now);
+      if (!done.ok) throw new PasskeyError("not-found");
+      await revoked({ reason: "suspension", recordId, sessionIds: done.sessionIds });
+    },
+
+    async resume(_ctx: RequestContext, recordId: string): Promise<void> {
+      const done = await record(recordId).resume();
+      if (!done.ok) throw new PasskeyError("not-found");
+    },
+
     /** The principal a session value proves, checked against its record on every call. */
     async authenticate(sessionValue: string | null | undefined): Promise<Principal | null> {
-      const parsed = await parseSessionValue(sessionValue);
+      const parsed = await parseRecordToken(sessionValue);
       if (!parsed) return null;
       return record(parsed.recordId).authenticate(parsed.tokenHash, clock());
     },

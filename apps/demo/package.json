@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "typecheck": "wrangler types >/dev/null && tsc --noEmit",
+    "typecheck": "wrangler types --strict-vars=false >/dev/null && tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
