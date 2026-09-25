@@ -4,7 +4,7 @@ import { randomLabel, type CredentialLabels } from "./app-tier/labels.ts";
 import { isValidMemberName, type MemberNameRegistry } from "./app-tier/member-names.ts";
 import { sha256Hex, toBase64Url } from "./encoding.ts";
 import type { CredentialIndex } from "./identity/credential-index.ts";
-import type { IdentityRecord, Principal } from "./identity/record.ts";
+import type { IdentityRecord, Principal, SessionSummary } from "./identity/record.ts";
 import { mintRecoveryCodes, mintSession, parseSessionValue } from "./identity/secrets.ts";
 import {
   claimedChallenge,
@@ -35,6 +35,17 @@ export interface PasskeyConfig {
   refusalFloorMs: number;
   /** Source of the current time. Defaults to `Date.now`. */
   clock?: () => number;
+  /**
+   * Called within the same request whenever sessions end by logout, logout
+   * everywhere or suspension, so the application can close live connections.
+   */
+  onRevoke?: (event: RevocationEvent) => void | Promise<void>;
+}
+
+export interface RevocationEvent {
+  reason: "logout" | "logout-everywhere" | "suspension";
+  recordId: string;
+  sessionIds: string[];
 }
 
 /** What a ceremony needs to know about the request that carries it. */
@@ -51,6 +62,9 @@ export class NotAvailable extends Error {}
 
 export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig) {
   const clock = config.clock ?? Date.now;
+  const revoked = async (event: RevocationEvent) => {
+    if (event.sessionIds.length > 0) await config.onRevoke?.(event);
+  };
 
   const record = (recordId: string) =>
     bindings.IDENTITY_RECORDS.get(bindings.IDENTITY_RECORDS.idFromName(recordId));
@@ -202,7 +216,24 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
     async logout(sessionValue: string | null | undefined): Promise<void> {
       const parsed = await parseSessionValue(sessionValue);
       if (!parsed) return;
-      await record(parsed.recordId).revokeSession(parsed.tokenHash);
+      const sessionId = await record(parsed.recordId).revokeSession(parsed.tokenHash);
+      if (sessionId) await revoked({ reason: "logout", recordId: parsed.recordId, sessionIds: [sessionId] });
+    },
+
+    /** End every session of the presented session's record. Returns false if it was not live. */
+    async logoutEverywhere(sessionValue: string | null | undefined): Promise<boolean> {
+      const parsed = await parseSessionValue(sessionValue);
+      if (!parsed) return false;
+      const sessionIds = await record(parsed.recordId).revokeAllSessions(parsed.tokenHash, clock());
+      if (!sessionIds) return false;
+      await revoked({ reason: "logout-everywhere", recordId: parsed.recordId, sessionIds });
+      return true;
+    },
+
+    async sessions(sessionValue: string | null | undefined): Promise<SessionSummary[] | null> {
+      const parsed = await parseSessionValue(sessionValue);
+      if (!parsed) return null;
+      return record(parsed.recordId).listSessions(parsed.tokenHash, clock());
     },
 
     /** The principal a session value proves, checked against its record on every call. */

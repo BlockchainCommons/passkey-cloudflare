@@ -1,5 +1,5 @@
 // Identity layer
-export { IdentityRecord, SESSION_LIFETIME_MS, type Principal } from "./identity/record.ts";
+export { IdentityRecord, SESSION_LIFETIME_MS, type Principal, type SessionSummary } from "./identity/record.ts";
 export { CredentialIndex } from "./identity/credential-index.ts";
 export { CEREMONY_POLICY, type RelyingParty } from "./identity/webauthn.ts";
 
@@ -19,4 +19,5 @@ export {
   type PasskeyConfig,
   type Passkeys,
   type RequestContext,
+  type RevocationEvent,
 } from "./passkeys.ts";

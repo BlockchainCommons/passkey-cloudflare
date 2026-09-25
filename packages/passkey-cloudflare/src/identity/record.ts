@@ -19,6 +19,14 @@ export interface Principal {
   sessionId: string;
 }
 
+export interface SessionSummary {
+  id: string;
+  createdAt: number;
+  expiresAt: number;
+  userAgent: string;
+  current: boolean;
+}
+
 export type RecordResult<T = {}> = ({ ok: true } & T) | { ok: false; cause: string };
 
 const SCHEMA = `
@@ -197,6 +205,31 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
       .exec<{ id: string }>("DELETE FROM sessions WHERE token_hash = ? RETURNING id", tokenHash)
       .toArray()[0];
     return row?.id ?? null;
+  }
+
+  /** End every session of this record, if the presented one is live. Returns the ids ended. */
+  revokeAllSessions(tokenHash: string, now: number): string[] | null {
+    if (!this.authenticate(tokenHash, now)) return null;
+    return this.sql.exec<{ id: string }>("DELETE FROM sessions RETURNING id").toArray().map((r) => r.id);
+  }
+
+  /** The record's live sessions, if the presented one is live. */
+  listSessions(tokenHash: string, now: number): SessionSummary[] | null {
+    const principal = this.authenticate(tokenHash, now);
+    if (!principal) return null;
+    this.sql.exec("DELETE FROM sessions WHERE expires_at <= ?", now);
+    return this.sql
+      .exec<{ id: string; created_at: number; expires_at: number; user_agent: string }>(
+        "SELECT id, created_at, expires_at, user_agent FROM sessions ORDER BY created_at",
+      )
+      .toArray()
+      .map((row) => ({
+        id: row.id,
+        createdAt: row.created_at,
+        expiresAt: row.expires_at,
+        userAgent: row.user_agent,
+        current: row.id === principal.sessionId,
+      }));
   }
 
   /** Validate a session token hash. Called on every authenticated request; nothing is cached. */

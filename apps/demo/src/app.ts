@@ -7,11 +7,14 @@ import {
   type Passkeys,
   type Principal,
   type RequestContext,
+  type RevocationEvent,
 } from "passkey-cloudflare";
 
 export interface AppOptions {
   /** Source of the current time, for tests. Defaults to `Date.now`. */
   clock?: () => number;
+  /** Called when sessions end. The demo has no live connections yet, so by default it does nothing. */
+  onRevoke?: (event: RevocationEvent) => void | Promise<void>;
 }
 
 interface Call {
@@ -74,6 +77,11 @@ const POST: Record<string, Handler> = {
     await passkeys.logout(sessionValueFrom(request));
     return json({ ok: true }, { headers: { "Set-Cookie": clearedSessionCookie() } });
   },
+
+  "/auth/logout-everywhere": async ({ passkeys, request }) => {
+    if (!(await passkeys.logoutEverywhere(sessionValueFrom(request)))) return error(401, "not logged in");
+    return json({ ok: true }, { headers: { "Set-Cookie": clearedSessionCookie() } });
+  },
 };
 
 const GET: Record<string, Handler> = {
@@ -85,6 +93,12 @@ const GET: Record<string, Handler> = {
   "/me": authed(async ({ passkeys }, principal) =>
     json({ recordId: principal.recordId, memberName: await passkeys.memberName(principal.recordId) }),
   ),
+
+  "/me/sessions": async ({ passkeys, request }) => {
+    const sessions = await passkeys.sessions(sessionValueFrom(request));
+    if (!sessions) return error(401, "not logged in");
+    return json({ sessions });
+  },
 };
 
 export function createApp(options: AppOptions = {}) {
@@ -95,6 +109,7 @@ export function createApp(options: AppOptions = {}) {
         rp: { id: env.RP_ID, name: env.RP_NAME, origin: env.ORIGIN },
         refusalFloorMs: Number(env.REFUSAL_FLOOR_MS),
         clock: options.clock,
+        onRevoke: options.onRevoke,
       });
       const ctx = passkeys.context(request);
 
