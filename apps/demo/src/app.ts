@@ -7,6 +7,7 @@ import {
   type PasskeyErrorCode,
   type Passkeys,
   type Principal,
+  type RateLimits,
   type RequestContext,
   type RevocationEvent,
 } from "passkey-cloudflare";
@@ -14,6 +15,8 @@ import {
 export interface AppOptions {
   /** Source of the current time, for tests. Defaults to `Date.now`. */
   clock?: () => number;
+  /** Overrides for the library's rate limits. */
+  rateLimits?: Partial<RateLimits>;
   /** Called when sessions end. The demo has no live connections yet, so by default it does nothing. */
   onRevoke?: (event: RevocationEvent) => void | Promise<void>;
 }
@@ -219,6 +222,7 @@ export function createApp(options: AppOptions = {}) {
         refusalFloorMs: Number(env.REFUSAL_FLOOR_MS),
         clock: options.clock,
         onRevoke: options.onRevoke,
+        rateLimits: options.rateLimits,
       });
       const ctx = passkeys.context(request);
       try {

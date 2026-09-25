@@ -78,6 +78,12 @@ CREATE TABLE IF NOT EXISTS recovery_codes (
 CREATE TABLE IF NOT EXISTS recovery_attempts (
   at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS failures (
+  at INTEGER NOT NULL,
+  ceremony TEXT NOT NULL,
+  cause TEXT NOT NULL,
+  source_hash TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS rebind_tokens (
   token_hash TEXT PRIMARY KEY,
   created_at INTEGER NOT NULL,
@@ -435,6 +441,17 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
         userAgent: row.user_agent,
         current: row.id === principal.sessionId,
       }));
+  }
+
+  /** Keep the cause of a refused ceremony that resolved to this record. */
+  recordFailure(failure: { ceremony: string; cause: string; at: number; sourceHash: string }): void {
+    this.sql.exec(
+      "INSERT INTO failures (at, ceremony, cause, source_hash) VALUES (?, ?, ?, ?)",
+      failure.at,
+      failure.ceremony,
+      failure.cause,
+      failure.sourceHash,
+    );
   }
 
   /** Validate a session token hash. Called on every authenticated request; nothing is cached. */

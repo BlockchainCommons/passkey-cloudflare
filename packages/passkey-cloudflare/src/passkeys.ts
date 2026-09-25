@@ -1,8 +1,10 @@
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/server";
+import type { CeremonyFailures } from "./app-tier/ceremony-failures.ts";
 import type { ChallengeStore } from "./app-tier/challenges.ts";
 import { providerName } from "./app-tier/aaguid-names.ts";
 import { randomLabel, type CredentialLabels } from "./app-tier/labels.ts";
 import { isValidMemberName, memberNameKey, type MemberNameRegistry } from "./app-tier/member-names.ts";
+import { DEFAULT_RATE_LIMITS, type Limit, type RateLimiter, type RateLimits } from "./app-tier/rate-limit.ts";
 import { sha256Hex, toBase64Url } from "./encoding.ts";
 import type { CredentialIndex } from "./identity/credential-index.ts";
 import type { IdentityRecord, Principal, SessionSummary } from "./identity/record.ts";
@@ -34,6 +36,8 @@ export interface PasskeyBindings {
   CHALLENGES: DurableObjectNamespace<ChallengeStore>;
   MEMBER_NAMES: DurableObjectNamespace<MemberNameRegistry>;
   CREDENTIAL_LABELS: DurableObjectNamespace<CredentialLabels>;
+  RATE_LIMITS: DurableObjectNamespace<RateLimiter>;
+  CEREMONY_FAILURES: DurableObjectNamespace<CeremonyFailures>;
 }
 
 export interface PasskeyConfig {
@@ -42,6 +46,8 @@ export interface PasskeyConfig {
   refusalFloorMs: number;
   /** Source of the current time. Defaults to `Date.now`. */
   clock?: () => number;
+  /** Overrides for the per-source and global rate limits. */
+  rateLimits?: Partial<RateLimits>;
   /**
    * Called within the same request whenever sessions end by logout, logout
    * everywhere or suspension, so the application can close live connections.
@@ -93,6 +99,7 @@ export interface CredentialListing {
 
 export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig) {
   const clock = config.clock ?? Date.now;
+  const limits: RateLimits = { ...DEFAULT_RATE_LIMITS, ...config.rateLimits };
   const revoked = async (event: RevocationEvent) => {
     if (event.sessionIds.length > 0) await config.onRevoke?.(event);
   };
@@ -106,6 +113,13 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
   // Challenges are spread over sixteen objects by the first hex digit of their hash.
   const challenges = (hash: string) =>
     bindings.CHALLENGES.get(bindings.CHALLENGES.idFromName(`challenges-${hash[0]}`));
+  const failures = () => bindings.CEREMONY_FAILURES.get(bindings.CEREMONY_FAILURES.idFromName("global"));
+
+  /** Count a hit against a rate-limit bucket; refuse the ceremony if it is full. */
+  async function throttle(bucket: string, limit: Limit, now: number) {
+    const limiter = bindings.RATE_LIMITS.get(bindings.RATE_LIMITS.idFromName(bucket));
+    if (!(await limiter.hit(limit, now))) throw new CeremonyRefusal("rate-limited");
+  }
 
   async function issueChallenge(purpose: Ceremony, payload: unknown, now: number) {
     const challenge = newChallenge();
@@ -184,13 +198,22 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
      */
     async ceremony<T>(
       ctx: RequestContext,
-      _ceremony: Ceremony,
+      ceremony: Ceremony,
       run: () => Promise<T>,
     ): Promise<CeremonyOutcome<T>> {
+      const sourceHash = await sha256Hex(`source:${ctx.sourceIp}`);
       try {
+        await throttle(`ceremony:${sourceHash}`, limits.ceremonyPerSource, ctx.now);
+        if (ceremony === "recover") {
+          await throttle(`recover:${sourceHash}`, limits.recoverPerSource, ctx.now);
+          await throttle("recover:global", limits.recoverGlobal, ctx.now);
+        }
         return { ok: true, value: await run() };
       } catch (error) {
         if (!(error instanceof CeremonyRefusal)) throw error;
+        const failure = { ceremony, cause: error.reason, at: ctx.now, sourceHash };
+        if (error.recordId) await record(error.recordId).recordFailure(failure);
+        else await failures().record(failure);
         return { ok: false, response: await uniformRefusal(ctx.startedAt, config.refusalFloorMs) };
       }
     },

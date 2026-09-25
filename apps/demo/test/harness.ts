@@ -34,7 +34,8 @@ export type TestApp = ReturnType<typeof testApp>;
 /** One browser: a cookie jar, a source address and an authenticator. */
 export class Browser {
   session: string | undefined;
-  readonly ip = `192.0.2.${++ipCounter % 250}`;
+  // Unique across the run, because storage (and so every rate-limit bucket) is shared by all tests.
+  readonly ip = `2001:db8::${(++ipCounter).toString(16)}`;
   userAgent = "TestBrowser/1.0";
 
   constructor(

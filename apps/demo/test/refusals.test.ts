@@ -1,0 +1,128 @@
+import { describe, expect, it } from "vitest";
+import type { Tamper } from "passkey-cloudflare/testing";
+import { testApp, uniqueName, type Browser } from "./harness.ts";
+
+const REFUSAL = '{"error":"ceremony refused"}';
+const HOUR = 60 * 60 * 1000;
+
+async function loginWith(browser: Browser, tamper: Tamper) {
+  const options = await browser.json(browser.post("/auth/login/options"));
+  return browser.post("/auth/login/verify", { response: await browser.authenticator.get(options, tamper) });
+}
+
+async function registered() {
+  const browser = testApp().browser();
+  await browser.register(uniqueName());
+  browser.session = undefined;
+  return browser;
+}
+
+describe("a login is refused when the assertion", () => {
+  const cases: [string, Tamper][] = [
+    ["answers a challenge the server never issued", { challenge: "bm90LWEtY2hhbGxlbmdlLWZyb20tdGhpcy1zZXJ2ZXI" }],
+    ["comes from another origin", { origin: "https://evil.example" }],
+    ["was made for another relying party", { rpId: "evil.example" }],
+    ["carries a bad signature", { badSignature: true }],
+    ["claims the user was not present", { userAbsent: true }],
+    ["is of the wrong ceremony type", { type: "webauthn.create" }],
+  ];
+  for (const [name, tamper] of cases) {
+    it(name, async () => {
+      const browser = await registered();
+
+      const response = await loginWith(browser, tamper);
+
+      expect(response.status).toBe(400);
+      expect(await response.text()).toBe(REFUSAL);
+      expect(browser.session).toBeUndefined();
+    });
+  }
+
+  it("repeats or lowers the sign counter of a device-bound passkey", async () => {
+    const browser = await registered();
+    await browser.login(); // counter 1
+    await browser.login(); // counter 2
+
+    expect((await loginWith(browser, { signCount: 2 })).status).toBe(400);
+    expect((await loginWith(browser, { signCount: 1 })).status).toBe(400);
+    expect((await loginWith(browser, { signCount: 3 })).status).toBe(200);
+  });
+});
+
+describe("the sign counter", () => {
+  it("is not enforced for synced (backup-eligible) passkeys", async () => {
+    const browser = testApp().browser({ backupEligible: true });
+    await browser.register(uniqueName());
+
+    await browser.login();
+    await browser.login();
+
+    expect((await browser.get("/me")).status).toBe(200);
+  });
+});
+
+describe("a registration is refused when the attestation", () => {
+  it("comes from another origin", async () => {
+    const browser = testApp().browser();
+    const options = await browser.json(browser.post("/auth/register/options", { memberName: uniqueName() }));
+
+    const response = await browser.post("/auth/register/verify", {
+      response: await browser.authenticator.create(options, { origin: "https://evil.example" }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.text()).toBe(REFUSAL);
+  });
+
+  it("is presented a second time", async () => {
+    const browser = testApp().browser();
+    const options = await browser.json(browser.post("/auth/register/options", { memberName: uniqueName() }));
+    const response = await browser.authenticator.create(options);
+    await browser.post("/auth/register/verify", { response });
+
+    expect((await browser.post("/auth/register/verify", { response })).status).toBe(400);
+  });
+});
+
+describe("rate limits", () => {
+  it("refuse recovery from one source address past its limit, but not from others", async () => {
+    const app = testApp({ rateLimits: { recoverPerSource: { limit: 2, windowMs: HOUR } } });
+    const name = uniqueName();
+    const { recoveryCodes } = await app.browser().register(name);
+    const attacker = app.browser();
+    const recover = async (device: Browser, code: string) => {
+      const options = await device.json(device.post("/auth/recover/options", { memberName: name }));
+      return device.post("/auth/recover", { memberName: name, code, response: await device.authenticator.create(options) });
+    };
+
+    await recover(attacker, "cccc-cccc-cccc-cccc-cccc-cccc");
+    await recover(attacker, "cccc-cccc-cccc-cccc-cccc-cccc");
+
+    expect((await recover(attacker, recoveryCodes[0]!)).status).toBe(400);
+    expect((await recover(app.browser(), recoveryCodes[0]!)).status).toBe(200);
+  });
+
+  it("refuse recovery globally past the global limit", async () => {
+    const app = testApp({ rateLimits: { recoverGlobal: { limit: 1, windowMs: HOUR } } });
+    const name = uniqueName();
+    const { recoveryCodes } = await app.browser().register(name);
+    const recover = async (device: Browser, code: string) => {
+      const options = await device.json(device.post("/auth/recover/options", { memberName: name }));
+      return device.post("/auth/recover", { memberName: name, code, response: await device.authenticator.create(options) });
+    };
+    // The global bucket is shared with every other test's recoveries, which can only make it stricter.
+    await recover(app.browser(), "dddd-dddd-dddd-dddd-dddd-dddd");
+
+    expect((await recover(app.browser(), recoveryCodes[0]!)).status).toBe(400);
+  });
+
+  it("refuse ceremonies from one source address past its limit", async () => {
+    const app = testApp({ rateLimits: { ceremonyPerSource: { limit: 3, windowMs: HOUR } } });
+    const browser = app.browser();
+    await browser.register(uniqueName()); // 1
+    await browser.login(); // 2
+    await browser.login(); // 3
+
+    expect((await loginWith(browser, {})).status).toBe(400);
+  });
+});
