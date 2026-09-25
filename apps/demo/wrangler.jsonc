@@ -3,6 +3,8 @@
   "name": "passkey-canvas-demo",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-15",
+  "routes": [{ "pattern": "canvas.shallweplay.com", "custom_domain": true }],
+  "workers_dev": false,
   "assets": {
     "directory": "public",
     "not_found_handling": "single-page-application",
