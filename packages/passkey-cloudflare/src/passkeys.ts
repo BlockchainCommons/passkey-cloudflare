@@ -1,5 +1,6 @@
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/server";
 import type { ChallengeStore } from "./app-tier/challenges.ts";
+import { providerName } from "./app-tier/aaguid-names.ts";
 import { randomLabel, type CredentialLabels } from "./app-tier/labels.ts";
 import { isValidMemberName, type MemberNameRegistry } from "./app-tier/member-names.ts";
 import { sha256Hex, toBase64Url } from "./encoding.ts";
@@ -58,7 +59,31 @@ export interface RequestContext {
 
 export type CeremonyOutcome<T> = { ok: true; value: T } | { ok: false; response: Response };
 
-export class NotAvailable extends Error {}
+/** A refusal that is not a ceremony refusal, and may say why. */
+export type PasskeyErrorCode =
+  | "not-logged-in"
+  | "step-up-required"
+  | "not-found"
+  | "last-credential"
+  | "member-name-unavailable";
+
+export class PasskeyError extends Error {
+  constructor(readonly code: PasskeyErrorCode) {
+    super(code);
+  }
+}
+
+const SESSION_CAUSES = new Set<string>(["not-logged-in", "step-up-required"]);
+
+export interface CredentialListing {
+  label: string | null;
+  createdAt: number;
+  lastUsedAt: number | null;
+  /** The password manager that holds the passkey, where its AAGUID is known. */
+  provider: string | null;
+  backupEligible: boolean;
+  backedUp: boolean;
+}
 
 export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig) {
   const clock = config.clock ?? Date.now;
@@ -114,6 +139,28 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
     }
   }
 
+  /** The presented session, which must be live. */
+  async function liveSession(sessionValue: string | null | undefined, now: number) {
+    const parsed = await parseSessionValue(sessionValue);
+    const principal = parsed ? await record(parsed.recordId).authenticate(parsed.tokenHash, now) : null;
+    if (!parsed || !principal) throw new PasskeyError("not-logged-in");
+    return { ...parsed, sessionId: principal.sessionId };
+  }
+
+  /** The presented session, which must be live and recently stepped up. */
+  async function steppedUpSession(sessionValue: string | null | undefined, now: number) {
+    const session = await liveSession(sessionValue, now);
+    const check = await record(session.recordId).checkStepUp(session.tokenHash, now);
+    if (!check.ok) throw new PasskeyError(check.cause as PasskeyErrorCode);
+    return session;
+  }
+
+  /** Turn a record's refusal into the right kind of error. */
+  function refuse(cause: string, recordId: string): never {
+    if (SESSION_CAUSES.has(cause)) throw new PasskeyError(cause as PasskeyErrorCode);
+    throw new CeremonyRefusal(cause, recordId);
+  }
+
   return {
     context(request: Request): RequestContext {
       const now = clock();
@@ -151,7 +198,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
     },
 
     async registrationOptions(ctx: RequestContext, memberName: string) {
-      if (!(await this.isMemberNameAvailable(memberName))) throw new NotAvailable("member name not available");
+      if (!(await this.isMemberNameAvailable(memberName))) throw new PasskeyError("member-name-unavailable");
       const label = randomLabel();
       const challenge = await issueChallenge("register", { memberName, label }, ctx.now);
       return creationOptions({ rp: config.rp, challenge, userName: `${memberName} (${label})` });
@@ -234,6 +281,132 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       const parsed = await parseSessionValue(sessionValue);
       if (!parsed) return null;
       return record(parsed.recordId).listSessions(parsed.tokenHash, clock());
+    },
+
+    async stepUpOptions(ctx: RequestContext, sessionValue: string | null | undefined) {
+      const session = await liveSession(sessionValue, ctx.now);
+      const ids = await record(session.recordId).credentialIds(session.tokenHash, ctx.now);
+      if (!ids) throw new PasskeyError("not-logged-in");
+      const challenge = await issueChallenge(
+        "step-up",
+        { recordId: session.recordId, sessionId: session.sessionId },
+        ctx.now,
+      );
+      return requestOptions({ rp: config.rp, challenge, allowCredentialIds: ids });
+    },
+
+    /** Prove control of one of the record's passkeys again, on this session. */
+    async stepUp(ctx: RequestContext, sessionValue: string | null | undefined, response: AuthenticationResponseJSON) {
+      const session = await liveSession(sessionValue, ctx.now);
+      const { challenge, payload } = await consumeChallenge<{ recordId: string; sessionId: string }>(
+        "step-up",
+        response,
+        ctx.now,
+      );
+      if (payload.recordId !== session.recordId) throw new CeremonyRefusal("wrong-session", session.recordId);
+      const assertion = await verifyKnownAssertion(response, challenge);
+      if (assertion.recordId !== session.recordId) throw new CeremonyRefusal("wrong-record", session.recordId);
+      const done = await record(session.recordId).completeStepUp({
+        tokenHash: session.tokenHash,
+        sessionId: payload.sessionId,
+        credentialId: assertion.credentialId,
+        signCount: assertion.signCount,
+        flags: assertion.flags,
+        now: ctx.now,
+      });
+      if (!done.ok) refuse(done.cause, session.recordId);
+    },
+
+    async enrolOptions(ctx: RequestContext, sessionValue: string | null | undefined) {
+      const session = await steppedUpSession(sessionValue, ctx.now);
+      const [label, memberName, ids] = await Promise.all([
+        labels(session.recordId).mint(ctx.now),
+        names().nameOf(session.recordId),
+        record(session.recordId).credentialIds(session.tokenHash, ctx.now),
+      ]);
+      const challenge = await issueChallenge(
+        "enrol",
+        { recordId: session.recordId, sessionId: session.sessionId, label },
+        ctx.now,
+      );
+      return creationOptions({
+        rp: config.rp,
+        challenge,
+        userName: `${memberName} (${label})`,
+        excludeCredentialIds: ids ?? [],
+      });
+    },
+
+    /** Add a passkey to the stepped-up session's record. */
+    async enrol(ctx: RequestContext, sessionValue: string | null | undefined, response: RegistrationResponseJSON) {
+      const session = await liveSession(sessionValue, ctx.now);
+      const { challenge, payload } = await consumeChallenge<{ recordId: string; sessionId: string; label: string }>(
+        "enrol",
+        response,
+        ctx.now,
+      );
+      if (payload.recordId !== session.recordId) throw new CeremonyRefusal("wrong-session", session.recordId);
+      const credential = await verifyRegistration(response, { rp: config.rp, challenge });
+      if (!(await index().put(credential.id, session.recordId))) {
+        throw new CeremonyRefusal("credential-exists", session.recordId);
+      }
+      const added = await record(session.recordId).addCredential({
+        tokenHash: session.tokenHash,
+        sessionId: payload.sessionId,
+        credential,
+        now: ctx.now,
+      });
+      if (!added.ok) {
+        await index().delete(credential.id);
+        refuse(added.cause, session.recordId);
+      }
+      await labels(session.recordId).bind(payload.label, credential.id, ctx.now);
+      return { label: payload.label };
+    },
+
+    async credentials(ctx: RequestContext, sessionValue: string | null | undefined): Promise<CredentialListing[]> {
+      const session = await liveSession(sessionValue, ctx.now);
+      const [rows, byCredential] = await Promise.all([
+        record(session.recordId).listCredentials(session.tokenHash, ctx.now),
+        labels(session.recordId).active(),
+      ]);
+      if (!rows) throw new PasskeyError("not-logged-in");
+      return rows.map((row) => ({
+        label: byCredential[row.id] ?? null,
+        createdAt: row.createdAt,
+        lastUsedAt: row.lastUsedAt,
+        provider: providerName(row.aaguid),
+        backupEligible: row.backupEligible,
+        backedUp: row.backedUp,
+      }));
+    },
+
+    /** Revoke the passkey with this label. The last passkey cannot be revoked. */
+    async revokeCredential(ctx: RequestContext, sessionValue: string | null | undefined, label: string) {
+      const session = await steppedUpSession(sessionValue, ctx.now);
+      const credentialId = typeof label === "string" ? await labels(session.recordId).resolve(label) : null;
+      if (!credentialId) throw new PasskeyError("not-found");
+      const done = await record(session.recordId).revokeCredential({
+        tokenHash: session.tokenHash,
+        credentialId,
+        now: ctx.now,
+      });
+      if (!done.ok) throw new PasskeyError(done.cause as PasskeyErrorCode);
+      await index().delete(credentialId);
+      await labels(session.recordId).retire(label, ctx.now);
+    },
+
+    /** Replace every recovery code. Returns the new codes, shown once. */
+    async rotateRecoveryCodes(ctx: RequestContext, sessionValue: string | null | undefined) {
+      const session = await steppedUpSession(sessionValue, ctx.now);
+      const recovery = await mintRecoveryCodes();
+      const done = await record(session.recordId).rotateRecoveryCodes({
+        tokenHash: session.tokenHash,
+        codeHashes: recovery.hashes,
+        now: ctx.now,
+      });
+      if (!done.ok) throw new PasskeyError(done.cause as PasskeyErrorCode);
+      return recovery.codes;
     },
 
     /** The principal a session value proves, checked against its record on every call. */

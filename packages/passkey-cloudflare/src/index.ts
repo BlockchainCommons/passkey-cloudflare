@@ -13,10 +13,12 @@ export { SESSION_COOKIE, clearedSessionCookie, sessionCookie, sessionValueFrom }
 // Ceremonies
 export {
   createPasskeys,
-  NotAvailable,
+  PasskeyError,
   type CeremonyOutcome,
+  type CredentialListing,
   type PasskeyBindings,
   type PasskeyConfig,
+  type PasskeyErrorCode,
   type Passkeys,
   type RequestContext,
   type RevocationEvent,

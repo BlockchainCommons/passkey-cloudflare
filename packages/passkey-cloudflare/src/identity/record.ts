@@ -1,11 +1,12 @@
 import { DurableObject } from "cloudflare:workers";
-import { FLAG_BACKUP_ELIGIBLE, type VerifiedCredential } from "./webauthn.ts";
+import { FLAG_BACKED_UP, FLAG_BACKUP_ELIGIBLE, type VerifiedCredential } from "./webauthn.ts";
 
 // One Durable Object per identity record. It holds the record, its credentials,
 // sessions, recovery-code hashes, suspension state and failure rows. It sees
 // only ids and hashes: never a label, a member name, a session token or a code.
 
 export const SESSION_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
+export const STEP_UP_WINDOW_MS = 10 * 60 * 1000;
 
 export interface NewSession {
   id: string;
@@ -25,6 +26,15 @@ export interface SessionSummary {
   expiresAt: number;
   userAgent: string;
   current: boolean;
+}
+
+export interface CredentialSummary {
+  id: string;
+  createdAt: number;
+  lastUsedAt: number | null;
+  aaguid: string;
+  backupEligible: boolean;
+  backedUp: boolean;
 }
 
 export type RecordResult<T = {}> = ({ ok: true } & T) | { ok: false; cause: string };
@@ -205,6 +215,116 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
       .exec<{ id: string }>("DELETE FROM sessions WHERE token_hash = ? RETURNING id", tokenHash)
       .toArray()[0];
     return row?.id ?? null;
+  }
+
+  /** The presented session, if it is live and completed a step-up within the window. */
+  private steppedUpSession(tokenHash: string, now: number): Principal | null {
+    const principal = this.authenticate(tokenHash, now);
+    if (!principal) return null;
+    const row = this.sql
+      .exec<{ step_up_at: number | null }>("SELECT step_up_at FROM sessions WHERE id = ?", principal.sessionId)
+      .one();
+    if (row.step_up_at === null || now - row.step_up_at > STEP_UP_WINDOW_MS) return null;
+    return principal;
+  }
+
+  /** Why an action needing a fresh step-up cannot proceed, or null if it can. */
+  private stepUpRefusal(tokenHash: string, now: number): string | null {
+    if (!this.authenticate(tokenHash, now)) return "not-logged-in";
+    if (!this.steppedUpSession(tokenHash, now)) return "step-up-required";
+    return null;
+  }
+
+  /** Whether the presented session may perform step-up-gated actions now. */
+  checkStepUp(tokenHash: string, now: number): RecordResult<{ sessionId: string }> {
+    const cause = this.stepUpRefusal(tokenHash, now);
+    if (cause) return { ok: false, cause };
+    return { ok: true, sessionId: this.authenticate(tokenHash, now)!.sessionId };
+  }
+
+  /** The ids of this record's credentials, for a live session's step-up. */
+  credentialIds(tokenHash: string, now: number): string[] | null {
+    if (!this.authenticate(tokenHash, now)) return null;
+    return this.sql.exec<{ id: string }>("SELECT id FROM credentials ORDER BY created_at").toArray().map((r) => r.id);
+  }
+
+  /** Complete a step-up on the session that asked for it. */
+  completeStepUp(input: {
+    tokenHash: string;
+    sessionId: string;
+    credentialId: string;
+    signCount: number;
+    flags: number;
+    now: number;
+  }): RecordResult {
+    const principal = this.authenticate(input.tokenHash, input.now);
+    if (!principal || principal.sessionId !== input.sessionId) return { ok: false, cause: "wrong-session" };
+    return this.ctx.storage.transactionSync((): RecordResult => {
+      const cause = this.acceptAssertion(input.credentialId, input.signCount, input.flags, input.now);
+      if (cause) return { ok: false, cause };
+      this.sql.exec("UPDATE sessions SET step_up_at = ? WHERE id = ?", input.now, principal.sessionId);
+      return { ok: true };
+    });
+  }
+
+  /** Add a credential for a stepped-up session. */
+  addCredential(input: { tokenHash: string; sessionId: string; credential: VerifiedCredential; now: number }): RecordResult {
+    const cause = this.stepUpRefusal(input.tokenHash, input.now);
+    if (cause) return { ok: false, cause };
+    if (this.authenticate(input.tokenHash, input.now)!.sessionId !== input.sessionId) {
+      return { ok: false, cause: "wrong-session" };
+    }
+    this.insertCredential(input.credential, input.now);
+    return { ok: true };
+  }
+
+  listCredentials(tokenHash: string, now: number): CredentialSummary[] | null {
+    if (!this.authenticate(tokenHash, now)) return null;
+    return this.sql
+      .exec<{
+        id: string;
+        created_at: number;
+        last_used_at: number | null;
+        aaguid: string;
+        registration_flags: number;
+        last_flags: number | null;
+      }>("SELECT id, created_at, last_used_at, aaguid, registration_flags, last_flags FROM credentials ORDER BY created_at")
+      .toArray()
+      .map((row) => ({
+        id: row.id,
+        createdAt: row.created_at,
+        lastUsedAt: row.last_used_at,
+        aaguid: row.aaguid,
+        backupEligible: (row.registration_flags & FLAG_BACKUP_ELIGIBLE) !== 0,
+        backedUp: ((row.last_flags ?? row.registration_flags) & FLAG_BACKED_UP) !== 0,
+      }));
+  }
+
+  /** Revoke a credential for a stepped-up session. The last credential is never revoked. */
+  revokeCredential(input: { tokenHash: string; credentialId: string; now: number }): RecordResult {
+    const cause = this.stepUpRefusal(input.tokenHash, input.now);
+    if (cause) return { ok: false, cause };
+    return this.ctx.storage.transactionSync((): RecordResult => {
+      const exists = this.sql.exec("SELECT 1 FROM credentials WHERE id = ?", input.credentialId).toArray();
+      if (exists.length === 0) return { ok: false, cause: "not-found" };
+      const count = this.sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM credentials").one().n;
+      if (count <= 1) return { ok: false, cause: "last-credential" };
+      this.sql.exec("DELETE FROM credentials WHERE id = ?", input.credentialId);
+      return { ok: true };
+    });
+  }
+
+  /** Replace every recovery code for a stepped-up session. */
+  rotateRecoveryCodes(input: { tokenHash: string; codeHashes: string[]; now: number }): RecordResult {
+    const cause = this.stepUpRefusal(input.tokenHash, input.now);
+    if (cause) return { ok: false, cause };
+    this.ctx.storage.transactionSync(() => {
+      this.sql.exec("DELETE FROM recovery_codes");
+      for (const hash of input.codeHashes) {
+        this.sql.exec("INSERT INTO recovery_codes (code_hash, issued_at) VALUES (?, ?)", hash, input.now);
+      }
+    });
+    return { ok: true };
   }
 
   /** End every session of this record, if the presented one is live. Returns the ids ended. */
