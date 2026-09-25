@@ -24,6 +24,15 @@ async function rebind(device: Browser, link: string) {
   return device.post("/auth/rebind/verify", { link: fragment, response });
 }
 
+describe("operator role", () => {
+  it("is shown to the operator and to no one else", async () => {
+    const { operator, person } = await deployment();
+
+    expect(await operator.json(operator.get("/me"))).toMatchObject({ operator: true });
+    expect(await person.json(person.get("/me"))).toMatchObject({ operator: false });
+  });
+});
+
 describe("operator rebind", () => {
   it("binds a new passkey to a person who lost everything, through a link", async () => {
     const { app, operator, personName, personId } = await deployment();

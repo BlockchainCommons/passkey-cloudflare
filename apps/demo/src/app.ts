@@ -198,8 +198,12 @@ const GET: Record<string, Handler> = {
     return json({ available: await passkeys.isMemberNameAvailable(name) });
   },
 
-  "/me": authed(async ({ passkeys }, principal) =>
-    json({ recordId: principal.recordId, memberName: await passkeys.memberName(principal.recordId) }),
+  "/me": authed(async ({ passkeys, env }, principal) =>
+    json({
+      recordId: principal.recordId,
+      memberName: await passkeys.memberName(principal.recordId),
+      operator: operatorIds(env).has(principal.recordId),
+    }),
   ),
 
   "/me/credentials": async ({ passkeys, ctx, request }) =>

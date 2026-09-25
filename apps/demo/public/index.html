@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Shall We Play canvas</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <main>
+      <h1>Shall We Play canvas</h1>
+      <p id="status" role="status" aria-live="polite"></p>
+
+      <section id="entry" hidden>
+        <button id="continue" type="button">Continue with passkey</button>
+        <div id="choices" hidden>
+          <p id="choices-reason"></p>
+          <form id="register-form">
+            <h2>New here? Register</h2>
+            <label>
+              Member name
+              <input id="register-name" name="memberName" autocomplete="username" required minlength="3" maxlength="32" pattern="[A-Za-z0-9][A-Za-z0-9_.\-]{2,31}" />
+            </label>
+            <span id="name-availability" aria-live="polite"></span>
+            <button type="submit">Register with a passkey</button>
+          </form>
+          <form id="recover-form">
+            <h2>Lost your passkeys? Recover</h2>
+            <label>
+              Member name
+              <input name="memberName" autocomplete="username" required />
+            </label>
+            <label>
+              Recovery code
+              <input name="code" autocomplete="off" spellcheck="false" required />
+            </label>
+            <button type="submit">Recover with a new passkey</button>
+          </form>
+        </div>
+      </section>
+
+      <section id="rebind" hidden>
+        <h2>Set up a new passkey</h2>
+        <p>An operator created this link for you. It works once.</p>
+        <button id="rebind-button" type="button">Create a passkey</button>
+      </section>
+
+      <section id="codes" hidden>
+        <h2>Your recovery codes</h2>
+        <p>Store these somewhere safe. Each works once, and they will not be shown again.</p>
+        <ol id="code-list"></ol>
+        <button id="codes-done" type="button">I have saved them</button>
+      </section>
+
+      <section id="home" hidden>
+        <p>Signed in as <strong id="member-name"></strong>.</p>
+
+        <h2>Passkeys</h2>
+        <table>
+          <thead><tr><th>Label</th><th>Held by</th><th>Synced</th><th>Created</th><th>Last used</th><th></th></tr></thead>
+          <tbody id="credential-rows"></tbody>
+        </table>
+        <button id="add-passkey" type="button">Add a passkey</button>
+
+        <h2>Recovery codes</h2>
+        <button id="rotate-codes" type="button">Replace my recovery codes</button>
+
+        <h2>Sessions</h2>
+        <table>
+          <thead><tr><th>Browser</th><th>Started</th><th>Ends</th></tr></thead>
+          <tbody id="session-rows"></tbody>
+        </table>
+        <button id="logout" type="button">Log out</button>
+        <button id="logout-everywhere" type="button">Log out everywhere</button>
+
+        <section id="operator" hidden>
+          <h2>Operator</h2>
+          <form id="operator-form">
+            <label>
+              Member name
+              <input name="memberName" required />
+            </label>
+            <button type="submit" value="rebind">Create rebind link</button>
+            <button type="submit" value="suspend">Suspend</button>
+            <button type="submit" value="resume">Resume</button>
+          </form>
+          <p id="operator-result"></p>
+        </section>
+      </section>
+    </main>
+  </body>
+</html>
