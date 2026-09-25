@@ -9,6 +9,8 @@ export interface ArmSummary {
   max: number;
 }
 
+/** Fewest samples per arm for a p99 that is more than the maximum. */
+export const MIN_SAMPLES = 100;
 /** The floor is this many times the slowest arm's p99... */
 export const FLOOR_MARGIN = 1.5;
 /** ...rounded up to a multiple of this, in milliseconds. */
@@ -33,5 +35,8 @@ export function summarize(samples: Record<string, number[]>): ArmSummary[] {
 export function recommendFloor(summaries: ArmSummary[]): number {
   const slowest = summaries[0];
   if (!slowest) throw new Error("no arms measured");
+  for (const s of summaries) {
+    if (s.n < MIN_SAMPLES) throw new Error(`${s.arm}: ${s.n} samples, fewer than ${MIN_SAMPLES}`);
+  }
   return Math.ceil((slowest.p99 * FLOOR_MARGIN) / FLOOR_STEP_MS) * FLOOR_STEP_MS;
 }
