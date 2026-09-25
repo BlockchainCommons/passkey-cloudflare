@@ -176,7 +176,8 @@ export async function verifyAssertion(
   } catch (error) {
     throw new CeremonyRefusal(causeOf(error));
   }
-  if (!verification.verified) throw new CeremonyRefusal("verification-failed");
+  // The library reports a signature that does not verify as unverified rather than as an error.
+  if (!verification.verified) throw new CeremonyRefusal("bad-signature");
   const authData = fromBase64Url(response.response.authenticatorData);
   return { signCount: verification.authenticationInfo.newCounter, flags: authData[32]! };
 }
