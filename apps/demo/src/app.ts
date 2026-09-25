@@ -56,7 +56,8 @@ const STATUS: Record<PasskeyErrorCode, number> = {
 
 function operatorIds(env: Env): Set<string> {
   return new Set(
-    env.OPERATOR_RECORD_IDS.split(",")
+    (env.OPERATOR_RECORD_IDS ?? "")
+      .split(",")
       .map((id) => id.trim())
       .filter(Boolean),
   );

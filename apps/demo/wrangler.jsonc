@@ -14,7 +14,6 @@
     "RP_ID": "canvas.shallweplay.com",
     "RP_NAME": "Shall We Play canvas",
     "ORIGIN": "https://canvas.shallweplay.com",
-    "OPERATOR_RECORD_IDS": "",
     "REFUSAL_FLOOR_MS": "250"
   },
   "durable_objects": {

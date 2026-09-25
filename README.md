@@ -33,7 +33,7 @@ cd apps/demo
 npx wrangler dev --var RP_ID:localhost --var ORIGIN:http://localhost:8787
 ```
 
-Operators are listed by identity record id in the `OPERATOR_RECORD_IDS` variable, separated by commas.
+Operators are listed by identity record id, separated by commas, in the `OPERATOR_RECORD_IDS` secret: `npx wrangler secret put OPERATOR_RECORD_IDS`. Locally, put it in `apps/demo/.dev.vars`.
 
 ## License
 
