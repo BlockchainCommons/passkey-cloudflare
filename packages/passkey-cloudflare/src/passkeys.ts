@@ -2,11 +2,11 @@ import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simp
 import type { ChallengeStore } from "./app-tier/challenges.ts";
 import { providerName } from "./app-tier/aaguid-names.ts";
 import { randomLabel, type CredentialLabels } from "./app-tier/labels.ts";
-import { isValidMemberName, type MemberNameRegistry } from "./app-tier/member-names.ts";
+import { isValidMemberName, memberNameKey, type MemberNameRegistry } from "./app-tier/member-names.ts";
 import { sha256Hex, toBase64Url } from "./encoding.ts";
 import type { CredentialIndex } from "./identity/credential-index.ts";
 import type { IdentityRecord, Principal, SessionSummary } from "./identity/record.ts";
-import { mintRecoveryCodes, mintSession, parseSessionValue } from "./identity/secrets.ts";
+import { hashRecoveryCode, mintRecoveryCodes, mintSession, parseSessionValue } from "./identity/secrets.ts";
 import {
   claimedChallenge,
   creationOptions,
@@ -407,6 +407,56 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       });
       if (!done.ok) throw new PasskeyError(done.cause as PasskeyErrorCode);
       return recovery.codes;
+    },
+
+    /**
+     * Options for recovering onto a new passkey. An unknown member name still
+     * gets options, so that it is refused only at the end, like any other refusal.
+     */
+    async recoverOptions(ctx: RequestContext, memberName: string) {
+      if (!isValidMemberName(memberName)) throw new PasskeyError("not-found");
+      const recordId = await names().resolve(memberName);
+      const [label, shownName] = recordId
+        ? await Promise.all([labels(recordId).mint(ctx.now), names().nameOf(recordId)])
+        : [randomLabel(), memberName];
+      const challenge = await issueChallenge("recover", { memberName, recordId, label }, ctx.now);
+      return creationOptions({ rp: config.rp, challenge, userName: `${shownName} (${label})` });
+    },
+
+    /** Recover with a member name, a recovery code and a new passkey, in one request. */
+    async recover(ctx: RequestContext, memberName: string, code: string, response: RegistrationResponseJSON) {
+      const { challenge, payload } = await consumeChallenge<{
+        memberName: string;
+        recordId: string | null;
+        label: string;
+      }>("recover", response, ctx.now);
+      if (typeof memberName !== "string" || memberNameKey(memberName) !== memberNameKey(payload.memberName)) {
+        throw new CeremonyRefusal("wrong-member-name");
+      }
+      const recordId = await names().resolve(memberName);
+      if (!recordId || recordId !== payload.recordId) throw new CeremonyRefusal("unknown-member-name");
+      if (typeof code !== "string") throw new CeremonyRefusal("wrong-recovery-code", recordId);
+      let credential;
+      try {
+        credential = await verifyRegistration(response, { rp: config.rp, challenge });
+      } catch (error) {
+        if (error instanceof CeremonyRefusal) throw new CeremonyRefusal(error.reason, recordId);
+        throw error;
+      }
+      if (!(await index().put(credential.id, recordId))) throw new CeremonyRefusal("credential-exists", recordId);
+      const session = await mintSession(recordId);
+      const done = await record(recordId).recover({
+        codeHash: await hashRecoveryCode(code),
+        credential,
+        session: { id: session.id, tokenHash: session.tokenHash, userAgent: ctx.userAgent },
+        now: ctx.now,
+      });
+      if (!done.ok) {
+        await index().delete(credential.id);
+        throw new CeremonyRefusal(done.cause, recordId);
+      }
+      await labels(recordId).bind(payload.label, credential.id, ctx.now);
+      return { recordId, session: session.value };
     },
 
     /** The principal a session value proves, checked against its record on every call. */

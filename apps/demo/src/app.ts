@@ -86,6 +86,18 @@ const POST: Record<string, Handler> = {
     return json({ ok: true }, { headers: { "Set-Cookie": clearedSessionCookie() } });
   },
 
+  "/auth/recover/options": async ({ passkeys, ctx, body }) =>
+    json(await passkeys.recoverOptions(ctx, body.memberName)),
+
+  "/auth/recover": async ({ passkeys, ctx, body }) => {
+    const outcome = await passkeys.ceremony(ctx, "recover", () =>
+      passkeys.recover(ctx, body.memberName, body.code, body.response),
+    );
+    if (!outcome.ok) return outcome.response;
+    const { recordId, session } = outcome.value;
+    return json({ recordId }, { headers: { "Set-Cookie": sessionCookie(session) } });
+  },
+
   "/auth/step-up/options": async ({ passkeys, ctx, request }) =>
     json(await passkeys.stepUpOptions(ctx, sessionValueFrom(request))),
 

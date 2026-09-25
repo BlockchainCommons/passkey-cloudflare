@@ -7,6 +7,8 @@ import { FLAG_BACKED_UP, FLAG_BACKUP_ELIGIBLE, type VerifiedCredential } from ".
 
 export const SESSION_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
 export const STEP_UP_WINDOW_MS = 10 * 60 * 1000;
+export const RECOVERY_ATTEMPTS_PER_HOUR = 5;
+const HOUR_MS = 60 * 60 * 1000;
 
 export interface NewSession {
   id: string;
@@ -71,6 +73,9 @@ CREATE TABLE IF NOT EXISTS recovery_codes (
   code_hash TEXT PRIMARY KEY,
   issued_at INTEGER NOT NULL,
   used_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS recovery_attempts (
+  at INTEGER NOT NULL
 );
 `;
 
@@ -310,6 +315,31 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
       const count = this.sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM credentials").one().n;
       if (count <= 1) return { ok: false, cause: "last-credential" };
       this.sql.exec("DELETE FROM credentials WHERE id = ?", input.credentialId);
+      return { ok: true };
+    });
+  }
+
+  /**
+   * Recover with a recovery code: check the throttle and the code, mark the
+   * code used, bind the new credential and mint a session, in one transaction.
+   * Every attempt counts against the throttle, whatever its outcome.
+   */
+  recover(input: { codeHash: string; credential: VerifiedCredential; session: NewSession; now: number }): RecordResult {
+    const refused = this.refusalFor();
+    if (refused) return { ok: false, cause: refused };
+    const recent = this.sql
+      .exec<{ n: number }>("SELECT COUNT(*) AS n FROM recovery_attempts WHERE at > ?", input.now - HOUR_MS)
+      .one().n;
+    if (recent >= RECOVERY_ATTEMPTS_PER_HOUR) return { ok: false, cause: "recovery-throttled" };
+    this.sql.exec("DELETE FROM recovery_attempts WHERE at <= ?", input.now - HOUR_MS);
+    this.sql.exec("INSERT INTO recovery_attempts (at) VALUES (?)", input.now);
+    return this.ctx.storage.transactionSync((): RecordResult => {
+      const used = this.sql
+        .exec("UPDATE recovery_codes SET used_at = ? WHERE code_hash = ? AND used_at IS NULL RETURNING 1", input.now, input.codeHash)
+        .toArray();
+      if (used.length === 0) return { ok: false, cause: "wrong-recovery-code" };
+      this.insertCredential(input.credential, input.now);
+      this.insertSession(input.session, input.now);
       return { ok: true };
     });
   }
