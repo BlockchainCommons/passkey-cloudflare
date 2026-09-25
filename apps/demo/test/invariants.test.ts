@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { dumpDurableState } from "./durable-state.ts";
 import { ORIGIN, testApp, uniqueName, type Browser, type TestApp } from "./harness.ts";
+import { refusalArms } from "./refusal-arms.ts";
 
 // One named test per milestone 1 invariant. Each states a promise the system
 // makes, and fails if the promise breaks.
@@ -188,53 +189,10 @@ describe("invariants", () => {
     const BOUND = 50;
     const app = testApp({ vars: { REFUSAL_FLOOR_MS: String(FLOOR) } });
     const operator = await operatorFor(app);
-    const name = uniqueName();
-    const person = app.browser();
-    await person.register(name);
-    await person.login();
-    const suspendedName = uniqueName();
-    const suspended = app.browser();
-    await suspended.register(suspendedName);
-    await operator.post("/operator/suspend", { memberName: suspendedName });
-
-    const loginAttempt = (browser: Browser, tamper = {}) => async () => {
-      const options = await browser.json(browser.post("/auth/login/options"));
-      return { path: "/auth/login/verify", body: { response: await browser.authenticator.get(options, tamper) } };
-    };
-    const stranger = app.browser();
-    await stranger.authenticator.create(
-      await stranger.json(stranger.post("/auth/register/options", { memberName: uniqueName() })),
-    );
-    const recoverAttempt = (memberName: string) => async () => {
-      const device = app.browser();
-      const options = await device.json(device.post("/auth/recover/options", { memberName }));
-      return {
-        path: "/auth/recover",
-        body: { memberName, code: "eeee-eeee-eeee-eeee-eeee-eeee", response: await device.authenticator.create(options) },
-      };
-    };
-    const crossPurpose = async () => {
-      const options = await person.json(person.post("/auth/register/options", { memberName: uniqueName() }));
-      const login = await person.json(person.post("/auth/login/options"));
-      return {
-        path: "/auth/login/verify",
-        body: { response: await person.authenticator.get({ ...login, challenge: options.challenge }) },
-      };
-    };
-
-    const arms: Record<string, () => Promise<{ path: string; body: unknown }>> = {
-      "unknown challenge": loginAttempt(person, { challenge: "dW5rbm93bi1jaGFsbGVuZ2UtdW5rbm93bi1jaGFsbGVuZ2U" }),
-      "wrong origin": loginAttempt(person, { origin: "https://evil.example" }),
-      "wrong RP ID": loginAttempt(person, { rpId: "evil.example" }),
-      "bad signature": loginAttempt(person, { badSignature: true }),
-      "regressed sign count": loginAttempt(person, { signCount: 1 }),
-      "cross-purpose challenge": crossPurpose,
-      "unknown credential": loginAttempt(stranger),
-      "suspended principal": loginAttempt(suspended),
-      "wrong recovery code": recoverAttempt(name),
-      "unknown member name": recoverAttempt(uniqueName()),
-      "malformed response": async () => ({ path: "/auth/login/verify", body: { response: { id: 7 } } }),
-    };
+    const arms = await refusalArms({
+      browser: () => app.browser(),
+      suspend: async (memberName) => void (await operator.json(operator.post("/operator/suspend", { memberName }))),
+    });
 
     const seen: { arm: string; status: number; body: string; headers: string; ms: number }[] = [];
     for (const [arm, prepare] of Object.entries(arms)) {
