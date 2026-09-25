@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import type { VerifiedCredential } from "./webauthn.ts";
+import { FLAG_BACKUP_ELIGIBLE, type VerifiedCredential } from "./webauthn.ts";
 
 // One Durable Object per identity record. It holds the record, its credentials,
 // sessions, recovery-code hashes, suspension state and failure rows. It sees
@@ -119,6 +119,84 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
       this.insertSession(input.session, input.now);
     });
     return { ok: true };
+  }
+
+  /** What the Worker needs to verify an assertion by one of this record's credentials. */
+  credentialForAssertion(
+    credentialId: string,
+  ): { publicKey: Uint8Array<ArrayBuffer>; signCount: number; enforceCounter: boolean } | null {
+    const row = this.sql
+      .exec<{ public_key: ArrayBuffer; sign_count: number; registration_flags: number }>(
+        "SELECT public_key, sign_count, registration_flags FROM credentials WHERE id = ?",
+        credentialId,
+      )
+      .toArray()[0];
+    if (!row) return null;
+    return {
+      publicKey: new Uint8Array(row.public_key),
+      signCount: row.sign_count,
+      enforceCounter: (row.registration_flags & FLAG_BACKUP_ELIGIBLE) === 0,
+    };
+  }
+
+  /**
+   * Record a verified assertion: re-check the sign counter against the stored
+   * one, then update the credential. Returns the cause if the assertion must
+   * be refused. Runs inside the caller's transaction.
+   */
+  private acceptAssertion(credentialId: string, signCount: number, flags: number, now: number): string | null {
+    const row = this.sql
+      .exec<{ sign_count: number; registration_flags: number }>(
+        "SELECT sign_count, registration_flags FROM credentials WHERE id = ?",
+        credentialId,
+      )
+      .toArray()[0];
+    if (!row) return "unknown-credential";
+    const enforce = (row.registration_flags & FLAG_BACKUP_ELIGIBLE) === 0;
+    if (enforce && (signCount > 0 || row.sign_count > 0) && signCount <= row.sign_count) {
+      return "counter-regressed";
+    }
+    this.sql.exec(
+      "UPDATE credentials SET sign_count = ?, last_flags = ?, last_used_at = ? WHERE id = ?",
+      Math.max(signCount, row.sign_count),
+      flags,
+      now,
+      credentialId,
+    );
+    return null;
+  }
+
+  private refusalFor(): string | null {
+    const record = this.recordRow();
+    if (!record) return "unknown-record";
+    if (record.suspended_at !== null) return "suspended";
+    return null;
+  }
+
+  /** Complete a login: accept the verified assertion and mint a session, in one transaction. */
+  completeLogin(input: {
+    credentialId: string;
+    signCount: number;
+    flags: number;
+    session: NewSession;
+    now: number;
+  }): RecordResult {
+    const refused = this.refusalFor();
+    if (refused) return { ok: false, cause: refused };
+    return this.ctx.storage.transactionSync((): RecordResult => {
+      const cause = this.acceptAssertion(input.credentialId, input.signCount, input.flags, input.now);
+      if (cause) return { ok: false, cause };
+      this.insertSession(input.session, input.now);
+      return { ok: true };
+    });
+  }
+
+  /** End one session. Returns its id, or null if it was not live. */
+  revokeSession(tokenHash: string): string | null {
+    const row = this.sql
+      .exec<{ id: string }>("DELETE FROM sessions WHERE token_hash = ? RETURNING id", tokenHash)
+      .toArray()[0];
+    return row?.id ?? null;
   }
 
   /** Validate a session token hash. Called on every authenticated request; nothing is cached. */

@@ -1,4 +1,5 @@
 import {
+  clearedSessionCookie,
   createPasskeys,
   NotAvailable,
   sessionCookie,
@@ -59,9 +60,28 @@ const POST: Record<string, Handler> = {
     const { recordId, session, recoveryCodes } = outcome.value;
     return json({ recordId, recoveryCodes }, { headers: { "Set-Cookie": sessionCookie(session) } });
   },
+
+  "/auth/login/options": async ({ passkeys, ctx }) => json(await passkeys.loginOptions(ctx)),
+
+  "/auth/login/verify": async ({ passkeys, ctx, body }) => {
+    const outcome = await passkeys.ceremony(ctx, "login", () => passkeys.login(ctx, body.response));
+    if (!outcome.ok) return outcome.response;
+    const { recordId, session } = outcome.value;
+    return json({ recordId }, { headers: { "Set-Cookie": sessionCookie(session) } });
+  },
+
+  "/auth/logout": async ({ passkeys, request }) => {
+    await passkeys.logout(sessionValueFrom(request));
+    return json({ ok: true }, { headers: { "Set-Cookie": clearedSessionCookie() } });
+  },
 };
 
 const GET: Record<string, Handler> = {
+  "/auth/member-name": async ({ passkeys, request }) => {
+    const name = new URL(request.url).searchParams.get("name") ?? "";
+    return json({ available: await passkeys.isMemberNameAvailable(name) });
+  },
+
   "/me": authed(async ({ passkeys }, principal) =>
     json({ recordId: principal.recordId, memberName: await passkeys.memberName(principal.recordId) }),
   ),

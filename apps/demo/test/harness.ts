@@ -79,6 +79,12 @@ export class Browser {
     return (await r.json()) as T;
   }
 
+  async text(response: Promise<Response> | Response): Promise<string> {
+    const r = await response;
+    if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+    return r.text();
+  }
+
   /** Register a new person and return what the server answered. */
   async register(memberName: string) {
     const options = await this.json(this.post("/auth/register/options", { memberName }));

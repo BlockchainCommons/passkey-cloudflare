@@ -1,4 +1,4 @@
-import type { RegistrationResponseJSON } from "@simplewebauthn/server";
+import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/server";
 import type { ChallengeStore } from "./app-tier/challenges.ts";
 import { randomLabel, type CredentialLabels } from "./app-tier/labels.ts";
 import { isValidMemberName, type MemberNameRegistry } from "./app-tier/member-names.ts";
@@ -10,6 +10,8 @@ import {
   claimedChallenge,
   creationOptions,
   newChallenge,
+  requestOptions,
+  verifyAssertion,
   verifyRegistration,
   type RelyingParty,
 } from "./identity/webauthn.ts";
@@ -73,6 +75,29 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
     const taken = await challenges(hash).consume(hash, purpose, now);
     if (taken === null) throw new CeremonyRefusal("unknown-challenge");
     return { challenge, payload: JSON.parse(taken) as P };
+  }
+
+  /**
+   * Verify an assertion by any credential the site knows. Returns the record
+   * it belongs to and what the record must accept.
+   */
+  async function verifyKnownAssertion(response: AuthenticationResponseJSON, challenge: string) {
+    const credentialId = typeof response?.id === "string" ? response.id : "";
+    const recordId = credentialId ? await index().get(credentialId) : null;
+    if (!recordId) throw new CeremonyRefusal("unknown-credential");
+    const stored = await record(recordId).credentialForAssertion(credentialId);
+    if (!stored) throw new CeremonyRefusal("unknown-credential", recordId);
+    try {
+      const verified = await verifyAssertion(response, {
+        rp: config.rp,
+        challenge,
+        credential: { id: credentialId, ...stored },
+      });
+      return { recordId, credentialId, ...verified };
+    } catch (error) {
+      if (error instanceof CeremonyRefusal) throw new CeremonyRefusal(error.reason, recordId);
+      throw error;
+    }
   }
 
   return {
@@ -150,6 +175,34 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       }
       await labels(recordId).bind(payload.label, credential.id, ctx.now);
       return { recordId, session: session.value, recoveryCodes: recovery.codes };
+    },
+
+    async loginOptions(ctx: RequestContext) {
+      const challenge = await issueChallenge("login", {}, ctx.now);
+      return requestOptions({ rp: config.rp, challenge });
+    },
+
+    /** Complete a login with any of the site's passkeys, minting a session. */
+    async login(ctx: RequestContext, response: AuthenticationResponseJSON) {
+      const { challenge } = await consumeChallenge("login", response, ctx.now);
+      const assertion = await verifyKnownAssertion(response, challenge);
+      const session = await mintSession(assertion.recordId);
+      const done = await record(assertion.recordId).completeLogin({
+        credentialId: assertion.credentialId,
+        signCount: assertion.signCount,
+        flags: assertion.flags,
+        session: { id: session.id, tokenHash: session.tokenHash, userAgent: ctx.userAgent },
+        now: ctx.now,
+      });
+      if (!done.ok) throw new CeremonyRefusal(done.cause, assertion.recordId);
+      return { recordId: assertion.recordId, session: session.value };
+    },
+
+    /** End the presented session. */
+    async logout(sessionValue: string | null | undefined): Promise<void> {
+      const parsed = await parseSessionValue(sessionValue);
+      if (!parsed) return;
+      await record(parsed.recordId).revokeSession(parsed.tokenHash);
     },
 
     /** The principal a session value proves, checked against its record on every call. */
