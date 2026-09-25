@@ -48,3 +48,8 @@ td {
 #operator-form {
   grid-template-columns: 1fr;
 }
+.notice {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid currentColor;
+  border-radius: 0.25rem;
+}

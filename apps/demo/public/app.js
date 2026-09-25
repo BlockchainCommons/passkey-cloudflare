@@ -1,4 +1,5 @@
-// The demo's entry page and account page. Plain browser JavaScript, no build step.
+// The demo's entry page and the signed-in page for managing passkeys and sessions.
+// Plain browser JavaScript, no build step.
 
 const $ = (id) => document.getElementById(id);
 
@@ -206,6 +207,7 @@ async function recover(event) {
   const verified = await post("/auth/recover", { memberName, code: form.get("code"), response: credentialJSON(credential) });
   if (!verified.ok) return status("Recovery was refused.");
   await showHome();
+  $("rotate-prompt").hidden = false;
 }
 
 async function rebind() {
@@ -307,6 +309,7 @@ async function rotateCodes() {
   if (!confirm("Replace your recovery codes? The old ones will stop working.")) return;
   const response = await withStepUp(() => post("/me/recovery-codes/rotate"));
   if (!response.ok) return status("Could not replace your recovery codes.");
+  $("rotate-prompt").hidden = true;
   showCodes((await response.json()).recoveryCodes);
 }
 
@@ -339,6 +342,7 @@ $("rebind-button").addEventListener("click", guard(rebind));
 $("codes-done").addEventListener("click", guard(showHome));
 $("add-passkey").addEventListener("click", guard(addPasskey));
 $("rotate-codes").addEventListener("click", guard(rotateCodes));
+$("rotate-now").addEventListener("click", guard(rotateCodes));
 $("logout").addEventListener("click", guard(async () => {
   await post("/auth/logout");
   show("entry");
