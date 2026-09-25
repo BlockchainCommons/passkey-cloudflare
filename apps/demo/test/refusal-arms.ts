@@ -37,9 +37,8 @@ export async function refusalArms(setup: ArmSetup): Promise<Record<string, Arm>>
     const options = await browser.json(browser.post("/auth/login/options"));
     return { path: "/auth/login/verify", body: { response: await browser.authenticator.get(options, tamper) } };
   };
-  const recoverAttempt = (memberName: () => string): Arm => async () => {
+  const recoverAttempt = (member: string): Arm => async () => {
     const device = setup.browser();
-    const member = memberName();
     const options = await device.json(device.post("/auth/recover/options", { memberName: member }));
     return {
       path: "/auth/recover",
@@ -64,8 +63,14 @@ export async function refusalArms(setup: ArmSetup): Promise<Record<string, Arm>>
     "cross-purpose challenge": crossPurpose,
     "unknown credential": loginAttempt(stranger),
     "suspended principal": loginAttempt(suspended),
-    "wrong recovery code": recoverAttempt(() => name),
-    "unknown member name": recoverAttempt(() => uniqueName()),
+    // A fresh member each time: a record stops checking codes after a few
+    // attempts an hour, and refuses as throttled instead.
+    "wrong recovery code": async () => {
+      const member = uniqueName();
+      await setup.browser().register(member);
+      return recoverAttempt(member)();
+    },
+    "unknown member name": () => recoverAttempt(uniqueName())(),
     "malformed response": async () => ({ path: "/auth/login/verify", body: { response: { id: 7 } } }),
   };
 }
