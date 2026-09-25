@@ -11,7 +11,7 @@ import { execFileSync } from "node:child_process";
 import { SoftwareAuthenticator } from "passkey-cloudflare/testing";
 import { Browser, type Target } from "../test/browser.ts";
 import { refusalArms } from "../test/refusal-arms.ts";
-import { recommendFloor, summarize } from "../test/refusal-timing.ts";
+import { recommendFloor, summarize, type ArmSummary } from "../test/refusal-timing.ts";
 
 const REFUSAL = '{"error":"ceremony refused"}';
 
@@ -89,10 +89,10 @@ for (let round = 0; round <= rounds; round++) {
 const { "(baseline: unknown route)": baseline, ...armSamples } = samples;
 const summaries = summarize(armSamples);
 const [base] = summarize({ "(baseline: unknown route)": baseline! });
-const row = (s: { arm: string; n: number; p50: number; p99: number; max: number }) =>
-  `| ${s.arm} | ${s.n} | ${Math.round(s.p50)} | ${Math.round(s.p99)} | ${Math.round(s.max)} |`;
+const row = (s: ArmSummary) =>
+  `| ${s.arm} | ${s.n} | ${Math.round(s.p50)} | ${Math.round(s.p95)} | ${Math.round(s.p99)} | ${Math.round(s.max)} |`;
 
 console.log(`Measured ${new Date().toISOString().slice(0, 10)} against ${origin}, ${rounds} rounds.\n`);
-console.log("| Arm | n | p50 ms | p99 ms | max ms |\n|---|---|---|---|---|");
+console.log("| Arm | n | p50 ms | p95 ms | p99 ms | max ms |\n|---|---|---|---|---|---|");
 for (const s of [...summaries, base!]) console.log(row(s));
 console.log(`\nRecommended REFUSAL_FLOOR_MS: ${recommendFloor(summaries)}`);
