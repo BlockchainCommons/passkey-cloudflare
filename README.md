@@ -33,6 +33,8 @@ cd apps/demo
 npx wrangler dev --var RP_ID:localhost --var ORIGIN:http://localhost:8787
 ```
 
+Every refused ceremony waits until the timing floor, `REFUSAL_FLOOR_MS`, has passed. It is set from measurements of a deployed Worker: see [`docs/refusal-floor.md`](docs/refusal-floor.md) for how to repeat them.
+
 Operators are listed by identity record id, separated by commas, in the `OPERATOR_RECORD_IDS` secret: `npx wrangler secret put OPERATOR_RECORD_IDS`. Locally, put it in `apps/demo/.dev.vars`.
 
 ## License
