@@ -1,6 +1,7 @@
 import {
   clearedSessionCookie,
   createPasskeys,
+  isRecordId,
   PasskeyError,
   sessionCookie,
   sessionValueFrom,
@@ -9,6 +10,7 @@ import {
   type Passkeys,
   type Principal,
   type RateLimits,
+  type RecordId,
   type RequestContext,
   type RevocationEvent,
 } from "passkey-cloudflare";
@@ -65,7 +67,7 @@ function operatorLog(env: Env) {
 }
 
 /** A handler for an operator who has stepped up. The operator role is this app's, not the library's. */
-function operator(handler: (call: Call, operatorId: string) => Promise<Response>): Handler {
+function operator(handler: (call: Call, operatorId: RecordId) => Promise<Response>): Handler {
   return async (call) => {
     const principal = await call.passkeys.authenticate(sessionValueFrom(call.request));
     if (!principal) return error(401, "not logged in");
@@ -75,9 +77,9 @@ function operator(handler: (call: Call, operatorId: string) => Promise<Response>
   };
 }
 
-/** Resolve an operator action's target, named by member name or record id. */
-async function target(call: Call): Promise<string | null> {
-  if (typeof call.body.recordId === "string") return call.body.recordId;
+/** The record an operator action targets, named by record id or by member name. */
+async function targetRecordId(call: Call): Promise<RecordId | null> {
+  if (call.body.recordId !== undefined) return isRecordId(call.body.recordId) ? call.body.recordId : null;
   return call.passkeys.resolveMemberName(call.body.memberName);
 }
 
@@ -147,7 +149,7 @@ const POST: Record<string, Handler> = {
   },
 
   "/operator/rebind-links": operator(async (call, operatorId) => {
-    const targetId = await target(call);
+    const targetId = await targetRecordId(call);
     if (!targetId) return error(404, "not found");
     const link = await call.passkeys.createRebindLink(call.ctx, targetId);
     await operatorLog(call.env).append({ operatorId, action: "create-rebind-link", targetId, at: call.ctx.now });
@@ -155,7 +157,7 @@ const POST: Record<string, Handler> = {
   }),
 
   "/operator/suspend": operator(async (call, operatorId) => {
-    const targetId = await target(call);
+    const targetId = await targetRecordId(call);
     if (!targetId) return error(404, "not found");
     await call.passkeys.suspend(call.ctx, targetId);
     await operatorLog(call.env).append({ operatorId, action: "suspend", targetId, at: call.ctx.now });
@@ -163,9 +165,9 @@ const POST: Record<string, Handler> = {
   }),
 
   "/operator/resume": operator(async (call, operatorId) => {
-    const targetId = await target(call);
+    const targetId = await targetRecordId(call);
     if (!targetId) return error(404, "not found");
-    await call.passkeys.resume(call.ctx, targetId);
+    await call.passkeys.resume(targetId);
     await operatorLog(call.env).append({ operatorId, action: "resume", targetId, at: call.ctx.now });
     return json({ ok: true });
   }),

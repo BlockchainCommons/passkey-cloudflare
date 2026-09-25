@@ -7,13 +7,15 @@ import { isValidMemberName, memberNameKey, type MemberNameRegistry } from "./app
 import { DEFAULT_RATE_LIMITS, type Limit, type RateLimiter, type RateLimits } from "./app-tier/rate-limit.ts";
 import { sha256Hex, toBase64Url } from "./encoding.ts";
 import type { CredentialIndex } from "./identity/credential-index.ts";
-import type { IdentityRecord, Principal, SessionSummary } from "./identity/record.ts";
+import type { IdentityRecord, Principal, SessionCause, SessionSummary } from "./identity/record.ts";
 import {
   hashRecoveryCode,
   mintRebindToken,
   mintRecoveryCodes,
   mintSession,
+  newRecordId,
   parseRecordToken,
+  type RecordId,
 } from "./identity/secrets.ts";
 import {
   claimedChallenge,
@@ -57,7 +59,7 @@ export interface PasskeyConfig {
 
 export interface RevocationEvent {
   reason: "logout" | "logout-everywhere" | "suspension";
-  recordId: string;
+  recordId: RecordId;
   sessionIds: string[];
 }
 
@@ -85,7 +87,14 @@ export class PasskeyError extends Error {
   }
 }
 
-const SESSION_CAUSES = new Set<string>(["not-logged-in", "step-up-required"]);
+function isSessionCause(cause: string): cause is SessionCause {
+  return cause === "not-logged-in" || cause === "step-up-required";
+}
+
+/** The name a passkey is saved under in a password manager. */
+function passkeyName(memberName: string, label: string): string {
+  return `${memberName} (${label})`;
+}
 const ANONYMOUS_CEREMONIES = new Set<Ceremony>(["register", "login", "recover", "rebind"]);
 
 export interface CredentialListing {
@@ -105,11 +114,11 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
     await config.onRevoke?.(event);
   };
 
-  const record = (recordId: string) =>
+  const record = (recordId: RecordId) =>
     bindings.IDENTITY_RECORDS.get(bindings.IDENTITY_RECORDS.idFromName(recordId));
   const index = () => bindings.CREDENTIAL_INDEX.get(bindings.CREDENTIAL_INDEX.idFromName("global"));
   const names = () => bindings.MEMBER_NAMES.get(bindings.MEMBER_NAMES.idFromName("global"));
-  const labels = (recordId: string) =>
+  const labels = (recordId: RecordId) =>
     bindings.CREDENTIAL_LABELS.get(bindings.CREDENTIAL_LABELS.idFromName(recordId));
   // Challenges are spread over sixteen objects by the first hex digit of their hash.
   const challenges = (hash: string) =>
@@ -172,14 +181,30 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
   async function steppedUpSession(sessionValue: string | null | undefined, now: number) {
     const session = await liveSession(sessionValue, now);
     const check = await record(session.recordId).checkStepUp(session.tokenHash, now);
-    if (!check.ok) throw new PasskeyError(check.cause as PasskeyErrorCode);
+    if (!check.ok) throw new PasskeyError(check.cause);
     return session;
   }
 
   /** Turn a record's refusal into the right kind of error. */
-  function refuse(cause: string, recordId: string): never {
-    if (SESSION_CAUSES.has(cause)) throw new PasskeyError(cause as PasskeyErrorCode);
+  function refuse(cause: string, recordId: RecordId): never {
+    if (isSessionCause(cause)) throw new PasskeyError(cause);
     throw new CeremonyRefusal(cause, recordId);
+  }
+
+  /** Verify a new passkey's registration for a known record, keeping the record on any refusal. */
+  async function verifyRegistrationFor(response: RegistrationResponseJSON, challenge: string, recordId: RecordId) {
+    try {
+      return await verifyRegistration(response, { rp: config.rp, challenge });
+    } catch (error) {
+      if (error instanceof CeremonyRefusal) throw new CeremonyRefusal(error.reason, recordId);
+      throw error;
+    }
+  }
+
+  /** Mint a session: the value for the client, and the row for the record's object. */
+  async function newSession(recordId: RecordId, ctx: RequestContext) {
+    const minted = await mintSession(recordId);
+    return { value: minted.value, row: { id: minted.id, tokenHash: minted.tokenHash, userAgent: ctx.userAgent } };
   }
 
   return {
@@ -239,7 +264,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       return isValidMemberName(name) && (await names().isAvailable(name));
     },
 
-    async memberName(recordId: string): Promise<string | null> {
+    async memberName(recordId: RecordId): Promise<string | null> {
       return names().nameOf(recordId);
     },
 
@@ -247,7 +272,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       if (!(await this.isMemberNameAvailable(memberName))) throw new PasskeyError("member-name-unavailable");
       const label = randomLabel();
       const challenge = await issueChallenge("register", { memberName, label }, ctx.now);
-      return creationOptions({ rp: config.rp, challenge, userName: `${memberName} (${label})` });
+      return creationOptions({ rp: config.rp, challenge, userName: passkeyName(memberName, label) });
     },
 
     /** Complete registration: a new record, its first credential, recovery codes and a session. */
@@ -258,7 +283,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
         ctx.now,
       );
       const credential = await verifyRegistration(response, { rp: config.rp, challenge });
-      const recordId = crypto.randomUUID();
+      const recordId = newRecordId();
       if (!(await names().claim(payload.memberName, recordId, ctx.now))) {
         throw new CeremonyRefusal("member-name-taken");
       }
@@ -266,13 +291,13 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
         await names().release(payload.memberName, recordId, ctx.now);
         throw new CeremonyRefusal("credential-exists");
       }
-      const session = await mintSession(recordId);
+      const session = await newSession(recordId, ctx);
       const recovery = await mintRecoveryCodes();
       const created = await record(recordId).createPerson({
         recordId,
         credential,
         recoveryCodeHashes: recovery.hashes,
-        session: { id: session.id, tokenHash: session.tokenHash, userAgent: ctx.userAgent },
+        session: session.row,
         now: ctx.now,
       });
       if (!created.ok) {
@@ -293,12 +318,12 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
     async login(ctx: RequestContext, response: AuthenticationResponseJSON) {
       const { challenge } = await consumeChallenge("login", response, ctx.now);
       const assertion = await verifyKnownAssertion(response, challenge);
-      const session = await mintSession(assertion.recordId);
+      const session = await newSession(assertion.recordId, ctx);
       const done = await record(assertion.recordId).completeLogin({
         credentialId: assertion.credentialId,
         signCount: assertion.signCount,
         flags: assertion.flags,
-        session: { id: session.id, tokenHash: session.tokenHash, userAgent: ctx.userAgent },
+        session: session.row,
         now: ctx.now,
       });
       if (!done.ok) throw new CeremonyRefusal(done.cause, assertion.recordId);
@@ -344,7 +369,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
     /** Prove control of one of the record's passkeys again, on this session. */
     async stepUp(ctx: RequestContext, sessionValue: string | null | undefined, response: AuthenticationResponseJSON) {
       const session = await liveSession(sessionValue, ctx.now);
-      const { challenge, payload } = await consumeChallenge<{ recordId: string; sessionId: string }>(
+      const { challenge, payload } = await consumeChallenge<{ recordId: RecordId; sessionId: string }>(
         "step-up",
         response,
         ctx.now,
@@ -378,7 +403,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       return creationOptions({
         rp: config.rp,
         challenge,
-        userName: `${memberName} (${label})`,
+        userName: passkeyName(memberName ?? session.recordId, label),
         excludeCredentialIds: ids ?? [],
       });
     },
@@ -386,13 +411,13 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
     /** Add a passkey to the stepped-up session's record. */
     async enrol(ctx: RequestContext, sessionValue: string | null | undefined, response: RegistrationResponseJSON) {
       const session = await liveSession(sessionValue, ctx.now);
-      const { challenge, payload } = await consumeChallenge<{ recordId: string; sessionId: string; label: string }>(
+      const { challenge, payload } = await consumeChallenge<{ recordId: RecordId; sessionId: string; label: string }>(
         "enrol",
         response,
         ctx.now,
       );
       if (payload.recordId !== session.recordId) throw new CeremonyRefusal("wrong-session", session.recordId);
-      const credential = await verifyRegistration(response, { rp: config.rp, challenge });
+      const credential = await verifyRegistrationFor(response, challenge, session.recordId);
       if (!(await index().put(credential.id, session.recordId))) {
         throw new CeremonyRefusal("credential-exists", session.recordId);
       }
@@ -437,7 +462,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
         credentialId,
         now: ctx.now,
       });
-      if (!done.ok) throw new PasskeyError(done.cause as PasskeyErrorCode);
+      if (!done.ok) throw new PasskeyError(done.cause);
       await index().delete(credentialId);
       await labels(session.recordId).retire(label, ctx.now);
     },
@@ -451,7 +476,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
         codeHashes: recovery.hashes,
         now: ctx.now,
       });
-      if (!done.ok) throw new PasskeyError(done.cause as PasskeyErrorCode);
+      if (!done.ok) throw new PasskeyError(done.cause);
       return recovery.codes;
     },
 
@@ -466,14 +491,14 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
         ? await Promise.all([labels(recordId).mint(ctx.now), names().nameOf(recordId)])
         : [randomLabel(), memberName];
       const challenge = await issueChallenge("recover", { memberName, recordId, label }, ctx.now);
-      return creationOptions({ rp: config.rp, challenge, userName: `${shownName} (${label})` });
+      return creationOptions({ rp: config.rp, challenge, userName: passkeyName(shownName ?? memberName, label) });
     },
 
     /** Recover with a member name, a recovery code and a new passkey, in one request. */
     async recover(ctx: RequestContext, memberName: string, code: string, response: RegistrationResponseJSON) {
       const { challenge, payload } = await consumeChallenge<{
         memberName: string;
-        recordId: string | null;
+        recordId: RecordId | null;
         label: string;
       }>("recover", response, ctx.now);
       if (typeof memberName !== "string" || memberNameKey(memberName) !== memberNameKey(payload.memberName)) {
@@ -482,19 +507,13 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       const recordId = await names().resolve(memberName);
       if (!recordId || recordId !== payload.recordId) throw new CeremonyRefusal("unknown-member-name");
       if (typeof code !== "string") throw new CeremonyRefusal("wrong-recovery-code", recordId);
-      let credential;
-      try {
-        credential = await verifyRegistration(response, { rp: config.rp, challenge });
-      } catch (error) {
-        if (error instanceof CeremonyRefusal) throw new CeremonyRefusal(error.reason, recordId);
-        throw error;
-      }
+      const credential = await verifyRegistrationFor(response, challenge, recordId);
       if (!(await index().put(credential.id, recordId))) throw new CeremonyRefusal("credential-exists", recordId);
-      const session = await mintSession(recordId);
+      const session = await newSession(recordId, ctx);
       const done = await record(recordId).recover({
         codeHash: await hashRecoveryCode(code),
         credential,
-        session: { id: session.id, tokenHash: session.tokenHash, userAgent: ctx.userAgent },
+        session: session.row,
         now: ctx.now,
       });
       if (!done.ok) {
@@ -511,7 +530,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       return { recordId: session.recordId, sessionId: session.sessionId };
     },
 
-    async resolveMemberName(memberName: string): Promise<string | null> {
+    async resolveMemberName(memberName: string): Promise<RecordId | null> {
       return isValidMemberName(memberName) ? names().resolve(memberName) : null;
     },
 
@@ -519,7 +538,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
      * Create a single-use, expiring rebind link value for a record. Who may do
      * this is the application's decision.
      */
-    async createRebindLink(ctx: RequestContext, recordId: string): Promise<string> {
+    async createRebindLink(ctx: RequestContext, recordId: RecordId): Promise<string> {
       const token = await mintRebindToken(recordId);
       const done = await record(recordId).createRebindToken(token.tokenHash, ctx.now);
       if (!done.ok) throw new PasskeyError("not-found");
@@ -533,12 +552,12 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       if (!parsed || !memberName) throw new PasskeyError("not-found");
       const label = await labels(parsed.recordId).mint(ctx.now);
       const challenge = await issueChallenge("rebind", { recordId: parsed.recordId, label }, ctx.now);
-      return creationOptions({ rp: config.rp, challenge, userName: `${memberName} (${label})` });
+      return creationOptions({ rp: config.rp, challenge, userName: passkeyName(memberName, label) });
     },
 
     /** Redeem a rebind link with a new passkey, minting a session. */
     async rebind(ctx: RequestContext, link: string, response: RegistrationResponseJSON) {
-      const { challenge, payload } = await consumeChallenge<{ recordId: string; label: string }>(
+      const { challenge, payload } = await consumeChallenge<{ recordId: RecordId; label: string }>(
         "rebind",
         response,
         ctx.now,
@@ -546,19 +565,13 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       const parsed = await parseRecordToken(typeof link === "string" ? link : "");
       if (!parsed || parsed.recordId !== payload.recordId) throw new CeremonyRefusal("bad-rebind-link");
       const recordId = parsed.recordId;
-      let credential;
-      try {
-        credential = await verifyRegistration(response, { rp: config.rp, challenge });
-      } catch (error) {
-        if (error instanceof CeremonyRefusal) throw new CeremonyRefusal(error.reason, recordId);
-        throw error;
-      }
+      const credential = await verifyRegistrationFor(response, challenge, recordId);
       if (!(await index().put(credential.id, recordId))) throw new CeremonyRefusal("credential-exists", recordId);
-      const session = await mintSession(recordId);
+      const session = await newSession(recordId, ctx);
       const done = await record(recordId).rebind({
         tokenHash: parsed.tokenHash,
         credential,
-        session: { id: session.id, tokenHash: session.tokenHash, userAgent: ctx.userAgent },
+        session: session.row,
         now: ctx.now,
       });
       if (!done.ok) {
@@ -570,13 +583,13 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
     },
 
     /** Suspend a principal: its sessions end now and its logins are refused. */
-    async suspend(ctx: RequestContext, recordId: string): Promise<void> {
+    async suspend(ctx: RequestContext, recordId: RecordId): Promise<void> {
       const done = await record(recordId).suspend(ctx.now);
       if (!done.ok) throw new PasskeyError("not-found");
       await revoked({ reason: "suspension", recordId, sessionIds: done.sessionIds });
     },
 
-    async resume(_ctx: RequestContext, recordId: string): Promise<void> {
+    async resume(recordId: RecordId): Promise<void> {
       const done = await record(recordId).resume();
       if (!done.ok) throw new PasskeyError("not-found");
     },

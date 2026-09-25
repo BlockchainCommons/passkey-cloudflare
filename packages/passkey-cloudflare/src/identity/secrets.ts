@@ -5,8 +5,15 @@ import { randomBytes, sha256Hex, toBase64Url } from "../encoding.ts";
 
 const RECORD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-export function isRecordId(value: unknown): value is string {
+/** The id of an identity record: a random UUID minted at registration and never changed. */
+export type RecordId = string & { readonly __brand: "RecordId" };
+
+export function isRecordId(value: unknown): value is RecordId {
   return typeof value === "string" && RECORD_ID.test(value);
+}
+
+export function newRecordId(): RecordId {
+  return crypto.randomUUID() as RecordId;
 }
 
 export interface MintedSession {
@@ -16,13 +23,13 @@ export interface MintedSession {
   tokenHash: string;
 }
 
-export async function mintSession(recordId: string): Promise<MintedSession> {
+export async function mintSession(recordId: RecordId): Promise<MintedSession> {
   const token = toBase64Url(randomBytes(32));
   return { id: toBase64Url(randomBytes(12)), value: `${recordId}.${token}`, tokenHash: await sha256Hex(token) };
 }
 
 /** A single-use rebind link token, `recordId.token`. */
-export async function mintRebindToken(recordId: string): Promise<{ value: string; tokenHash: string }> {
+export async function mintRebindToken(recordId: RecordId): Promise<{ value: string; tokenHash: string }> {
   const token = toBase64Url(randomBytes(32));
   return { value: `${recordId}.${token}`, tokenHash: await sha256Hex(token) };
 }
@@ -30,7 +37,7 @@ export async function mintRebindToken(recordId: string): Promise<{ value: string
 /** Split a presented `recordId.token` value (a session or a rebind link) into its record id and token hash. */
 export async function parseRecordToken(
   value: string | null | undefined,
-): Promise<{ recordId: string; tokenHash: string } | null> {
+): Promise<{ recordId: RecordId; tokenHash: string } | null> {
   if (!value) return null;
   const dot = value.indexOf(".");
   const recordId = value.slice(0, dot);

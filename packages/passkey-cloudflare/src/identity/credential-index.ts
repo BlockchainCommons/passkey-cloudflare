@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import type { RecordId } from "./secrets.ts";
 
 // The one global lookup on the login path: credential id to record id. A
 // Durable Object rather than KV, because KV is eventually consistent.
@@ -15,7 +16,7 @@ export class CredentialIndex<Env = unknown> extends DurableObject<Env> {
   }
 
   /** Bind a credential id to a record. Refuses an id that is already bound. */
-  put(credentialId: string, recordId: string): boolean {
+  put(credentialId: string, recordId: RecordId): boolean {
     const existing = this.sql
       .exec("SELECT 1 FROM credentials WHERE credential_id = ?", credentialId)
       .toArray();
@@ -24,9 +25,9 @@ export class CredentialIndex<Env = unknown> extends DurableObject<Env> {
     return true;
   }
 
-  get(credentialId: string): string | null {
+  get(credentialId: string): RecordId | null {
     const row = this.sql
-      .exec<{ record_id: string }>("SELECT record_id FROM credentials WHERE credential_id = ?", credentialId)
+      .exec<{ record_id: RecordId }>("SELECT record_id FROM credentials WHERE credential_id = ?", credentialId)
       .toArray()[0];
     return row?.record_id ?? null;
   }

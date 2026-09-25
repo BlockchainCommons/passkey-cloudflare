@@ -1,13 +1,14 @@
 import { DurableObject } from "cloudflare:workers";
+import type { RecordId } from "passkey-cloudflare";
 
 // Every operator action, with the operator's record id, the action, the target
 // and the time. The operator role belongs to this application, not to the
 // identity layer, and so does this log.
 
 export interface OperatorLogEntry {
-  operatorId: string;
+  operatorId: RecordId;
   action: "create-rebind-link" | "suspend" | "resume";
-  targetId: string;
+  targetId: RecordId;
   at: number;
 }
 
@@ -38,7 +39,7 @@ export class OperatorLog extends DurableObject {
 
   list(limit = 200): OperatorLogEntry[] {
     return this.sql
-      .exec<{ operator_id: string; action: OperatorLogEntry["action"]; target_id: string; at: number }>(
+      .exec<{ operator_id: RecordId; action: OperatorLogEntry["action"]; target_id: RecordId; at: number }>(
         "SELECT operator_id, action, target_id, at FROM entries ORDER BY seq DESC LIMIT ?",
         limit,
       )

@@ -1,4 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
+import { FAILURE_SCHEMA, insertFailure, type CeremonyFailure } from "../failures.ts";
+import type { RecordId } from "./secrets.ts";
 import { FLAG_BACKED_UP, FLAG_BACKUP_ELIGIBLE, type VerifiedCredential } from "./webauthn.ts";
 
 // One Durable Object per identity record. It holds the record, its credentials,
@@ -18,7 +20,7 @@ export interface NewSession {
 }
 
 export interface Principal {
-  recordId: string;
+  recordId: RecordId;
   kind: "person" | "agent";
   sessionId: string;
 }
@@ -40,7 +42,25 @@ export interface CredentialSummary {
   backedUp: boolean;
 }
 
-export type RecordResult<T = {}> = ({ ok: true } & T) | { ok: false; cause: string };
+/** Why a session may not perform an action. */
+export type SessionCause = "not-logged-in" | "step-up-required";
+
+/** Why the record refused an operation. */
+export type RecordCause =
+  | SessionCause
+  | "record-exists"
+  | "unknown-record"
+  | "suspended"
+  | "unknown-credential"
+  | "counter-regressed"
+  | "wrong-session"
+  | "not-found"
+  | "last-credential"
+  | "recovery-throttled"
+  | "wrong-recovery-code"
+  | "bad-rebind-link";
+
+export type RecordResult<T = {}, C extends RecordCause = RecordCause> = ({ ok: true } & T) | { ok: false; cause: C };
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS record (
@@ -78,12 +98,6 @@ CREATE TABLE IF NOT EXISTS recovery_codes (
 CREATE TABLE IF NOT EXISTS recovery_attempts (
   at INTEGER NOT NULL
 );
-CREATE TABLE IF NOT EXISTS failures (
-  at INTEGER NOT NULL,
-  ceremony TEXT NOT NULL,
-  cause TEXT NOT NULL,
-  source_hash TEXT NOT NULL
-);
 CREATE TABLE IF NOT EXISTS rebind_tokens (
   token_hash TEXT PRIMARY KEY,
   created_at INTEGER NOT NULL,
@@ -99,10 +113,11 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
     super(ctx, env);
     this.sql = ctx.storage.sql;
     this.sql.exec(SCHEMA);
+    this.sql.exec(FAILURE_SCHEMA);
   }
 
-  private recordRow(): { id: string; kind: "person" | "agent"; suspended_at: number | null } | undefined {
-    return this.sql.exec<{ id: string; kind: "person" | "agent"; suspended_at: number | null }>(
+  private recordRow(): { id: RecordId; kind: "person" | "agent"; suspended_at: number | null } | undefined {
+    return this.sql.exec<{ id: RecordId; kind: "person" | "agent"; suspended_at: number | null }>(
       "SELECT id, kind, suspended_at FROM record",
     ).toArray()[0];
   }
@@ -135,7 +150,7 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
 
   /** Create a person's record with its first credential, recovery codes and a session, in one transaction. */
   createPerson(input: {
-    recordId: string;
+    recordId: RecordId;
     credential: VerifiedCredential;
     recoveryCodeHashes: string[];
     session: NewSession;
@@ -180,7 +195,12 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
    * one, then update the credential. Returns the cause if the assertion must
    * be refused. Runs inside the caller's transaction.
    */
-  private acceptAssertion(credentialId: string, signCount: number, flags: number, now: number): string | null {
+  private acceptAssertion(
+    credentialId: string,
+    signCount: number,
+    flags: number,
+    now: number,
+  ): "unknown-credential" | "counter-regressed" | null {
     const row = this.sql
       .exec<{ sign_count: number; registration_flags: number }>(
         "SELECT sign_count, registration_flags FROM credentials WHERE id = ?",
@@ -202,7 +222,8 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
     return null;
   }
 
-  private refusalFor(): string | null {
+  /** Why this record cannot take part in a ceremony now, or null if it can. */
+  private unavailableCause(): "unknown-record" | "suspended" | null {
     const record = this.recordRow();
     if (!record) return "unknown-record";
     if (record.suspended_at !== null) return "suspended";
@@ -217,7 +238,7 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
     session: NewSession;
     now: number;
   }): RecordResult {
-    const refused = this.refusalFor();
+    const refused = this.unavailableCause();
     if (refused) return { ok: false, cause: refused };
     return this.ctx.storage.transactionSync((): RecordResult => {
       const cause = this.acceptAssertion(input.credentialId, input.signCount, input.flags, input.now);
@@ -247,14 +268,14 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
   }
 
   /** Why an action needing a fresh step-up cannot proceed, or null if it can. */
-  private stepUpRefusal(tokenHash: string, now: number): string | null {
+  private stepUpRefusal(tokenHash: string, now: number): SessionCause | null {
     if (!this.authenticate(tokenHash, now)) return "not-logged-in";
     if (!this.steppedUpSession(tokenHash, now)) return "step-up-required";
     return null;
   }
 
   /** Whether the presented session may perform step-up-gated actions now. */
-  checkStepUp(tokenHash: string, now: number): RecordResult<{ sessionId: string }> {
+  checkStepUp(tokenHash: string, now: number): RecordResult<{ sessionId: string }, SessionCause> {
     const cause = this.stepUpRefusal(tokenHash, now);
     if (cause) return { ok: false, cause };
     return { ok: true, sessionId: this.authenticate(tokenHash, now)!.sessionId };
@@ -319,10 +340,14 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
   }
 
   /** Revoke a credential for a stepped-up session. The last credential is never revoked. */
-  revokeCredential(input: { tokenHash: string; credentialId: string; now: number }): RecordResult {
+  revokeCredential(input: {
+    tokenHash: string;
+    credentialId: string;
+    now: number;
+  }): RecordResult<{}, SessionCause | "not-found" | "last-credential"> {
     const cause = this.stepUpRefusal(input.tokenHash, input.now);
     if (cause) return { ok: false, cause };
-    return this.ctx.storage.transactionSync((): RecordResult => {
+    return this.ctx.storage.transactionSync((): RecordResult<{}, "not-found" | "last-credential"> => {
       const exists = this.sql.exec("SELECT 1 FROM credentials WHERE id = ?", input.credentialId).toArray();
       if (exists.length === 0) return { ok: false, cause: "not-found" };
       const count = this.sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM credentials").one().n;
@@ -338,7 +363,7 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
    * Every attempt counts against the throttle, whatever its outcome.
    */
   recover(input: { codeHash: string; credential: VerifiedCredential; session: NewSession; now: number }): RecordResult {
-    const refused = this.refusalFor();
+    const refused = this.unavailableCause();
     if (refused) return { ok: false, cause: refused };
     const recent = this.sql
       .exec<{ n: number }>("SELECT COUNT(*) AS n FROM recovery_attempts WHERE at > ?", input.now - HOUR_MS)
@@ -380,7 +405,7 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
 
   /** Redeem a rebind token: bind the new credential and mint a session, in one transaction. */
   rebind(input: { tokenHash: string; credential: VerifiedCredential; session: NewSession; now: number }): RecordResult {
-    const refused = this.refusalFor();
+    const refused = this.unavailableCause();
     if (refused) return { ok: false, cause: refused };
     return this.ctx.storage.transactionSync((): RecordResult => {
       const used = this.sql
@@ -415,7 +440,11 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
   }
 
   /** Replace every recovery code for a stepped-up session. */
-  rotateRecoveryCodes(input: { tokenHash: string; codeHashes: string[]; now: number }): RecordResult {
+  rotateRecoveryCodes(input: {
+    tokenHash: string;
+    codeHashes: string[];
+    now: number;
+  }): RecordResult<{}, SessionCause> {
     const cause = this.stepUpRefusal(input.tokenHash, input.now);
     if (cause) return { ok: false, cause };
     this.ctx.storage.transactionSync(() => {
@@ -453,14 +482,8 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
   }
 
   /** Keep the cause of a refused ceremony that resolved to this record. */
-  recordFailure(failure: { ceremony: string; cause: string; at: number; sourceHash: string }): void {
-    this.sql.exec(
-      "INSERT INTO failures (at, ceremony, cause, source_hash) VALUES (?, ?, ?, ?)",
-      failure.at,
-      failure.ceremony,
-      failure.cause,
-      failure.sourceHash,
-    );
+  recordFailure(failure: CeremonyFailure): void {
+    insertFailure(this.sql, failure);
   }
 
   /** Validate a session token hash. Called on every authenticated request; nothing is cached. */

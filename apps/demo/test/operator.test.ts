@@ -130,6 +130,16 @@ describe("suspension of a principal with no live sessions", () => {
   });
 });
 
+describe("operator targets", () => {
+  it("can be named by record id, which must be a well-formed one", async () => {
+    const { operator, person, personId } = await deployment();
+
+    expect((await operator.post("/operator/suspend", { recordId: "not-a-record-id" })).status).toBe(404);
+    expect((await operator.post("/operator/suspend", { recordId: personId })).status).toBe(200);
+    expect((await person.get("/me")).status).toBe(401);
+  });
+});
+
 describe("operator log", () => {
   it("records every operator action with who, what, whom and when", async () => {
     let now = Date.now();

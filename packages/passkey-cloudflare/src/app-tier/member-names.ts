@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import type { RecordId } from "../identity/secrets.ts";
 
 // Unique member names, each resolving to a record id, with history kept.
 // Uniqueness is case-insensitive; the name is shown as the person typed it.
@@ -41,7 +42,7 @@ export class MemberNameRegistry<Env = unknown> extends DurableObject<Env> {
   }
 
   /** Claim a name for a record. Refuses a name that is taken. */
-  claim(name: string, recordId: string, now: number): boolean {
+  claim(name: string, recordId: RecordId, now: number): boolean {
     if (!this.isAvailable(name)) return false;
     this.ctx.storage.transactionSync(() => {
       this.sql.exec("INSERT INTO names (key, name, record_id) VALUES (?, ?, ?)", memberNameKey(name), name, recordId);
@@ -56,7 +57,7 @@ export class MemberNameRegistry<Env = unknown> extends DurableObject<Env> {
   }
 
   /** Undo a claim whose registration did not complete. */
-  release(name: string, recordId: string, now: number): void {
+  release(name: string, recordId: RecordId, now: number): void {
     this.ctx.storage.transactionSync(() => {
       this.sql.exec("DELETE FROM names WHERE key = ? AND record_id = ?", memberNameKey(name), recordId);
       this.sql.exec(
@@ -68,14 +69,14 @@ export class MemberNameRegistry<Env = unknown> extends DurableObject<Env> {
     });
   }
 
-  resolve(name: string): string | null {
+  resolve(name: string): RecordId | null {
     const row = this.sql
-      .exec<{ record_id: string }>("SELECT record_id FROM names WHERE key = ?", memberNameKey(name))
+      .exec<{ record_id: RecordId }>("SELECT record_id FROM names WHERE key = ?", memberNameKey(name))
       .toArray()[0];
     return row?.record_id ?? null;
   }
 
-  nameOf(recordId: string): string | null {
+  nameOf(recordId: RecordId): string | null {
     const row = this.sql
       .exec<{ name: string }>("SELECT name FROM names WHERE record_id = ?", recordId)
       .toArray()[0];

@@ -1,12 +1,14 @@
 // Uniform refusal: every refused ceremony looks the same from outside. The
 // cause is kept only in the internal failure record.
 
+import type { RecordId } from "./identity/secrets.ts";
+
 export type Ceremony = "register" | "login" | "enrol" | "recover" | "step-up" | "rebind";
 
 export class CeremonyRefusal extends Error {
   constructor(
     readonly reason: string,
-    readonly recordId?: string,
+    readonly recordId?: RecordId,
   ) {
     super(`ceremony refused: ${reason}`);
   }
