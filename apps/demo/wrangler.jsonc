@@ -1,0 +1,45 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "passkey-canvas-demo",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-15",
+  "assets": {
+    "directory": "public",
+    "run_worker_first": ["/auth/*", "/me", "/me/*", "/operator/*"]
+  },
+  "vars": {
+    "RP_ID": "canvas.shallweplay.com",
+    "RP_NAME": "Shall We Play canvas",
+    "ORIGIN": "https://canvas.shallweplay.com",
+    "OPERATOR_RECORD_IDS": "",
+    "REFUSAL_FLOOR_MS": "250"
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "IDENTITY_RECORDS", "class_name": "IdentityRecord" },
+      { "name": "CREDENTIAL_INDEX", "class_name": "CredentialIndex" },
+      { "name": "CHALLENGES", "class_name": "ChallengeStore" },
+      { "name": "MEMBER_NAMES", "class_name": "MemberNameRegistry" },
+      { "name": "CREDENTIAL_LABELS", "class_name": "CredentialLabels" },
+      { "name": "RATE_LIMITS", "class_name": "RateLimiter" },
+      { "name": "CEREMONY_FAILURES", "class_name": "CeremonyFailures" },
+      { "name": "OPERATOR_LOG", "class_name": "OperatorLog" }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "IdentityRecord",
+        "CredentialIndex",
+        "ChallengeStore",
+        "MemberNameRegistry",
+        "CredentialLabels",
+        "RateLimiter",
+        "CeremonyFailures",
+        "OperatorLog"
+      ]
+    }
+  ],
+  "observability": { "enabled": true }
+}

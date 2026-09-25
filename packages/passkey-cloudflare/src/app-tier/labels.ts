@@ -1,0 +1,102 @@
+import { DurableObject } from "cloudflare:workers";
+import { randomBytes } from "../encoding.ts";
+
+// A per-record namespace of two-word credential labels. A label is minted when
+// a ceremony starts, bound to a credential when it completes, and retired when
+// the credential is revoked. Labels are never reused within a record.
+
+const ADJECTIVES = [
+  "amber", "brisk", "calm", "coral", "crisp", "dusky", "eager", "fleet",
+  "gentle", "golden", "hazel", "ivory", "jade", "keen", "lively", "lunar",
+  "mellow", "misty", "noble", "ochre", "pale", "plain", "quiet", "rapid",
+  "rosy", "rustic", "sandy", "silver", "sleek", "solar", "steady", "stony",
+  "sunny", "swift", "tawny", "tidal", "topaz", "umber", "vivid", "warm",
+  "wild", "windy", "wise", "young", "zesty", "azure", "bold", "bright",
+  "cedar", "clear", "cobalt", "copper", "dawn", "deep", "dry", "early",
+  "fair", "fern", "frosty", "grand", "green", "happy", "humble", "indigo",
+];
+const NOUNS = [
+  "falcon", "harbor", "meadow", "otter", "river", "willow", "badger", "beacon",
+  "birch", "canyon", "cedar", "comet", "crane", "delta", "ember", "finch",
+  "fjord", "forest", "garden", "glacier", "heron", "island", "kestrel", "lagoon",
+  "lantern", "maple", "marsh", "mesa", "orchid", "osprey", "pebble", "pine",
+  "prairie", "quail", "raven", "reef", "ridge", "robin", "sparrow", "spruce",
+  "summit", "swan", "thicket", "thistle", "tundra", "valley", "walrus", "wren",
+  "acorn", "anchor", "aspen", "bay", "bluff", "brook", "cliff", "clover",
+  "cove", "dune", "field", "grove", "hollow", "lake", "moss", "peak",
+];
+
+function pick<T>(list: readonly T[], byte: number): T {
+  return list[byte % list.length]!;
+}
+
+/** A label drawn at random, for a record whose namespace is known to be empty. */
+export function randomLabel(): string {
+  const [a, b] = randomBytes(2);
+  return `${pick(ADJECTIVES, a!)}-${pick(NOUNS, b!)}`;
+}
+
+export class CredentialLabels<Env = unknown> extends DurableObject<Env> {
+  private readonly sql: SqlStorage;
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    this.sql = ctx.storage.sql;
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS labels (
+      label TEXT PRIMARY KEY,
+      credential_id TEXT UNIQUE,
+      minted_at INTEGER NOT NULL,
+      retired_at INTEGER
+    )`);
+  }
+
+  /** Mint a label never used in this namespace. */
+  mint(now: number): string {
+    for (;;) {
+      const label = randomLabel();
+      const taken = this.sql.exec("SELECT 1 FROM labels WHERE label = ?", label).toArray().length > 0;
+      if (!taken) {
+        this.sql.exec("INSERT INTO labels (label, minted_at) VALUES (?, ?)", label, now);
+        return label;
+      }
+    }
+  }
+
+  /** Bind a label to a credential. A label minted elsewhere is recorded here first. */
+  bind(label: string, credentialId: string, now: number): void {
+    this.sql.exec(
+      `INSERT INTO labels (label, credential_id, minted_at) VALUES (?, ?, ?)
+       ON CONFLICT (label) DO UPDATE SET credential_id = excluded.credential_id
+       WHERE labels.credential_id IS NULL AND labels.retired_at IS NULL`,
+      label,
+      credentialId,
+      now,
+    );
+  }
+
+  /** The credential an active label names. */
+  resolve(label: string): string | null {
+    const row = this.sql
+      .exec<{ credential_id: string | null }>(
+        "SELECT credential_id FROM labels WHERE label = ? AND retired_at IS NULL",
+        label,
+      )
+      .toArray()[0];
+    return row?.credential_id ?? null;
+  }
+
+  retire(label: string, now: number): void {
+    this.sql.exec("UPDATE labels SET retired_at = ? WHERE label = ?", now, label);
+  }
+
+  /** Active labels by credential id. */
+  active(): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const row of this.sql.exec<{ label: string; credential_id: string }>(
+      "SELECT label, credential_id FROM labels WHERE credential_id IS NOT NULL AND retired_at IS NULL",
+    )) {
+      out[row.credential_id] = row.label;
+    }
+    return out;
+  }
+}

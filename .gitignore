@@ -1,0 +1,7 @@
+node_modules/
+.wrangler/
+dist/
+test-results/
+playwright-report/
+.dev.vars
+worker-configuration.d.ts
