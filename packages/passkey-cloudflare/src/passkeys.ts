@@ -86,6 +86,7 @@ export class PasskeyError extends Error {
 }
 
 const SESSION_CAUSES = new Set<string>(["not-logged-in", "step-up-required"]);
+const ANONYMOUS_CEREMONIES = new Set<Ceremony>(["register", "login", "recover", "rebind"]);
 
 export interface CredentialListing {
   label: string | null;
@@ -101,7 +102,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
   const clock = config.clock ?? Date.now;
   const limits: RateLimits = { ...DEFAULT_RATE_LIMITS, ...config.rateLimits };
   const revoked = async (event: RevocationEvent) => {
-    if (event.sessionIds.length > 0) await config.onRevoke?.(event);
+    await config.onRevoke?.(event);
   };
 
   const record = (recordId: string) =>
@@ -204,6 +205,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       const sourceHash = await sha256Hex(`source:${ctx.sourceIp}`);
       try {
         await throttle(`ceremony:${sourceHash}`, limits.ceremonyPerSource, ctx.now);
+        if (ANONYMOUS_CEREMONIES.has(ceremony)) await throttle("ceremony:global", limits.ceremonyGlobal, ctx.now);
         if (ceremony === "recover") {
           await throttle(`recover:${sourceHash}`, limits.recoverPerSource, ctx.now);
           await throttle("recover:global", limits.recoverGlobal, ctx.now);
@@ -216,6 +218,21 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
         else await failures().record(failure);
         return { ok: false, response: await uniformRefusal(ctx.startedAt, config.refusalFloorMs) };
       }
+    },
+
+    /**
+     * Issue options for an anonymous ceremony, within the per-source limit.
+     * Past the limit, the uniform refusal.
+     */
+    async anonymousOptions<T>(ctx: RequestContext, issue: () => Promise<T>): Promise<CeremonyOutcome<T>> {
+      const sourceHash = await sha256Hex(`source:${ctx.sourceIp}`);
+      try {
+        await throttle(`options:${sourceHash}`, limits.optionsPerSource, ctx.now);
+      } catch (error) {
+        if (!(error instanceof CeremonyRefusal)) throw error;
+        return { ok: false, response: await uniformRefusal(ctx.startedAt, config.refusalFloorMs) };
+      }
+      return { ok: true, value: await issue() };
     },
 
     async isMemberNameAvailable(name: string): Promise<boolean> {
@@ -511,7 +528,8 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
 
     async rebindOptions(ctx: RequestContext, link: string) {
       const parsed = await parseRecordToken(typeof link === "string" ? link : "");
-      const memberName = parsed ? await names().nameOf(parsed.recordId) : null;
+      const live = parsed ? await record(parsed.recordId).checkRebindToken(parsed.tokenHash, ctx.now) : false;
+      const memberName = parsed && live ? await names().nameOf(parsed.recordId) : null;
       if (!parsed || !memberName) throw new PasskeyError("not-found");
       const label = await labels(parsed.recordId).mint(ctx.now);
       const challenge = await issueChallenge("rebind", { recordId: parsed.recordId, label }, ctx.now);

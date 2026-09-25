@@ -4,6 +4,7 @@ import {
   PasskeyError,
   sessionCookie,
   sessionValueFrom,
+  type CeremonyOutcome,
   type PasskeyErrorCode,
   type Passkeys,
   type Principal,
@@ -80,6 +81,10 @@ async function target(call: Call): Promise<string | null> {
   return call.passkeys.resolveMemberName(call.body.memberName);
 }
 
+function optionsResponse(outcome: CeremonyOutcome<unknown>): Response {
+  return outcome.ok ? json(outcome.value) : outcome.response;
+}
+
 function authed(handler: AuthedHandler): Handler {
   return async (call) => {
     const principal = await call.passkeys.authenticate(sessionValueFrom(call.request));
@@ -90,7 +95,7 @@ function authed(handler: AuthedHandler): Handler {
 
 const POST: Record<string, Handler> = {
   "/auth/register/options": async ({ passkeys, ctx, body }) =>
-    json(await passkeys.registrationOptions(ctx, body.memberName)),
+    optionsResponse(await passkeys.anonymousOptions(ctx, () => passkeys.registrationOptions(ctx, body.memberName))),
 
   "/auth/register/verify": async ({ passkeys, ctx, body }) => {
     const outcome = await passkeys.ceremony(ctx, "register", () => passkeys.register(ctx, body.response));
@@ -99,7 +104,8 @@ const POST: Record<string, Handler> = {
     return json({ recordId, recoveryCodes }, { headers: { "Set-Cookie": sessionCookie(session) } });
   },
 
-  "/auth/login/options": async ({ passkeys, ctx }) => json(await passkeys.loginOptions(ctx)),
+  "/auth/login/options": async ({ passkeys, ctx }) =>
+    optionsResponse(await passkeys.anonymousOptions(ctx, () => passkeys.loginOptions(ctx))),
 
   "/auth/login/verify": async ({ passkeys, ctx, body }) => {
     const outcome = await passkeys.ceremony(ctx, "login", () => passkeys.login(ctx, body.response));
@@ -119,7 +125,7 @@ const POST: Record<string, Handler> = {
   },
 
   "/auth/recover/options": async ({ passkeys, ctx, body }) =>
-    json(await passkeys.recoverOptions(ctx, body.memberName)),
+    optionsResponse(await passkeys.anonymousOptions(ctx, () => passkeys.recoverOptions(ctx, body.memberName))),
 
   "/auth/recover": async ({ passkeys, ctx, body }) => {
     const outcome = await passkeys.ceremony(ctx, "recover", () =>
@@ -130,7 +136,8 @@ const POST: Record<string, Handler> = {
     return json({ recordId }, { headers: { "Set-Cookie": sessionCookie(session) } });
   },
 
-  "/auth/rebind/options": async ({ passkeys, ctx, body }) => json(await passkeys.rebindOptions(ctx, body.link)),
+  "/auth/rebind/options": async ({ passkeys, ctx, body }) =>
+    optionsResponse(await passkeys.anonymousOptions(ctx, () => passkeys.rebindOptions(ctx, body.link))),
 
   "/auth/rebind/verify": async ({ passkeys, ctx, body }) => {
     const outcome = await passkeys.ceremony(ctx, "rebind", () => passkeys.rebind(ctx, body.link, body.response));

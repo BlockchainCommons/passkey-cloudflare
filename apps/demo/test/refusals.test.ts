@@ -116,6 +116,31 @@ describe("rate limits", () => {
     expect((await recover(app.browser(), recoveryCodes[0]!)).status).toBe(400);
   });
 
+  it("refuse anonymous ceremony options from one source address past its limit", async () => {
+    const app = testApp({ rateLimits: { optionsPerSource: { limit: 2, windowMs: HOUR } } });
+    const browser = app.browser();
+    await browser.post("/auth/login/options");
+    await browser.post("/auth/register/options", { memberName: uniqueName() });
+
+    const refused = await browser.post("/auth/recover/options", { memberName: uniqueName() });
+
+    expect(refused.status).toBe(400);
+    expect(await refused.text()).toBe(REFUSAL);
+    expect((await app.browser().post("/auth/login/options")).status).toBe(200);
+  });
+
+  it("refuse anonymous ceremonies globally past the global limit", async () => {
+    const app = testApp({ rateLimits: { ceremonyGlobal: { limit: 1, windowMs: HOUR } } });
+    const browser = app.browser();
+    // The global bucket is shared with every other test's ceremonies, which can only make it stricter.
+    await browser.post("/auth/login/verify", {});
+
+    const options = await browser.json(browser.post("/auth/register/options", { memberName: uniqueName() }));
+    const response = await browser.post("/auth/register/verify", { response: await browser.authenticator.create(options) });
+
+    expect(response.status).toBe(400);
+  });
+
   it("refuse ceremonies from one source address past its limit", async () => {
     const app = testApp({ rateLimits: { ceremonyPerSource: { limit: 3, windowMs: HOUR } } });
     const browser = app.browser();

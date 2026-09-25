@@ -19,8 +19,9 @@ async function deployment(options: HarnessOptions = {}) {
 
 async function rebind(device: Browser, link: string) {
   const fragment = new URL(link).hash.slice(1);
-  const options = await device.json(device.post("/auth/rebind/options", { link: fragment }));
-  const response = await device.authenticator.create(options);
+  const optionsResponse = await device.post("/auth/rebind/options", { link: fragment });
+  if (!optionsResponse.ok) return optionsResponse;
+  const response = await device.authenticator.create(await optionsResponse.json());
   return device.post("/auth/rebind/verify", { link: fragment, response });
 }
 
@@ -53,7 +54,8 @@ describe("operator rebind", () => {
     const { link } = await operator.json(operator.post("/operator/rebind-links", { memberName: personName }));
     await rebind(app.browser(), link);
 
-    expect((await rebind(app.browser(), link)).status).toBe(400);
+    // Refused before any passkey ceremony starts.
+    expect((await rebind(app.browser(), link)).status).toBe(404);
   });
 
   it("links expire after a day", async () => {
@@ -63,7 +65,17 @@ describe("operator rebind", () => {
 
     now += 24 * HOUR + 1;
 
-    expect((await rebind(app.browser(), link)).status).toBe(400);
+    expect((await rebind(app.browser(), link)).status).toBe(404);
+  });
+
+  it("options are refused for a link whose token is wrong, revealing nothing", async () => {
+    const { app, personName, personId } = await deployment();
+    const device = app.browser();
+
+    const response = await device.post("/auth/rebind/options", { link: `${personId}.${"A".repeat(43)}` });
+
+    expect(response.status).toBe(404);
+    expect(await response.text()).not.toContain(personName);
   });
 
   it("only an operator can create links", async () => {
@@ -100,6 +112,21 @@ describe("suspension", () => {
 
     expect((await operator.post("/operator/resume", { memberName: personName })).status).toBe(200);
     expect((await person.login()).recordId).toBe(personId);
+  });
+});
+
+describe("suspension of a principal with no live sessions", () => {
+  it("still calls the revocation hook", async () => {
+    const events: RevocationEvent[] = [];
+    const { operator, person, personName, personId } = await deployment({
+      onRevoke: (event) => void events.push(event),
+    });
+    await person.post("/auth/logout");
+    events.length = 0;
+
+    await operator.post("/operator/suspend", { memberName: personName });
+
+    expect(events).toEqual([{ reason: "suspension", recordId: personId, sessionIds: [] }]);
   });
 });
 

@@ -369,6 +369,15 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
     return { ok: true };
   }
 
+  /** Whether a rebind token is live, without redeeming it. */
+  checkRebindToken(tokenHash: string, now: number): boolean {
+    return (
+      this.sql
+        .exec("SELECT 1 FROM rebind_tokens WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?", tokenHash, now)
+        .toArray().length > 0
+    );
+  }
+
   /** Redeem a rebind token: bind the new credential and mint a session, in one transaction. */
   rebind(input: { tokenHash: string; credential: VerifiedCredential; session: NewSession; now: number }): RecordResult {
     const refused = this.refusalFor();
