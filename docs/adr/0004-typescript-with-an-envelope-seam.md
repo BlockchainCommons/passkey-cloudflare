@@ -12,5 +12,5 @@ We chose this because, as of September 2026, the security-critical path (passkey
 ## Consequences
 
 - `bc-envelope-ts` is beta and has had no security review; nothing on the login path depends on it.
-- A spike runs the Rust Envelope build inside a Worker and compares its output byte for byte with `bc-envelope-ts`. If it holds, the Rust implementation can take over behind the same interface.
+- ADR 0005 narrows this: the Envelope interface is first implemented with hand-written encoders, checked against fixed test vectors, and no Blockchain Commons package is a dependency. The Rust build and `bc-envelope-ts` serve as references for generating those vectors, outside this repository.
 - Invariants that the Rust design would carry in types are carried here by branded types where possible and by tests otherwise.
