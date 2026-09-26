@@ -37,45 +37,45 @@ Measure again when a ceremony gains work, such as another Durable Object call or
 
 ## Last measurement
 
-2026-09-25: two runs of 150 rounds each against the measurement Worker, from one client. Times are in milliseconds, first run / second run, arms in the second run's order by p95.
+2026-09-26: two runs of 150 rounds each against the measurement Worker, from one client, after recovery codes became Bytewords-encoded seeds and recovery options stopped minting a label. Times are in milliseconds, first run / second run, arms in the first run's order by p95.
 
 | Arm | p50 | p95 | p99 | max |
 |---|---|---|---|---|
-| wrong recovery code | 314 / 327 | 380 / 392 | 521 / 650 | 1359 / 1517 |
-| unknown member name | 197 / 210 | 241 / 261 | 277 / 355 | 326 / 480 |
-| wrong RP ID | 142 / 147 | 194 / 188 | 287 / 335 | 407 / 595 |
-| regressed sign count | 145 / 145 | 173 / 186 | 245 / 472 | 652 / 1208 |
-| suspended principal | 174 / 156 | 215 / 185 | 305 / 210 | 343 / 405 |
-| unknown credential | 141 / 147 | 171 / 180 | 201 / 232 | 279 / 247 |
-| bad signature | 145 / 151 | 172 / 171 | 190 / 187 | 255 / 233 |
-| wrong origin | 145 / 147 | 183 / 171 | 206 / 191 | 357 / 339 |
-| cross-purpose challenge | 131 / 141 | 149 / 170 | 192 / 203 | 244 / 470 |
-| unknown challenge | 103 / 116 | 123 / 142 | 166 / 164 | 271 / 298 |
-| malformed response | 94 / 104 | 121 / 130 | 288 / 170 | 465 / 173 |
-| baseline: unknown route | 15 / 18 | 19 / 22 | 21 / 25 | 23 / 27 |
+| wrong recovery code | 318 / 303 | 408 / 350 | 479 / 725 | 502 / 773 |
+| unknown member name | 247 / 231 | 322 / 307 | 991 / 407 | 1296 / 411 |
+| suspended principal | 188 / 158 | 236 / 179 | 276 / 223 | 307 / 443 |
+| unknown credential | 165 / 157 | 203 / 202 | 281 / 214 | 1350 / 215 |
+| bad signature | 154 / 153 | 200 / 182 | 239 / 568 | 600 / 2153 |
+| regressed sign count | 155 / 150 | 184 / 181 | 202 / 319 | 205 / 896 |
+| wrong RP ID | 154 / 151 | 180 / 189 | 205 / 300 | 291 / 488 |
+| wrong origin | 156 / 150 | 179 / 198 | 221 / 354 | 685 / 458 |
+| cross-purpose challenge | 154 / 147 | 178 / 170 | 321 / 182 | 1300 / 307 |
+| unknown challenge | 136 / 129 | 171 / 161 | 288 / 221 | 530 / 257 |
+| malformed response | 125 / 121 | 146 / 146 | 200 / 500 | 201 / 1103 |
+| baseline: unknown route | 18 / 17 | 21 / 19 | 24 / 21 | 27 / 21 |
 
-The wrong recovery code is the slowest arm in both runs, because a refusal there comes late: the Worker verifies the new passkey, reserves it in the credential index and prepares a session before the identity record rejects the code, then releases the credential again. Its p95 was 380 and 392 ms; 1.5 times each is 570 and 588, and both round up to the same floor: **600 ms**. The previous floor, 250 ms, was shorter than that arm's median, so its refusals could be told apart by time alone.
+The wrong recovery code is the slowest arm in both runs, because a refusal there comes late: the Worker verifies the new passkey, reserves it in the credential index and prepares a session, then decodes the typed code as Bytewords, before the identity record rejects it and the credential is released again. Its p95 was 408 and 350 ms; 1.5 times each is 612 and 525, which round up to 650 and 550. The larger gives the floor: **650 ms**, up from 600.
 
-A third run of 150 rounds, 2026-09-26, with the measurement Worker's floor at 600 ms:
+A third run of 150 rounds, the same day, with the measurement Worker's floor at 650 ms:
 
 | Arm | p50 | p95 | p99 | max |
 |---|---|---|---|---|
-| bad signature | 621 | 776 | 860 | 897 |
-| wrong RP ID | 621 | 773 | 858 | 860 |
-| unknown credential | 621 | 762 | 833 | 921 |
-| malformed response | 621 | 756 | 843 | 907 |
-| suspended principal | 621 | 750 | 854 | 874 |
-| cross-purpose challenge | 620 | 743 | 809 | 830 |
-| unknown challenge | 620 | 727 | 833 | 858 |
-| unknown member name | 620 | 726 | 878 | 895 |
-| regressed sign count | 621 | 722 | 864 | 900 |
-| wrong recovery code | 621 | 719 | 804 | 1130 |
-| wrong origin | 620 | 716 | 793 | 818 |
-| baseline: unknown route | 19 | 98 | 162 | 294 |
+| regressed sign count | 674 | 786 | 946 | 967 |
+| cross-purpose challenge | 674 | 757 | 889 | 962 |
+| unknown member name | 674 | 755 | 1265 | 1573 |
+| wrong RP ID | 674 | 752 | 938 | 962 |
+| wrong recovery code | 675 | 749 | 771 | 942 |
+| suspended principal | 674 | 748 | 932 | 1014 |
+| bad signature | 675 | 748 | 887 | 966 |
+| unknown credential | 673 | 726 | 806 | 838 |
+| wrong origin | 674 | 726 | 822 | 840 |
+| malformed response | 673 | 724 | 880 | 888 |
+| unknown challenge | 673 | 721 | 866 | 902 |
+| baseline: unknown route | 23 | 28 | 128 | 168 |
 
-Every arm's p50 is 620 or 621 ms. The p95s span 60 ms, less than the baseline's own spread between p50 and p95 in the same run, and the wrong recovery code, the slowest arm without a floor, is among the lowest. Its single 1130 ms maximum is the one visible outlier.
+Every arm's p50 is 673 to 675 ms, and the wrong recovery code, the slowest arm without a floor, sits in the middle by p95. The p95s span 65 ms, close to the 60 ms of the previous check at 600 ms. The highest belongs to the regressed sign count, one of the cheapest arms without a floor (p95 184 and 181 ms), so its tail comes from the network rather than its own work. By the letter of step 4 it stands out: it is 29 ms above the next arm, and the baseline's p50-to-p95 spread in this run was only 5 ms, against 79 ms in the previous check. The floor was accepted on the reading that a cheap arm cannot be revealed by time it did not spend.
 
 What the floor does not cover:
 
-- The wrong recovery code's p99 was 521 and 650 ms, so roughly 1% of those refusals still take longer than 600 ms. Covering them would need a floor near the p99 rule's 2100 to 2850 ms.
+- The wrong recovery code's p99 was 479 and 725 ms, so in the second run roughly 1% of those refusals took longer than 650 ms. A floor from the same rule applied to p99 would be 1100 to 1500 ms.
 - Three refusals are not among the measured arms, because the invariant test does not have them either: a throttled recovery (`recovery-throttled`), a passkey already registered (`credential-exists`), and a member name that differs from the one the recovery options were issued for (`wrong-member-name`). The throttled recovery takes the wrong recovery code's path as far as the identity record, which refuses it before checking the code, so it is no slower. The existing passkey is refused at the credential index, before the record. The wrong member name is refused before the passkey is verified.
