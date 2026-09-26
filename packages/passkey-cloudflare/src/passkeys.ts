@@ -523,13 +523,14 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
     /**
      * Options for recovering onto a new passkey. An unknown member name still
      * gets options, so that it is refused only at the end, like any other refusal.
+     * Nobody has authenticated yet, so the label is drawn unchecked and stores
+     * nothing, as at registration.
      */
     async recoverOptions(ctx: RequestContext, memberName: string) {
       if (!isValidMemberName(memberName)) throw new PasskeyError("not-found");
       const recordId = await names().resolve(memberName);
-      const [label, shownName] = recordId
-        ? await Promise.all([labels(recordId).mint(ctx.now), names().nameOf(recordId)])
-        : [randomLabel(), memberName];
+      const label = randomLabel();
+      const shownName = recordId ? await names().nameOf(recordId) : memberName;
       const challenge = await issueChallenge("recover", { memberName, recordId, label }, ctx.now);
       return creationOptions({ rp: config.rp, challenge, userName: passkeyName(shownName ?? memberName, label) });
     },

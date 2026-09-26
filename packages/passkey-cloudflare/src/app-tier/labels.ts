@@ -27,11 +27,18 @@ const NOUNS = [
   "cove", "dune", "field", "grove", "hollow", "lake", "moss", "peak",
 ];
 
+/** Draws before minting gives up. At half full, all of them are taken about once in 10^19 mints. */
+const MINT_TRIES = 64;
+
 function pick<T>(list: readonly T[], byte: number): T {
   return list[byte % list.length]!;
 }
 
-/** A label drawn at random, for a record whose namespace is known to be empty. */
+/**
+ * A label drawn at random and not checked against any namespace. A label that
+ * turns out to be taken when it is bound leaves the credential unlabelled
+ * until it is next listed.
+ */
 export function randomLabel(): string {
   const [a, b] = randomBytes(2);
   return `${pick(ADJECTIVES, a!)}-${pick(NOUNS, b!)}`;
@@ -51,9 +58,12 @@ export class CredentialLabels<Env = unknown> extends DurableObject<Env> {
     )`);
   }
 
-  /** Mint a label never used in this namespace. */
+  /**
+   * Mint a label never used in this namespace. Throws after MINT_TRIES draws
+   * that are all taken, rather than searching a namespace that may be full.
+   */
   mint(now: number): string {
-    for (;;) {
+    for (let tries = 0; tries < MINT_TRIES; tries++) {
       const label = randomLabel();
       const taken = this.sql.exec("SELECT 1 FROM labels WHERE label = ?", label).toArray().length > 0;
       if (!taken) {
@@ -61,6 +71,7 @@ export class CredentialLabels<Env = unknown> extends DurableObject<Env> {
         return label;
       }
     }
+    throw new Error(`no free credential label after ${MINT_TRIES} tries`);
   }
 
   /**

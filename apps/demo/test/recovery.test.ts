@@ -1,7 +1,37 @@
-import { describe, expect, it } from "vitest";
+import { env, runInDurableObject } from "cloudflare:test";
+import type { CredentialLabels } from "passkey-cloudflare";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { testApp, uniqueName, type Browser } from "./harness.ts";
 
 const HOUR = 60 * 60 * 1000;
+
+const labelsOf = (recordId: string) => env.CREDENTIAL_LABELS.get(env.CREDENTIAL_LABELS.idFromName(recordId));
+
+async function labelRows(recordId: string): Promise<number> {
+  return runInDurableObject(labelsOf(recordId), (_instance, state) =>
+    state.storage.sql.exec<{ n: number }>("SELECT count(*) AS n FROM labels").one().n,
+  );
+}
+
+/**
+ * Make every label drawn from here on the same label, leaving all other
+ * randomness alone. Labels are the only draws shorter than eight bytes.
+ * Returns the number of label draws made so far.
+ */
+function pinLabelDraws(): () => number {
+  const real = crypto.getRandomValues.bind(crypto);
+  let draws = 0;
+  vi.spyOn(crypto, "getRandomValues").mockImplementation(((array: Uint8Array) => {
+    if (array.length >= 8) return real(array);
+    draws++;
+    return array.fill(0);
+  }) as typeof crypto.getRandomValues);
+  return () => draws;
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 /** A person on a new device with nothing but their member name and a code. */
 async function recover(device: Browser, memberName: string, code: string) {
@@ -96,5 +126,45 @@ describe("recovery", () => {
 
     expect(refused.status).toBe(400);
     expect(await refused.text()).toBe('{"error":"ceremony refused"}');
+  });
+
+  it("stores no label for options on a known member name", async () => {
+    const app = testApp();
+    const name = uniqueName();
+    const { recordId } = await app.browser().register(name);
+    const before = await labelRows(recordId);
+
+    for (let i = 0; i < 5; i++) {
+      const device = app.browser();
+      expect((await device.post("/auth/recover/options", { memberName: name })).status).toBe(200);
+    }
+
+    expect(await labelRows(recordId)).toBe(before);
+  });
+
+  it("completes on a record whose label namespace is full, where minting gives up", async () => {
+    const app = testApp();
+    const name = uniqueName();
+    const { recordId, recoveryCodes } = await app.browser().register(name);
+    const labelDraws = pinLabelDraws();
+    const device = app.browser();
+    const options = await device.json(device.post("/auth/recover/options", { memberName: name }));
+    const pinned = /\((.+)\)$/.exec(options.user.name)![1]!;
+    await runInDurableObject(labelsOf(recordId), (_instance, state) => {
+      state.storage.sql.exec("INSERT OR IGNORE INTO labels (label, minted_at) VALUES (?, ?)", pinned, Date.now());
+    });
+
+    const drawsBefore = labelDraws();
+    await runInDurableObject(labelsOf(recordId), (instance) => {
+      expect(() => (instance as CredentialLabels).mint(Date.now())).toThrow(/label/);
+    });
+    const tries = labelDraws() - drawsBefore;
+    expect(tries).toBeGreaterThan(1);
+    expect(tries).toBeLessThanOrEqual(1000);
+
+    const response = await device.authenticator.create(options);
+    const recovered = await device.post("/auth/recover", { memberName: name, code: recoveryCodes[0]!, response });
+    expect(recovered.status).toBe(200);
+    expect((await recovered.json<any>()).recordId).toBe(recordId);
   });
 });
