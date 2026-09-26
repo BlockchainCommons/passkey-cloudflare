@@ -98,7 +98,7 @@ function passkeyName(memberName: string, label: string): string {
 const ANONYMOUS_CEREMONIES = new Set<Ceremony>(["register", "login", "recover", "rebind"]);
 
 export interface CredentialListing {
-  label: string | null;
+  label: string;
   createdAt: number;
   lastUsedAt: number | null;
   /** The password manager that holds the passkey, where its AAGUID is known. */
@@ -435,15 +435,17 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       return { label: payload.label };
     },
 
+    /** The record's passkeys. One left without a label by a failed bind is given one here. */
     async credentials(ctx: RequestContext, sessionValue: string | null | undefined): Promise<CredentialListing[]> {
       const session = await liveSession(sessionValue, ctx.now);
-      const [rows, byCredential] = await Promise.all([
-        record(session.recordId).listCredentials(session.tokenHash, ctx.now),
-        labels(session.recordId).active(),
-      ]);
+      const rows = await record(session.recordId).listCredentials(session.tokenHash, ctx.now);
       if (!rows) throw new PasskeyError("not-logged-in");
+      const byCredential = await labels(session.recordId).labelEach(
+        rows.map((row) => row.id),
+        ctx.now,
+      );
       return rows.map((row) => ({
-        label: byCredential[row.id] ?? null,
+        label: byCredential[row.id]!,
         createdAt: row.createdAt,
         lastUsedAt: row.lastUsedAt,
         provider: providerName(row.aaguid),

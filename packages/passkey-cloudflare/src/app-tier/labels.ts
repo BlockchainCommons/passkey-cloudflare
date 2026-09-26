@@ -3,7 +3,8 @@ import { randomBytes } from "../encoding.ts";
 
 // A per-record namespace of two-word credential labels. A label is minted when
 // a ceremony starts, bound to a credential when it completes, and retired when
-// the credential is revoked. Labels are never reused within a record.
+// the credential is revoked. A credential whose bind never happened is given a
+// label when it is next listed. Labels are never reused within a record.
 
 const ADJECTIVES = [
   "amber", "brisk", "calm", "coral", "crisp", "dusky", "eager", "fleet",
@@ -62,8 +63,13 @@ export class CredentialLabels<Env = unknown> extends DurableObject<Env> {
     }
   }
 
-  /** Bind a label to a credential. A label minted elsewhere is recorded here first. */
+  /**
+   * Bind a label to a credential. A label minted elsewhere is recorded here
+   * first. A credential that already has a label, as a listing gives one whose
+   * bind came late, keeps it.
+   */
   bind(label: string, credentialId: string, now: number): void {
+    if (this.labelOf(credentialId) !== null) return;
     this.sql.exec(
       `INSERT INTO labels (label, credential_id, minted_at) VALUES (?, ?, ?)
        ON CONFLICT (label) DO UPDATE SET credential_id = excluded.credential_id
@@ -72,6 +78,14 @@ export class CredentialLabels<Env = unknown> extends DurableObject<Env> {
       credentialId,
       now,
     );
+  }
+
+  /** The label a credential has or had. A credential has at most one, retired or not. */
+  private labelOf(credentialId: string): string | null {
+    const row = this.sql
+      .exec<{ label: string }>("SELECT label FROM labels WHERE credential_id = ?", credentialId)
+      .toArray()[0];
+    return row?.label ?? null;
   }
 
   /** The credential an active label names. */
@@ -89,13 +103,20 @@ export class CredentialLabels<Env = unknown> extends DurableObject<Env> {
     this.sql.exec("UPDATE labels SET retired_at = ? WHERE label = ?", now, label);
   }
 
-  /** Active labels by credential id. */
-  active(): Record<string, string> {
+  /**
+   * The label of each credential, minting one for any credential that never
+   * had one, as a failed bind leaves it. A credential revoked since its caller
+   * listed it keeps its retired label rather than gaining an active one.
+   */
+  labelEach(credentialIds: readonly string[], now: number): Record<string, string> {
     const out: Record<string, string> = {};
-    for (const row of this.sql.exec<{ label: string; credential_id: string }>(
-      "SELECT label, credential_id FROM labels WHERE credential_id IS NOT NULL AND retired_at IS NULL",
-    )) {
-      out[row.credential_id] = row.label;
+    for (const credentialId of credentialIds) {
+      let label = this.labelOf(credentialId);
+      if (label === null) {
+        label = this.mint(now);
+        this.bind(label, credentialId, now);
+      }
+      out[credentialId] = label;
     }
     return out;
   }

@@ -1,8 +1,18 @@
+import { env, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { testApp, uniqueName } from "./harness.ts";
 
 const MINUTE = 60 * 1000;
 const APPLE_PASSWORDS = "fbfc3007-154e-4ecc-8c0b-6e020557d7bd";
+
+const labelsOf = (recordId: string) => env.CREDENTIAL_LABELS.get(env.CREDENTIAL_LABELS.idFromName(recordId));
+
+/** Leave a record's credentials as a failed label bind would: no label bound to any of them. */
+async function dropLabelBindings(recordId: string) {
+  await runInDurableObject(labelsOf(recordId), (_instance, state) => {
+    state.storage.sql.exec("UPDATE labels SET credential_id = NULL");
+  });
+}
 
 function aaguidBytes(uuid: string): Uint8Array {
   return new Uint8Array(uuid.replace(/-/g, "").match(/../g)!.map((h) => parseInt(h, 16)));
@@ -110,6 +120,37 @@ describe("passkeys", () => {
     expect(after.credentials.map((c: any) => c.label)).not.toContain(firstLabel);
     const options = await browser.json(browser.post("/auth/login/options"));
     const response = await browser.authenticator.get(options, {}, first!.id);
+    expect((await browser.post("/auth/login/verify", { response })).status).toBe(400);
+  });
+
+  it("left without a label are given one when listed, and that label revokes them", async () => {
+    const browser = testApp().browser();
+    const { recordId } = await browser.register(uniqueName());
+    await browser.stepUp();
+    const { label: enrolledLabel } = await browser.enrol();
+    const [, second] = browser.authenticator.credentials;
+    await dropLabelBindings(recordId);
+
+    const { credentials } = await browser.json(browser.get("/me/credentials"));
+    const repaired = credentials.map((c: any) => c.label);
+
+    expect(repaired).toHaveLength(2);
+    for (const label of repaired) expect(label).toMatch(/^[a-z]+-[a-z]+$/);
+    expect(new Set(repaired).size).toBe(2);
+    expect(repaired).not.toContain(enrolledLabel);
+    const again = await browser.json(browser.get("/me/credentials"));
+    expect(again.credentials.map((c: any) => c.label)).toEqual(repaired);
+    await labelsOf(recordId).bind(enrolledLabel, second!.id, Date.now());
+    const afterLateBind = await browser.json(browser.get("/me/credentials"));
+    expect(afterLateBind.credentials.map((c: any) => c.label)).toEqual(repaired);
+
+    const revoked = await browser.post("/me/credentials/revoke", { label: repaired[1] });
+
+    expect(revoked.status).toBe(200);
+    const after = await browser.json(browser.get("/me/credentials"));
+    expect(after.credentials.map((c: any) => c.label)).toEqual([repaired[0]]);
+    const options = await browser.json(browser.post("/auth/login/options"));
+    const response = await browser.authenticator.get(options, {}, second!.id);
     expect((await browser.post("/auth/login/verify", { response })).status).toBe(400);
   });
 
