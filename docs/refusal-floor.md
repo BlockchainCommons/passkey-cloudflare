@@ -29,7 +29,9 @@ You need `wrangler` logged in to the account that will host the measurement Work
 
    Times are measured at the client, so they include the round trip, which makes the floor a little longer than it needs to be rather than shorter.
 
-4. Set `REFUSAL_FLOOR_MS` in `apps/demo/wrangler.jsonc`, record both runs below, and delete the measurement Worker with `npx wrangler delete -c wrangler.measure.jsonc`.
+4. Check the floor: deploy the measurement Worker again with `--var REFUSAL_FLOOR_MS:<floor>` added, and run the script once more. Ignore its recommendation, which is meaningless with a floor in place; read the table. The arms' p50s should agree to within a few milliseconds, and no arm's p95 should stand out from the others by more than the baseline's own spread.
+
+5. Set `REFUSAL_FLOOR_MS` in `apps/demo/wrangler.jsonc`, record the runs below, and delete the measurement Worker with `npx wrangler delete -c wrangler.measure.jsonc`.
 
 Measure again when a ceremony gains work, such as another Durable Object call or more expensive verification, or when the demo moves to other infrastructure.
 
@@ -53,6 +55,25 @@ Measure again when a ceremony gains work, such as another Durable Object call or
 | baseline: unknown route | 15 / 18 | 19 / 22 | 21 / 25 | 23 / 27 |
 
 The wrong recovery code is the slowest arm in both runs, because a refusal there comes late: the Worker verifies the new passkey, reserves it in the credential index and prepares a session before the identity record rejects the code, then releases the credential again. Its p95 was 380 and 392 ms; 1.5 times each is 570 and 588, and both round up to the same floor: **600 ms**. The previous floor, 250 ms, was shorter than that arm's median, so its refusals could be told apart by time alone.
+
+A third run of 150 rounds, 2026-09-26, with the measurement Worker's floor at 600 ms:
+
+| Arm | p50 | p95 | p99 | max |
+|---|---|---|---|---|
+| bad signature | 621 | 776 | 860 | 897 |
+| wrong RP ID | 621 | 773 | 858 | 860 |
+| unknown credential | 621 | 762 | 833 | 921 |
+| malformed response | 621 | 756 | 843 | 907 |
+| suspended principal | 621 | 750 | 854 | 874 |
+| cross-purpose challenge | 620 | 743 | 809 | 830 |
+| unknown challenge | 620 | 727 | 833 | 858 |
+| unknown member name | 620 | 726 | 878 | 895 |
+| regressed sign count | 621 | 722 | 864 | 900 |
+| wrong recovery code | 621 | 719 | 804 | 1130 |
+| wrong origin | 620 | 716 | 793 | 818 |
+| baseline: unknown route | 19 | 98 | 162 | 294 |
+
+Every arm's p50 is 620 or 621 ms. The p95s span 60 ms, less than the baseline's own spread between p50 and p95 in the same run, and the wrong recovery code, the slowest arm without a floor, is among the lowest. Its single 1130 ms maximum is the one visible outlier.
 
 What the floor does not cover:
 
