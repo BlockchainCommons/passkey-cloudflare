@@ -43,7 +43,16 @@ test("register, log out and log back in with a passkey", async ({ page }) => {
   await page.locator("#register-name").fill(memberName);
   await page.getByRole("button", { name: "Register with a passkey" }).click();
   await expect(page.locator("#code-list li")).toHaveCount(8);
-  await page.getByRole("button", { name: "I have saved them" }).click();
+  // The codes are shown once, so leaving them takes a deliberate tick first.
+  const saved = page.getByRole("checkbox", { name: "I have saved my recovery codes" });
+  const done = page.getByRole("button", { name: "Continue", exact: true });
+  await expect(done).toBeDisabled();
+  await saved.check();
+  await expect(done).toBeEnabled();
+  await saved.uncheck();
+  await expect(done).toBeDisabled();
+  await saved.check();
+  await done.click();
   await expect(page.locator("#home")).toBeVisible();
   await expect(page.locator("#member-name")).toHaveText(memberName);
 

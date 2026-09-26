@@ -254,6 +254,9 @@ function showCodes(codes) {
       return li;
     }),
   );
+  // The codes are shown once, so Continue waits for the person to say they saved them.
+  $("codes-saved").checked = false;
+  $("codes-done").disabled = true;
   show("codes");
 }
 
@@ -363,6 +366,7 @@ $("register-name").addEventListener("input", checkAvailability);
 $("register-form").addEventListener("submit", guard(register));
 $("recover-form").addEventListener("submit", guard(recover));
 $("rebind-button").addEventListener("click", guard(rebind));
+$("codes-saved").addEventListener("change", (event) => ($("codes-done").disabled = !event.target.checked));
 $("codes-done").addEventListener("click", guard(showHome));
 $("add-passkey").addEventListener("click", guard(addPasskey));
 $("rotate-codes").addEventListener("click", guard(rotateCodes));

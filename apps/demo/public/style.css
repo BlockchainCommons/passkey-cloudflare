@@ -53,3 +53,9 @@ td {
   border: 1px solid currentColor;
   border-radius: 0.25rem;
 }
+#codes label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 1rem 0;
+}
