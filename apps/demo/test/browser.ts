@@ -103,7 +103,7 @@ export class Browser {
   async enrol() {
     const options = await this.json(this.post("/me/credentials/enrol/options"));
     const response = await this.authenticator.create(options);
-    return this.json<{ label: string }>(this.post("/me/credentials/enrol/verify", { response }));
+    return this.json<{ label: string | null }>(this.post("/me/credentials/enrol/verify", { response }));
   }
 }
 

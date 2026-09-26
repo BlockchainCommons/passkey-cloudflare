@@ -140,7 +140,7 @@ describe("passkeys", () => {
     expect(repaired).not.toContain(enrolledLabel);
     const again = await browser.json(browser.get("/me/credentials"));
     expect(again.credentials.map((c: any) => c.label)).toEqual(repaired);
-    await labelsOf(recordId).bind(enrolledLabel, second!.id, Date.now());
+    await labelsOf(recordId).bind(enrolledLabel!, second!.id, Date.now());
     const afterLateBind = await browser.json(browser.get("/me/credentials"));
     expect(afterLateBind.credentials.map((c: any) => c.label)).toEqual(repaired);
 

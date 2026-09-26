@@ -309,7 +309,12 @@ async function addPasskey() {
     throw error;
   }
   const verified = await post("/me/credentials/enrol/verify", { response: credentialJSON(credential) });
-  status(verified.ok ? `Added passkey ${(await verified.json()).label}.` : "Adding the passkey was refused.");
+  if (!verified.ok) {
+    status("Adding the passkey was refused.");
+  } else {
+    const { label } = await verified.json();
+    status(label ? `Added passkey ${label}.` : "Added the passkey.");
+  }
   await showHome();
 }
 

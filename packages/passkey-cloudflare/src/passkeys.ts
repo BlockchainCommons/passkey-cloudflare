@@ -201,6 +201,22 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
     }
   }
 
+  /**
+   * Bind a completed ceremony's label to its credential. The record has
+   * already committed, so a failed bind does not fail the ceremony: the
+   * credential is given a label when it is next listed. Returns whether the
+   * label was bound.
+   */
+  async function bindLabel(recordId: RecordId, label: string, credentialId: string, now: number) {
+    try {
+      await labels(recordId).bind(label, credentialId, now);
+      return true;
+    } catch (error) {
+      console.error("passkey label bind failed; the credential is labelled when next listed", error);
+      return false;
+    }
+  }
+
   /** Mint a session: the value for the client, and the row for the record's object. */
   async function newSession(recordId: RecordId, ctx: RequestContext) {
     const minted = await mintSession(recordId);
@@ -305,7 +321,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
         await names().release(payload.memberName, recordId, ctx.now);
         throw new CeremonyRefusal(created.cause);
       }
-      await labels(recordId).bind(payload.label, credential.id, ctx.now);
+      await bindLabel(recordId, payload.label, credential.id, ctx.now);
       return { recordId, session: session.value, recoveryCodes: recovery.codes };
     },
 
@@ -408,7 +424,11 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       });
     },
 
-    /** Add a passkey to the stepped-up session's record. */
+    /**
+     * Add a passkey to the stepped-up session's record. Returns its label, or
+     * null if the label could not be bound, in which case the passkey is given
+     * a label when the record's passkeys are next listed.
+     */
     async enrol(ctx: RequestContext, sessionValue: string | null | undefined, response: RegistrationResponseJSON) {
       const session = await liveSession(sessionValue, ctx.now);
       const { challenge, payload } = await consumeChallenge<{ recordId: RecordId; sessionId: string; label: string }>(
@@ -431,8 +451,8 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
         await index().delete(credential.id);
         refuse(added.cause, session.recordId);
       }
-      await labels(session.recordId).bind(payload.label, credential.id, ctx.now);
-      return { label: payload.label };
+      const bound = await bindLabel(session.recordId, payload.label, credential.id, ctx.now);
+      return { label: bound ? payload.label : null };
     },
 
     /** The record's passkeys. One left without a label by a failed bind is given one here. */
@@ -522,7 +542,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
         await index().delete(credential.id);
         throw new CeremonyRefusal(done.cause, recordId);
       }
-      await labels(recordId).bind(payload.label, credential.id, ctx.now);
+      await bindLabel(recordId, payload.label, credential.id, ctx.now);
       return { recordId, session: session.value };
     },
 
@@ -580,7 +600,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
         await index().delete(credential.id);
         throw new CeremonyRefusal(done.cause, recordId);
       }
-      await labels(recordId).bind(payload.label, credential.id, ctx.now);
+      await bindLabel(recordId, payload.label, credential.id, ctx.now);
       return { recordId, session: session.value };
     },
 
