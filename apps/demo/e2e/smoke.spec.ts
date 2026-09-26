@@ -1,5 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
+const NO_PASSKEY_USED = "No passkey was used. If you do not have a passkey here yet, register; if you lost yours, recover.";
+
 async function addAuthenticator(page: Page) {
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("WebAuthn.enable");
@@ -31,9 +33,10 @@ test("register, log out and log back in with a passkey", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Continue with passkey" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "New here? Register" })).toBeHidden();
 
-  // Immediate mode: a browser with no passkey here says so at once, with no sheet to cancel.
+  // Immediate mode: a browser with no passkey here answers at once, with no sheet to cancel.
+  // The same rejection covers a dismissed picker, so the message claims only that none was used.
   await page.getByRole("button", { name: "Continue with passkey" }).click();
-  await expect(page.getByText("This device has no passkey for this site.")).toBeVisible();
+  await expect(page.getByText(NO_PASSKEY_USED)).toBeVisible();
   await expect(page.getByRole("heading", { name: "New here? Register" })).toBeVisible();
   expect(registrations).toEqual([]);
 
@@ -72,6 +75,6 @@ test("without immediate mode, register and recover show from the start", async (
 
   // Continue with no passkey here still ends at the choices, and never registers anyone.
   await page.getByRole("button", { name: "Continue with passkey" }).click();
-  await expect(page.getByText("No passkey was used.", { exact: false })).toBeVisible();
+  await expect(page.getByText(NO_PASSKEY_USED)).toBeVisible();
   expect(registrations).toEqual([]);
 });

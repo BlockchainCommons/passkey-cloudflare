@@ -114,6 +114,8 @@ async function supportsImmediateMediation() {
   }
 }
 
+const CHOICES_GUIDANCE = "If you do not have a passkey here yet, register; if you lost yours, recover.";
+
 /** Reveal register and recover. Never registers anyone by itself. */
 function revealChoices(reason) {
   $("choices-reason").textContent = reason;
@@ -123,12 +125,12 @@ function revealChoices(reason) {
 /**
  * Show the entry page. A browser without immediate mediation cannot say "no
  * passkey here" without a sheet to cancel, so register and recover show at once;
- * with it, they wait for Continue to find no passkey.
+ * with it, they wait for Continue to end without a passkey.
  */
 async function showEntry() {
   show("entry");
   if (await supportsImmediateMediation()) $("choices").hidden = true;
-  else revealChoices("If you do not have a passkey here yet, register; if you lost yours, recover.");
+  else revealChoices(CHOICES_GUIDANCE);
 }
 
 // The two ways a browser may spell an immediate request: the proposal's
@@ -138,38 +140,33 @@ const IMMEDIATE_REQUESTS = [{ mediation: "immediate" }, { uiMode: "immediate" }]
 /**
  * Ask for any passkey this site knows, with immediate mediation where the
  * browser supports it. An immediate request needs the click's user activation
- * and rejects at once with no sheet when this device has no passkey for the
- * site. A browser that rejects every spelling as malformed falls back to an
- * ordinary request.
+ * and rejects at once with no sheet when there is no passkey here for the
+ * site, and with the same error when the person dismisses the picker, so a
+ * rejection cannot tell the two apart. A browser that rejects every spelling
+ * as malformed falls back to an ordinary request.
  */
 async function getPasskey(options) {
   if (await supportsImmediateMediation()) {
     for (const immediate of IMMEDIATE_REQUESTS) {
       try {
-        return { immediate: true, credential: await navigator.credentials.get({ publicKey: requestOptions(options), ...immediate }) };
+        return await navigator.credentials.get({ publicKey: requestOptions(options), ...immediate });
       } catch (error) {
-        if (!(error instanceof TypeError)) throw Object.assign(error, { immediate: true });
+        if (!(error instanceof TypeError)) throw error;
       }
     }
   }
-  return { immediate: false, credential: await navigator.credentials.get({ publicKey: requestOptions(options) }) };
+  return navigator.credentials.get({ publicKey: requestOptions(options) });
 }
 
 async function continueWithPasskey() {
   status("");
   const options = await (await post("/auth/login/options")).json();
   let credential;
-  let immediate = false;
   try {
-    ({ credential, immediate } = await getPasskey(options));
+    credential = await getPasskey(options);
   } catch (error) {
-    immediate = error.immediate === true;
     if (!ceremonyCancelled(error)) throw error;
-    revealChoices(
-      immediate
-        ? "This device has no passkey for this site."
-        : "No passkey was used. If you do not have one here yet, register; if you lost yours, recover.",
-    );
+    revealChoices(`No passkey was used. ${CHOICES_GUIDANCE}`);
     return;
   }
   const verified = await post("/auth/login/verify", { response: credentialJSON(credential) });
