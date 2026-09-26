@@ -44,6 +44,8 @@ td {
 }
 #code-list {
   font-family: ui-monospace, monospace;
+  /* A code is one 54-character token; let it wrap on a narrow screen. */
+  overflow-wrap: anywhere;
 }
 #operator-form {
   grid-template-columns: 1fr;

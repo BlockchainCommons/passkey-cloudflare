@@ -1,9 +1,13 @@
 import { env, runInDurableObject } from "cloudflare:test";
 import type { CredentialLabels } from "passkey-cloudflare";
+import { decodeTypedBytewords, encodeBytewords } from "passkey-cloudflare/gordian";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { testApp, uniqueName, type Browser } from "./harness.ts";
 
 const HOUR = 60 * 60 * 1000;
+// Well-formed recovery codes that are never issued.
+const WRONG_CODE = "ur:seed/oyadgdinaauyatsojkdmflfdfrfxtpbkvyfrzmcwntvdta";
+const OTHER_WRONG_CODE = "tuna next jazz obey acid good iron aqua ugly aunt solo junk drum fuel fund fair flux trip back very fair zoom skew exam eyes epic";
 
 const labelsOf = (recordId: string) => env.CREDENTIAL_LABELS.get(env.CREDENTIAL_LABELS.idFromName(recordId));
 
@@ -56,14 +60,36 @@ describe("recovery", () => {
     expect((await newDevice.login()).recordId).toBe(recordId);
   });
 
-  it("accepts a code typed in capitals and without dashes", async () => {
+  it("accepts a code typed in capitals and without its ur:seed/ prefix", async () => {
     const app = testApp();
     const name = uniqueName();
     const { recoveryCodes } = await app.browser().register(name);
 
-    const recovered = await recover(app.browser(), name, recoveryCodes[0]!.replace(/-/g, "").toUpperCase());
+    const recovered = await recover(app.browser(), name, recoveryCodes[0]!.slice("ur:seed/".length).toUpperCase());
 
     expect(recovered.status).toBe(200);
+  });
+
+  it("accepts a code read out as words, and spends it in that form too", async () => {
+    const app = testApp();
+    const name = uniqueName();
+    const { recoveryCodes } = await app.browser().register(name);
+    const body = decodeTypedBytewords(recoveryCodes[2]!.slice("ur:seed/".length))!;
+    const words = encodeBytewords(body, "standard");
+
+    expect((await recover(app.browser(), name, words)).status).toBe(200);
+    expect((await recover(app.browser(), name, recoveryCodes[2]!)).status).toBe(400);
+  });
+
+  it("refuses text that is no code like a wrong code", async () => {
+    const app = testApp();
+    const name = uniqueName();
+    await app.browser().register(name);
+
+    const refused = await recover(app.browser(), name, "eeee-eeee-eeee-eeee-eeee-eeee");
+
+    expect(refused.status).toBe(400);
+    expect(await refused.text()).toBe('{"error":"ceremony refused"}');
   });
 
   it("accepts each code only once", async () => {
@@ -83,7 +109,7 @@ describe("recovery", () => {
     await app.browser().register(name);
     const attacker = app.browser();
 
-    const refused = await recover(attacker, name, "aaaa-aaaa-aaaa-aaaa-aaaa-aaaa");
+    const refused = await recover(attacker, name, WRONG_CODE);
 
     expect(refused.status).toBe(400);
     expect(attacker.session).toBeUndefined();
@@ -111,7 +137,7 @@ describe("recovery", () => {
     const name = uniqueName();
     const { recoveryCodes } = await app.browser().register(name);
     for (let i = 0; i < 5; i++) {
-      expect((await recover(app.browser(), name, "bbbb-bbbb-bbbb-bbbb-bbbb-bbbb")).status).toBe(400);
+      expect((await recover(app.browser(), name, OTHER_WRONG_CODE)).status).toBe(400);
     }
 
     expect((await recover(app.browser(), name, recoveryCodes[0]!)).status).toBe(400);
@@ -122,7 +148,7 @@ describe("recovery", () => {
   it("refuses an unknown member name like any other refusal", async () => {
     const app = testApp();
 
-    const refused = await recover(app.browser(), uniqueName(), "aaaa-aaaa-aaaa-aaaa-aaaa-aaaa");
+    const refused = await recover(app.browser(), uniqueName(), WRONG_CODE);
 
     expect(refused.status).toBe(400);
     expect(await refused.text()).toBe('{"error":"ceremony refused"}');

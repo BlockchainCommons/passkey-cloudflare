@@ -21,7 +21,7 @@ describe("registration", () => {
 
     expect(recoveryCodes).toHaveLength(8);
     expect(new Set(recoveryCodes).size).toBe(8);
-    for (const code of recoveryCodes) expect(code).toMatch(/^([a-z2-7]{4}-){5}[a-z2-7]{4}$/);
+    for (const code of recoveryCodes) expect(code).toMatch(/^ur:seed\/oyadgd[a-z]{40}$/);
     const me = await browser.text(browser.get("/me"));
     for (const code of recoveryCodes) expect(me).not.toContain(code);
   });
@@ -48,7 +48,7 @@ describe("registration", () => {
 
     const options = await browser.json(browser.post("/auth/register/options", { memberName: name }));
 
-    expect(options.user.name).toMatch(new RegExp(`^${name} \\([a-z]+-[a-z]+\\)$`));
+    expect(options.user.name).toMatch(new RegExp(`^${name} \\([a-z]{4}-[a-z]{4}-[a-z]{4}\\)$`));
     expect(options.user.displayName).toBe(options.user.name);
   });
 

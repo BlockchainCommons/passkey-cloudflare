@@ -1,4 +1,5 @@
-import { randomBytes, sha256Hex, toBase64Url } from "../encoding.ts";
+import { concatBytes, randomBytes, sha256Hex, toBase64Url } from "../encoding.ts";
+import { SEED_LENGTH, seedSecretFromTyped, seedUr } from "../gordian/seed.ts";
 
 // Session tokens and recovery codes. Each is minted from the platform's secure
 // generator and handed to the caller once; only its SHA-256 hash is stored.
@@ -46,35 +47,26 @@ export async function parseRecordToken(
   return { recordId, tokenHash: await sha256Hex(token) };
 }
 
-const BASE32 = "abcdefghijklmnopqrstuvwxyz234567";
 export const RECOVERY_CODE_COUNT = 8;
 
-/** One 120-bit recovery code, as 24 base32 characters in groups of four. */
-function recoveryCode(): string {
-  const bytes = randomBytes(15);
-  let bits = 0;
-  let value = 0;
-  let out = "";
-  for (const byte of bytes) {
-    value = ((value << 8) | byte) & 0xffff;
-    bits += 8;
-    while (bits >= 5) {
-      out += BASE32[(value >>> (bits - 5)) & 31];
-      bits -= 5;
-    }
-  }
-  return out.match(/.{4}/g)!.join("-");
-}
+// A recovery code is a 16-byte secret typed as a seed, `40300({1: secret})`,
+// and shown as the seed's UR, `ur:seed/` + minimal Bytewords (54 characters).
+// Gordian Seed Tool imports that form as a seed. Input also accepts the other
+// Bytewords forms of the same secret; whichever form is typed, the hash is of
+// the decoded secret.
 
-export function normalizeRecoveryCode(code: string): string {
-  return code.toLowerCase().replace(/[^a-z2-7]/g, "");
+function hashSecret(secret: Uint8Array): Promise<string> {
+  return sha256Hex(concatBytes(new TextEncoder().encode("recovery-code:"), secret));
 }
 
 export async function hashRecoveryCode(code: string): Promise<string> {
-  return sha256Hex(`recovery-code:${normalizeRecoveryCode(code)}`);
+  const secret = typeof code === "string" ? seedSecretFromTyped(code) : null;
+  // Input that is no code still gets a hash, one no stored code can have, so
+  // it is refused where a wrong code is.
+  return secret ? hashSecret(secret) : sha256Hex(`not-a-recovery-code:${String(code)}`);
 }
 
 export async function mintRecoveryCodes(): Promise<{ codes: string[]; hashes: string[] }> {
-  const codes = Array.from({ length: RECOVERY_CODE_COUNT }, recoveryCode);
-  return { codes, hashes: await Promise.all(codes.map(hashRecoveryCode)) };
+  const secrets = Array.from({ length: RECOVERY_CODE_COUNT }, () => randomBytes(SEED_LENGTH));
+  return { codes: secrets.map(seedUr), hashes: await Promise.all(secrets.map(hashSecret)) };
 }

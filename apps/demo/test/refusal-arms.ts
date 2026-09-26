@@ -37,12 +37,15 @@ export async function refusalArms(setup: ArmSetup): Promise<Record<string, Arm>>
     const options = await browser.json(browser.post("/auth/login/options"));
     return { path: "/auth/login/verify", body: { response: await browser.authenticator.get(options, tamper) } };
   };
+  // A well-formed recovery code that is never issued: the example secret in
+  // the test vectors, as its seed UR.
+  const WRONG_CODE = "ur:seed/oyadgdinaauyatsojkdmflfdfrfxtpbkvyfrzmcwntvdta";
   const recoverAttempt = (memberName: string): Arm => async () => {
     const device = setup.browser();
     const options = await device.json(device.post("/auth/recover/options", { memberName }));
     return {
       path: "/auth/recover",
-      body: { memberName, code: "eeee-eeee-eeee-eeee-eeee-eeee", response: await device.authenticator.create(options) },
+      body: { memberName, code: WRONG_CODE, response: await device.authenticator.create(options) },
     };
   };
   const crossPurpose: Arm = async () => {

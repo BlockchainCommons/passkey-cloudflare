@@ -58,7 +58,7 @@ describe("a ceremony whose label bind fails", () => {
     restoreLabelBinds(app);
     const labels = await listedLabels(browser);
     expect(labels).toHaveLength(1);
-    expect(labels[0]).toMatch(/^[a-z]+-[a-z]+$/);
+    expect(labels[0]).toMatch(/^[a-z]{4}-[a-z]{4}-[a-z]{4}$/);
   });
 
   it("still enrols the passkey, returning no label", async () => {

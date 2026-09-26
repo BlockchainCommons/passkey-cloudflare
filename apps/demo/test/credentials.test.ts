@@ -66,7 +66,7 @@ describe("passkeys", () => {
 
     const { label } = await browser.enrol();
 
-    expect(label).toMatch(/^[a-z]+-[a-z]+$/);
+    expect(label).toMatch(/^[a-z]{4}-[a-z]{4}-[a-z]{4}$/);
     const [, second] = browser.authenticator.credentials;
     expect((await browser.login(first!.id)).recordId).toBe(recordId);
     expect((await browser.login(second!.id)).recordId).toBe(recordId);
@@ -85,7 +85,7 @@ describe("passkeys", () => {
 
     expect(credentials).toEqual([
       {
-        label: expect.stringMatching(/^[a-z]+-[a-z]+$/),
+        label: expect.stringMatching(/^[a-z]{4}-[a-z]{4}-[a-z]{4}$/),
         createdAt: registeredAt,
         lastUsedAt: registeredAt + MINUTE,
         provider: "Apple Passwords",
@@ -135,7 +135,7 @@ describe("passkeys", () => {
     const repaired = credentials.map((c: any) => c.label);
 
     expect(repaired).toHaveLength(2);
-    for (const label of repaired) expect(label).toMatch(/^[a-z]+-[a-z]+$/);
+    for (const label of repaired) expect(label).toMatch(/^[a-z]{4}-[a-z]{4}-[a-z]{4}$/);
     expect(new Set(repaired).size).toBe(2);
     expect(repaired).not.toContain(enrolledLabel);
     const again = await browser.json(browser.get("/me/credentials"));
@@ -152,6 +152,26 @@ describe("passkeys", () => {
     const options = await browser.json(browser.post("/auth/login/options"));
     const response = await browser.authenticator.get(options, {}, second!.id);
     expect((await browser.post("/auth/login/verify", { response })).status).toBe(400);
+  });
+
+  it("revoke by a label typed in capitals with spaces, or by a label from before three words", async () => {
+    const browser = testApp().browser();
+    const { recordId } = await browser.register(uniqueName());
+    await browser.stepUp();
+    const { label: typedLabel } = await browser.enrol();
+    await browser.enrol();
+    const [, , third] = browser.authenticator.credentials;
+    await runInDurableObject(labelsOf(recordId), (_instance, state) => {
+      state.storage.sql.exec("UPDATE labels SET label = 'amber-falcon' WHERE credential_id = ?", third!.id);
+    });
+
+    const typed = await browser.post("/me/credentials/revoke", { label: typedLabel!.toUpperCase().replace(/-/g, " ") });
+    const old = await browser.post("/me/credentials/revoke", { label: "amber-falcon" });
+
+    expect(typed.status).toBe(200);
+    expect(old.status).toBe(200);
+    const { credentials } = await browser.json(browser.get("/me/credentials"));
+    expect(credentials).toHaveLength(1);
   });
 
   it("need a step-up to revoke", async () => {

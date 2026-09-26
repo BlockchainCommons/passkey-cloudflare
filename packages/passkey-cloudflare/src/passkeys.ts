@@ -2,7 +2,7 @@ import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simp
 import type { CeremonyFailures } from "./app-tier/ceremony-failures.ts";
 import type { ChallengeStore } from "./app-tier/challenges.ts";
 import { providerName } from "./app-tier/aaguid-names.ts";
-import { randomLabel, type CredentialLabels } from "./app-tier/labels.ts";
+import { parseLabel, randomLabel, type CredentialLabels } from "./app-tier/labels.ts";
 import { isValidMemberName, memberNameKey, type MemberNameRegistry } from "./app-tier/member-names.ts";
 import { DEFAULT_RATE_LIMITS, type Limit, type RateLimiter, type RateLimits } from "./app-tier/rate-limit.ts";
 import { sha256Hex, toBase64Url } from "./encoding.ts";
@@ -492,8 +492,13 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       }));
     },
 
-    /** Revoke the passkey with this label. The last passkey cannot be revoked. */
-    async revokeCredential(ctx: RequestContext, sessionValue: string | null | undefined, label: string) {
+    /**
+     * Revoke the passkey with this label, typed in any form `parseLabel`
+     * reads. A label from before the Bytewords format matches exactly. The
+     * last passkey cannot be revoked.
+     */
+    async revokeCredential(ctx: RequestContext, sessionValue: string | null | undefined, typed: string) {
+      const label = typeof typed === "string" ? (parseLabel(typed) ?? typed) : typed;
       const session = await steppedUpSession(sessionValue, ctx.now);
       const credentialId = typeof label === "string" ? await labels(session.recordId).resolve(label) : null;
       if (!credentialId) throw new PasskeyError("not-found");

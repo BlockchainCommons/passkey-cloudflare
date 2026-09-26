@@ -1,3 +1,4 @@
+import { seedSecretFromTyped } from "passkey-cloudflare/gordian";
 import { describe, expect, it } from "vitest";
 import { dumpDurableState } from "./durable-state.ts";
 import { ORIGIN, testApp, uniqueName, type Browser, type TestApp } from "./harness.ts";
@@ -7,6 +8,11 @@ import { refusalArms } from "./refusal-arms.ts";
 // makes, and fails if the promise breaks.
 
 const REFUSAL = '{"error":"ceremony refused"}';
+
+/** A recovery code's 16-byte secret, in hex, as a dump of durable state would render it. */
+function codeSecretHex(code: string): string {
+  return Array.from(seedSecretFromTyped(code)!, (b) => b.toString(16).padStart(2, "0")).join("");
+}
 
 async function recoverWith(device: Browser, memberName: string, code: string) {
   const options = await device.json(device.post("/auth/recover/options", { memberName }));
@@ -45,12 +51,12 @@ describe("invariants", () => {
     const secrets: string[] = [operator.session!.split(".")[1]!];
 
     const { recoveryCodes } = await person.register(name);
-    secrets.push(person.session!.split(".")[1]!, ...recoveryCodes, ...recoveryCodes.map((c) => c.replace(/-/g, "")));
+    secrets.push(person.session!.split(".")[1]!, ...recoveryCodes, ...recoveryCodes.map(codeSecretHex));
     await person.login();
     secrets.push(person.session!.split(".")[1]!);
     await person.stepUp();
     const rotated = await person.json(person.post("/me/recovery-codes/rotate"));
-    secrets.push(...rotated.recoveryCodes, ...rotated.recoveryCodes.map((c: string) => c.replace(/-/g, "")));
+    secrets.push(...rotated.recoveryCodes, ...rotated.recoveryCodes.map(codeSecretHex));
     const newDevice = app.browser();
     await recoverWith(newDevice, name, rotated.recoveryCodes[0]);
     secrets.push(newDevice.session!.split(".")[1]!);

@@ -1,38 +1,21 @@
 import { DurableObject } from "cloudflare:workers";
 import { randomBytes } from "../encoding.ts";
+import { bytewordsIdentifier, bytewordToken } from "../gordian/bytewords.ts";
 
-// A per-record namespace of two-word credential labels. A label is minted when
-// a ceremony starts, bound to a credential when it completes, and retired when
+// A per-record namespace of credential labels. A label is minted when a
+// ceremony starts, bound to a credential when it completes, and retired when
 // the credential is revoked. A credential whose bind never happened is given a
 // label when it is next listed. Labels are never reused within a record.
+//
+// A label is three random bytes spelled as Bytewords with no checksum, lower
+// case and hyphenated: `wand-meow-nail`. It names a passkey; it is not a
+// Bytewords encoding. Credentials labelled before this format keep their
+// two-word labels.
 
-const ADJECTIVES = [
-  "amber", "brisk", "calm", "coral", "crisp", "dusky", "eager", "fleet",
-  "gentle", "golden", "hazel", "ivory", "jade", "keen", "lively", "lunar",
-  "mellow", "misty", "noble", "ochre", "pale", "plain", "quiet", "rapid",
-  "rosy", "rustic", "sandy", "silver", "sleek", "solar", "steady", "stony",
-  "sunny", "swift", "tawny", "tidal", "topaz", "umber", "vivid", "warm",
-  "wild", "windy", "wise", "young", "zesty", "azure", "bold", "bright",
-  "cedar", "clear", "cobalt", "copper", "dawn", "deep", "dry", "early",
-  "fair", "fern", "frosty", "grand", "green", "happy", "humble", "indigo",
-];
-const NOUNS = [
-  "falcon", "harbor", "meadow", "otter", "river", "willow", "badger", "beacon",
-  "birch", "canyon", "cedar", "comet", "crane", "delta", "ember", "finch",
-  "fjord", "forest", "garden", "glacier", "heron", "island", "kestrel", "lagoon",
-  "lantern", "maple", "marsh", "mesa", "orchid", "osprey", "pebble", "pine",
-  "prairie", "quail", "raven", "reef", "ridge", "robin", "sparrow", "spruce",
-  "summit", "swan", "thicket", "thistle", "tundra", "valley", "walrus", "wren",
-  "acorn", "anchor", "aspen", "bay", "bluff", "brook", "cliff", "clover",
-  "cove", "dune", "field", "grove", "hollow", "lake", "moss", "peak",
-];
+const LABEL_BYTES = 3;
 
 /** Draws before minting gives up. At half full, all of them are taken about once in 10^19 mints. */
 const MINT_TRIES = 64;
-
-function pick<T>(list: readonly T[], byte: number): T {
-  return list[byte % list.length]!;
-}
 
 /**
  * A label drawn at random and not checked against any namespace. A label that
@@ -40,8 +23,18 @@ function pick<T>(list: readonly T[], byte: number): T {
  * until it is next listed.
  */
 export function randomLabel(): string {
-  const [a, b] = randomBytes(2);
-  return `${pick(ADJECTIVES, a!)}-${pick(NOUNS, b!)}`;
+  return bytewordsIdentifier(randomBytes(LABEL_BYTES), "-");
+}
+
+/**
+ * The label a person typed, in its stored form, or null if it is not one:
+ * any case, words separated by spaces or hyphens, each word whole or as its
+ * first and last letters or its first or last three letters.
+ */
+export function parseLabel(text: string): string | null {
+  const bytes = text.trim().split(/[ -]+/).map(bytewordToken);
+  if (bytes.length !== LABEL_BYTES || bytes.some((b) => b === null)) return null;
+  return bytewordsIdentifier(Uint8Array.from(bytes as number[]), "-");
 }
 
 export class CredentialLabels<Env = unknown> extends DurableObject<Env> {
