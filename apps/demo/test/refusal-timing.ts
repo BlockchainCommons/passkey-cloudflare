@@ -13,9 +13,9 @@ export interface ArmSummary {
 /** Fewest samples per arm, so that a p95 has at least five samples above it. */
 export const MIN_SAMPLES = 100;
 /** The floor is this many times the slowest arm's p95... */
-export const FLOOR_MARGIN = 1.5;
+const FLOOR_MARGIN = 1.5;
 /** ...rounded up to a multiple of this, in milliseconds. */
-export const FLOOR_STEP_MS = 50;
+const FLOOR_STEP_MS = 50;
 
 function percentile(sorted: number[], p: number): number {
   return sorted[Math.max(0, Math.ceil((p / 100) * sorted.length) - 1)]!;

@@ -5,15 +5,17 @@
 //   node scripts/measure-refusals.ts https://<measurement host> [rounds]
 //
 // Run it from apps/demo, against a deployment of wrangler.measure.jsonc: it
-// sets that Worker's OPERATOR_RECORD_IDS secret to a member it registers.
+// sets that Worker's OPERATOR_RECORD_IDS secret to a person it registers, so
+// wrangler must be logged in to the account that owns the Worker.
 
 import { execFileSync } from "node:child_process";
 import { SoftwareAuthenticator } from "passkey-cloudflare/testing";
-import { Browser, type Target } from "../test/browser.ts";
+import { Browser, uniqueName, type Target } from "../test/browser.ts";
 import { refusalArms } from "../test/refusal-arms.ts";
 import { recommendFloor, summarize, type ArmSummary } from "../test/refusal-timing.ts";
 
 const REFUSAL = '{"error":"ceremony refused"}';
+const BASELINE = "(baseline: unknown route)";
 
 const [originArg, roundsArg = "150"] = process.argv.slice(2);
 if (!originArg?.startsWith("https://")) {
@@ -28,7 +30,7 @@ const browser = () => new Browser(target, new SoftwareAuthenticator({ origin }))
 
 async function becomeOperator(): Promise<Browser> {
   const operator = browser();
-  const { recordId } = await operator.register(`measureop${Date.now().toString(36)}`);
+  const { recordId } = await operator.register(uniqueName("measureop"));
   execFileSync("npx", ["wrangler", "secret", "put", "OPERATOR_RECORD_IDS", "-c", "wrangler.measure.jsonc"], {
     input: recordId,
     stdio: ["pipe", "ignore", "inherit"],
@@ -70,7 +72,7 @@ const arms = await refusalArms({
   suspend: async (memberName) => void (await operator.json(operator.post("/operator/suspend", { memberName }))),
 });
 
-const samples: Record<string, number[]> = { "(baseline: unknown route)": [] };
+const samples: Record<string, number[]> = { [BASELINE]: [] };
 for (const arm of Object.keys(arms)) samples[arm] = [];
 
 // Round 0 warms the Worker and its Durable Objects and is not counted.
@@ -82,13 +84,13 @@ for (let round = 0; round <= rounds; round++) {
     if (round > 0) samples[arm]!.push(ms);
   }
   const baseline = await timed("/auth/not-a-route", {});
-  if (round > 0) samples["(baseline: unknown route)"]!.push(baseline.ms);
+  if (round > 0) samples[BASELINE]!.push(baseline.ms);
   process.stderr.write(`round ${round}/${rounds}\r`);
 }
 
-const { "(baseline: unknown route)": baseline, ...armSamples } = samples;
+const { [BASELINE]: baseline, ...armSamples } = samples;
 const summaries = summarize(armSamples);
-const [base] = summarize({ "(baseline: unknown route)": baseline! });
+const [base] = summarize({ [BASELINE]: baseline! });
 const row = (s: ArmSummary) =>
   `| ${s.arm} | ${s.n} | ${Math.round(s.p50)} | ${Math.round(s.p95)} | ${Math.round(s.p99)} | ${Math.round(s.max)} |`;
 

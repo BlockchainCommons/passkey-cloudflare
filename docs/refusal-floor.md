@@ -6,6 +6,8 @@ The floor is set from measurements of the deployed runtime, not from local tests
 
 ## Method
 
+You need `wrangler` logged in to the account that will host the measurement Worker, and a Node version that runs TypeScript files directly (Node 23.6 or later). Run every command from `apps/demo`.
+
 1. Deploy the measurement Worker, `apps/demo/wrangler.measure.jsonc`. It runs the same code as the demo with its own Durable Objects and no floor. Its rate limits keep their windows and their per-request work, but are set too high to refuse, so a run from one address times the ceremonies rather than the throttle. Deploy it once to learn its workers.dev host, then again with the relying party set to that host:
 
    ```sh
@@ -19,11 +21,11 @@ The floor is set from measurements of the deployed runtime, not from local tests
    node scripts/measure-refusals.ts https://<host>      # 150 rounds by default
    ```
 
-   The script registers an operator and sets it as the Worker's `OPERATOR_RECORD_IDS` secret, so the suspended-member arm can run. It then sends every refusal arm from `test/refusal-arms.ts`, the same list the invariant test "no distinguishable ceremony failure" uses, once per round, in a fresh random order each round. Round 0 warms the Worker and is not counted. A request to an unknown route is timed each round as a baseline for the network round trip. Any arm that does not get the uniform refusal stops the run.
+   The script registers an operator and sets it as the Worker's `OPERATOR_RECORD_IDS` secret, so the suspended-principal arm can run. It then sends every refusal arm from `test/refusal-arms.ts`, the same list the invariant test "no distinguishable ceremony failure" uses, once per round, in a fresh random order each round. Round 0 warms the Worker and is not counted. A request to an unknown route is timed each round as a baseline for the network round trip. Any arm that does not get the uniform refusal stops the run.
 
 3. Run it a second time. Each run recommends a floor of 1.5 times the slowest arm's p95, rounded up to 50 ms; take the larger of the two. Each arm needs at least 100 samples.
 
-   The rule uses p95, not p99. The rarest spikes, a second or more, come from the network and Durable Objects rather than from what the arm does: they land on cheap arms as often as costly ones, and on different arms in each run. A floor set to cover them would change by hundreds of milliseconds between runs, and every refused ceremony would wait seconds. Such a spike is noise that any arm could have met, so it reveals little about the refusal's cause.
+   The rule uses p95, not p99. Above p95 the times are dominated by spikes of up to a second or more that land on cheap arms too, and on different arms in each run, so a p99-based floor moved by hundreds of milliseconds between runs and would make every refused ceremony wait seconds. The cost is a known residue: the slowest arm's own tail is longer than the others', and the few percent of its refusals that run past the floor can still be told apart by time (see the results below).
 
    Times are measured at the client, so they include the round trip, which makes the floor a little longer than it needs to be rather than shorter.
 
@@ -51,3 +53,8 @@ Measure again when a ceremony gains work, such as another Durable Object call or
 | baseline: unknown route | 15 / 18 | 19 / 22 | 21 / 25 | 23 / 27 |
 
 The wrong recovery code is the slowest arm in both runs, because a refusal there comes late: the Worker verifies the new passkey, reserves it in the credential index and prepares a session before the identity record rejects the code, then releases the credential again. Its p95 was 380 and 392 ms; 1.5 times each is 570 and 588, and both round up to the same floor: **600 ms**. The previous floor, 250 ms, was shorter than that arm's median, so its refusals could be told apart by time alone.
+
+What the floor does not cover:
+
+- The wrong recovery code's p99 was 521 and 650 ms, so roughly 1% of those refusals still take longer than 600 ms. Covering them would need a floor near the p99 rule's 2100 to 2850 ms.
+- Three refusals are not among the measured arms, because the invariant test does not have them either: a throttled recovery (`recovery-throttled`), a passkey already registered (`credential-exists`), and a member name that differs from the one the recovery options were issued for (`wrong-member-name`). The throttled recovery takes the wrong recovery code's path as far as the identity record, which refuses it before checking the code, so it is no slower. The existing passkey is refused at the credential index, before the record. The wrong member name is refused before the passkey is verified.
