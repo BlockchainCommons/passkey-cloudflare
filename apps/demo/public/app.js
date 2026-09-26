@@ -185,8 +185,11 @@ function checkAvailability() {
   $("name-availability").textContent = "";
   if (!$("register-name").checkValidity()) return;
   availabilityTimer = setTimeout(async () => {
-    const { available } = await getJSON(`/auth/member-name?name=${encodeURIComponent(name)}`);
-    if ($("register-name").value === name) $("name-availability").textContent = available ? "Available" : "Taken";
+    // A refused check says nothing either way; registering still reports a taken name.
+    const response = await fetch(`/auth/member-name?name=${encodeURIComponent(name)}`);
+    if (!response.ok || $("register-name").value !== name) return;
+    const { available } = await response.json();
+    $("name-availability").textContent = available ? "Available" : "Taken";
   }, 300);
 }
 

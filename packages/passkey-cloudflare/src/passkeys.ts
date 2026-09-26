@@ -131,6 +131,27 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
     if (!(await limiter.hit(limit, now))) throw new CeremonyRefusal("rate-limited");
   }
 
+  /** Run `run` within a per-source limit. Past the limit, the uniform refusal. */
+  async function withinSourceLimit<T>(
+    ctx: RequestContext,
+    bucket: string,
+    limit: Limit,
+    run: () => Promise<T>,
+  ): Promise<CeremonyOutcome<T>> {
+    const sourceHash = await sha256Hex(`source:${ctx.sourceIp}`);
+    try {
+      await throttle(`${bucket}:${sourceHash}`, limit, ctx.now);
+    } catch (error) {
+      if (!(error instanceof CeremonyRefusal)) throw error;
+      return { ok: false, response: await uniformRefusal(ctx.startedAt, config.refusalFloorMs) };
+    }
+    return { ok: true, value: await run() };
+  }
+
+  async function isMemberNameAvailable(name: string): Promise<boolean> {
+    return isValidMemberName(name) && (await names().isAvailable(name));
+  }
+
   async function issueChallenge(purpose: Ceremony, payload: unknown, now: number) {
     const challenge = newChallenge();
     const hash = await sha256Hex(toBase64Url(challenge));
@@ -266,18 +287,15 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
      * Past the limit, the uniform refusal.
      */
     async anonymousOptions<T>(ctx: RequestContext, issue: () => Promise<T>): Promise<CeremonyOutcome<T>> {
-      const sourceHash = await sha256Hex(`source:${ctx.sourceIp}`);
-      try {
-        await throttle(`options:${sourceHash}`, limits.optionsPerSource, ctx.now);
-      } catch (error) {
-        if (!(error instanceof CeremonyRefusal)) throw error;
-        return { ok: false, response: await uniformRefusal(ctx.startedAt, config.refusalFloorMs) };
-      }
-      return { ok: true, value: await issue() };
+      return withinSourceLimit(ctx, "options", limits.optionsPerSource, issue);
     },
 
-    async isMemberNameAvailable(name: string): Promise<boolean> {
-      return isValidMemberName(name) && (await names().isAvailable(name));
+    /**
+     * Whether a member name is free to register, within the per-source limit.
+     * Past the limit, the uniform refusal.
+     */
+    async checkMemberName(ctx: RequestContext, name: string): Promise<CeremonyOutcome<boolean>> {
+      return withinSourceLimit(ctx, "name-check", limits.nameCheckPerSource, () => isMemberNameAvailable(name));
     },
 
     async memberName(recordId: RecordId): Promise<string | null> {
@@ -285,7 +303,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
     },
 
     async registrationOptions(ctx: RequestContext, memberName: string) {
-      if (!(await this.isMemberNameAvailable(memberName))) throw new PasskeyError("member-name-unavailable");
+      if (!(await isMemberNameAvailable(memberName))) throw new PasskeyError("member-name-unavailable");
       const label = randomLabel();
       const challenge = await issueChallenge("register", { memberName, label }, ctx.now);
       return creationOptions({ rp: config.rp, challenge, userName: passkeyName(memberName, label) });

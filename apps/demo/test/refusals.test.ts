@@ -129,6 +129,20 @@ describe("rate limits", () => {
     expect((await app.browser().post("/auth/login/options")).status).toBe(200);
   });
 
+  it("refuse member-name checks from one source address past its limit", async () => {
+    const app = testApp({ rateLimits: { nameCheckPerSource: { limit: 2, windowMs: HOUR } } });
+    const browser = app.browser();
+    const check = (device: Browser) => device.get(`/auth/member-name?name=${uniqueName()}`);
+    await check(browser);
+    await check(browser);
+
+    const refused = await check(browser);
+
+    expect(refused.status).toBe(400);
+    expect(await refused.text()).toBe(REFUSAL);
+    expect((await check(app.browser())).status).toBe(200);
+  });
+
   it("refuse anonymous ceremonies globally past the global limit", async () => {
     const app = testApp({ rateLimits: { ceremonyGlobal: { limit: 1, windowMs: HOUR } } });
     const browser = app.browser();

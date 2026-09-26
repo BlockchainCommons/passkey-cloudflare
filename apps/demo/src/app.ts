@@ -203,9 +203,10 @@ const POST: Record<string, Handler> = {
 };
 
 const GET: Record<string, Handler> = {
-  "/auth/member-name": async ({ passkeys, request }) => {
+  "/auth/member-name": async ({ passkeys, ctx, request }) => {
     const name = new URL(request.url).searchParams.get("name") ?? "";
-    return json({ available: await passkeys.isMemberNameAvailable(name) });
+    const outcome = await passkeys.checkMemberName(ctx, name);
+    return outcome.ok ? json({ available: outcome.value }) : outcome.response;
   },
 
   "/me": authed(async ({ passkeys, env }, principal) =>
