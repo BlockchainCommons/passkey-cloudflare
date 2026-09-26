@@ -851,7 +851,7 @@
     ]
   },
   "labels": {
-    "about": "Generated vectors for passkey labels: three bytes spelled as Bytewords with no CRC32, lower case, joined by hyphens. 'cases' spell bytes as a label; 'inputs' are what a person may type for a label (any case, spaces or hyphens, each token a whole word, its first and last letters, or its first or last three letters) and the label it names, or null.",
+    "about": "Generated vectors for passkey labels: three bytes spelled as Bytewords with no CRC32, lower case, joined by hyphens. 'cases' spell bytes as a label; 'inputs' are what a person may type for a label (any case, spaces or hyphens, each token a whole word or its first and last letters, never three letters) and the label it names, or null.",
     "cases": [
       {
         "id": "research-example",
@@ -971,6 +971,26 @@
         "id": "adjective-noun",
         "note": "The earlier two-word label format.",
         "input": "amber-falcon",
+        "label": null,
+        "origin": "generated",
+        "checks": {
+          "ts": "agrees"
+        }
+      },
+      {
+        "id": "first-three",
+        "note": "An unambiguous first three letters. Recovery codes accept this form; labels do not.",
+        "input": "wand-meo-nail",
+        "label": null,
+        "origin": "generated",
+        "checks": {
+          "ts": "agrees"
+        }
+      },
+      {
+        "id": "ambiguous-three",
+        "note": "'wan' begins wand and ends swan.",
+        "input": "wan-meow-nail",
         "label": null,
         "origin": "generated",
         "checks": {

@@ -29,10 +29,14 @@ export function randomLabel(): string {
 /**
  * The label a person typed, in its stored form, or null if it is not one:
  * any case, words separated by spaces or hyphens, each word whole or as its
- * first and last letters or its first or last three letters.
+ * first and last letters. Three-letter tokens are refused: twelve are one
+ * word's first three letters and another's last three (`wan` is wand or
+ * swan), and a label has no CRC32 to catch the wrong pick.
  */
 export function parseLabel(text: string): string | null {
-  const bytes = text.trim().split(/[ -]+/).map(bytewordToken);
+  const tokens = text.trim().split(/[ -]+/);
+  if (tokens.some((t) => t.length === 3)) return null;
+  const bytes = tokens.map(bytewordToken);
   if (bytes.length !== LABEL_BYTES || bytes.some((b) => b === null)) return null;
   return bytewordsIdentifier(Uint8Array.from(bytes as number[]), "-");
 }
