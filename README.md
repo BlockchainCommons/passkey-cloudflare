@@ -16,6 +16,17 @@ Status: early development. Passkey login works: registration, login, adding and 
 - `packages/passkey-cloudflare`: the library. It deploys inside an application's own Worker. Its main entry point exports the Durable Object classes and `createPasskeys`. Its `/testing` entry point exports a software authenticator for tests, which must never be used as a real authenticator.
 - `apps/demo`: the demo Worker and its entry page.
 
+## Tested platforms
+
+Checked by hand on the deployed demo, September 2026:
+
+- Safari on macOS and on iOS. Neither reports immediate mediation, so the entry page shows register and recover from the start.
+- Chrome on macOS, with its access to passkeys in Apple Passwords both on and off. On macOS, Chrome reads passkeys from Apple Passwords for the whole machine, so a new Chrome profile still finds them. With access on, Continue signs in with an existing passkey. With access off, Continue finds no passkey and reveals register and recover without showing a passkey sheet.
+
+The automated tests use a software authenticator (ES256 and Ed25519) inside the Workers runtime, and Playwright's Chromium with a virtual authenticator.
+
+Not tested: Windows (including Windows Hello), Android, Linux and Firefox. Registration offers only ES256 and EdDSA, so an authenticator that supports only RS256, such as some older Windows Hello setups, may be unable to register.
+
 ## Development
 
 ```sh
