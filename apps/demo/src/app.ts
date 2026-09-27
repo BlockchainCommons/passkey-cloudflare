@@ -194,8 +194,8 @@ const POST: Record<string, Handler> = {
   },
 
   "/me/credentials/revoke": async ({ passkeys, ctx, request, body }) => {
-    await passkeys.revokeCredential(ctx, sessionValueFrom(request), body.label);
-    return json({ ok: true });
+    const revoked = await passkeys.revokeCredential(ctx, sessionValueFrom(request), body.label);
+    return json({ ok: true, ...revoked });
   },
 
   "/me/recovery-codes/rotate": async ({ passkeys, ctx, request }) =>

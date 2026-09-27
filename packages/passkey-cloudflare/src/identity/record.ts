@@ -339,21 +339,26 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
       }));
   }
 
-  /** Revoke a credential for a stepped-up session. The last credential is never revoked. */
+  /**
+   * Revoke a credential for a stepped-up session, returning its AAGUID. The
+   * last credential is never revoked.
+   */
   revokeCredential(input: {
     tokenHash: string;
     credentialId: string;
     now: number;
-  }): RecordResult<{}, SessionCause | "not-found" | "last-credential"> {
+  }): RecordResult<{ aaguid: string }, SessionCause | "not-found" | "last-credential"> {
     const cause = this.stepUpRefusal(input.tokenHash, input.now);
     if (cause) return { ok: false, cause };
-    return this.ctx.storage.transactionSync((): RecordResult<{}, "not-found" | "last-credential"> => {
-      const exists = this.sql.exec("SELECT 1 FROM credentials WHERE id = ?", input.credentialId).toArray();
-      if (exists.length === 0) return { ok: false, cause: "not-found" };
+    return this.ctx.storage.transactionSync((): RecordResult<{ aaguid: string }, "not-found" | "last-credential"> => {
+      const [row] = this.sql
+        .exec<{ aaguid: string }>("SELECT aaguid FROM credentials WHERE id = ?", input.credentialId)
+        .toArray();
+      if (!row) return { ok: false, cause: "not-found" };
       const count = this.sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM credentials").one().n;
       if (count <= 1) return { ok: false, cause: "last-credential" };
       this.sql.exec("DELETE FROM credentials WHERE id = ?", input.credentialId);
-      return { ok: true };
+      return { ok: true, aaguid: row.aaguid };
     });
   }
 

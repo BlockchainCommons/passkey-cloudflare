@@ -33,4 +33,5 @@ export {
   type Passkeys,
   type RequestContext,
   type RevocationEvent,
+  type RevokedPasskey,
 } from "./passkeys.ts";

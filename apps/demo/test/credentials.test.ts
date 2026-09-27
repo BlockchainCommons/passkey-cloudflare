@@ -123,6 +123,36 @@ describe("passkeys", () => {
     expect((await browser.post("/auth/login/verify", { response })).status).toBe(400);
   });
 
+  it("when revoked by a label in any typed form, name the dead entry as the password manager shows it, and the password manager", async () => {
+    const name = uniqueName();
+    const browser = testApp().browser({ aaguid: aaguidBytes(APPLE_PASSWORDS) });
+    await browser.register(name);
+    await browser.stepUp();
+    await browser.enrol();
+    const { credentials } = await browser.json(browser.get("/me/credentials"));
+    const label = credentials[0].label;
+
+    const revoked = await browser.json(
+      browser.post("/me/credentials/revoke", { label: label.toUpperCase().replace(/-/g, " ") }),
+    );
+
+    expect(revoked).toEqual({ ok: true, passkeyName: `${name} (${label})`, provider: "Apple Passwords" });
+  });
+
+  it("from an unknown password manager, when revoked, name the dead entry without a provider", async () => {
+    const name = uniqueName();
+    const browser = testApp().browser();
+    await browser.register(name);
+    await browser.stepUp();
+    await browser.enrol();
+    const { credentials } = await browser.json(browser.get("/me/credentials"));
+    const label = credentials[0].label;
+
+    const revoked = await browser.json(browser.post("/me/credentials/revoke", { label }));
+
+    expect(revoked).toEqual({ ok: true, passkeyName: `${name} (${label})`, provider: null });
+  });
+
   it("left without a label are given one when listed, and that label revokes them", async () => {
     const browser = testApp().browser();
     const { recordId } = await browser.register(uniqueName());
@@ -155,8 +185,9 @@ describe("passkeys", () => {
   });
 
   it("revoke by a label typed in capitals with spaces, or by a label from before three words", async () => {
+    const name = uniqueName();
     const browser = testApp().browser();
-    const { recordId } = await browser.register(uniqueName());
+    const { recordId } = await browser.register(name);
     await browser.stepUp();
     const { label: typedLabel } = await browser.enrol();
     await browser.enrol();
@@ -170,6 +201,7 @@ describe("passkeys", () => {
 
     expect(typed.status).toBe(200);
     expect(old.status).toBe(200);
+    expect(await old.json()).toMatchObject({ passkeyName: `${name} (amber-falcon)` });
     const { credentials } = await browser.json(browser.get("/me/credentials"));
     expect(credentials).toHaveLength(1);
   });

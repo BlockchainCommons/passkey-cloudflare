@@ -328,7 +328,11 @@ async function revokePasskey(label) {
   if (!confirm(`Revoke the passkey ${label}? It will no longer log in.`)) return;
   const response = await withStepUp(() => post("/me/credentials/revoke", { label }));
   if (response.status === 409) status("You cannot revoke your only passkey. Add another first.");
-  else status(response.ok ? `Revoked ${label}.` : "Could not revoke that passkey.");
+  else if (!response.ok) status("Could not revoke that passkey.");
+  else {
+    const { passkeyName, provider } = await response.json();
+    status(`Revoked ${label}. Delete '${passkeyName}' from ${provider ?? "your password manager"} too; it no longer logs in.`);
+  }
   await showHome();
 }
 
