@@ -16,7 +16,7 @@ Status: early development. Passkey login works: registration, login, adding and 
 - `packages/passkey-cloudflare`: the library. It deploys inside an application's own Worker. Its main entry point exports the Durable Object classes and `createPasskeys`. Its `/testing` entry point exports a software authenticator for tests, which must never be used as a real authenticator.
 - `apps/demo`: the demo Worker and its entry page.
 
-## Tested platforms
+## What has been tested
 
 Checked by hand on the deployed demo, September 2026:
 
@@ -26,6 +26,8 @@ Checked by hand on the deployed demo, September 2026:
 The automated tests use a software authenticator (ES256 and Ed25519) inside the Workers runtime, and Playwright's Chromium with a virtual authenticator.
 
 Not tested: Windows (including Windows Hello), Android, Linux and Firefox. Registration offers only ES256 and EdDSA, so an authenticator that supports only RS256, such as some older Windows Hello setups, may be unable to register.
+
+The base64url and CBOR helpers of `@simplewebauthn/server`, the WebAuthn library used for verification, are not checked directly against the RFC 4648 and RFC 8949 test vectors. Every ceremony test runs them, so a broken helper would fail those tests, but without saying which helper broke. The library's own dCBOR and Bytewords encoders are checked against published test vectors.
 
 ## Development
 
