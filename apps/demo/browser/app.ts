@@ -1,57 +1,66 @@
 // The demo's entry page and the signed-in page for managing passkeys and sessions.
-// Plain browser JavaScript, no build step.
+// Bundled into public/app.js by esbuild; see build.command in wrangler.jsonc.
 
-const $ = (id) => document.getElementById(id);
+function $<T extends HTMLElement = HTMLElement>(id: string): T {
+  const element = document.getElementById(id);
+  if (!element) throw new Error(`no element #${id}`);
+  return element as T;
+}
 
-function show(section) {
+const input = (id: string) => $<HTMLInputElement>(id);
+const button = (id: string) => $<HTMLButtonElement>(id);
+
+function show(section: string) {
   for (const id of ["entry", "rebind", "codes", "home"]) $(id).hidden = id !== section;
 }
 
-function status(message) {
+function status(message: string) {
   $("status").textContent = message;
 }
 
 // --- base64url and WebAuthn JSON ------------------------------------------
 
-function toBase64Url(buffer) {
+function toBase64Url(buffer: ArrayBuffer) {
   let binary = "";
   for (const byte of new Uint8Array(buffer)) binary += String.fromCharCode(byte);
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-function fromBase64Url(text) {
+function fromBase64Url(text: string) {
   const padded = text.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((text.length + 3) % 4);
   return Uint8Array.from(atob(padded), (c) => c.charCodeAt(0)).buffer;
 }
 
-function creationOptions(json) {
+function creationOptions(json: PublicKeyCredentialCreationOptionsJSON): PublicKeyCredentialCreationOptions {
   return {
     ...json,
     challenge: fromBase64Url(json.challenge),
     user: { ...json.user, id: fromBase64Url(json.user.id) },
     excludeCredentials: (json.excludeCredentials ?? []).map((c) => ({ ...c, id: fromBase64Url(c.id) })),
-  };
+  } as PublicKeyCredentialCreationOptions;
 }
 
-function requestOptions(json) {
+function requestOptions(json: PublicKeyCredentialRequestOptionsJSON): PublicKeyCredentialRequestOptions {
   return {
     ...json,
     challenge: fromBase64Url(json.challenge),
     allowCredentials: (json.allowCredentials ?? []).map((c) => ({ ...c, id: fromBase64Url(c.id) })),
-  };
+  } as PublicKeyCredentialRequestOptions;
 }
 
-function credentialJSON(credential) {
+function credentialJSON(credential: Credential | null): unknown {
+  if (!(credential instanceof PublicKeyCredential)) throw new Error("no public-key credential returned");
   if (typeof credential.toJSON === "function") return credential.toJSON();
   const r = credential.response;
-  const response = { clientDataJSON: toBase64Url(r.clientDataJSON) };
-  if (r.attestationObject) {
+  const response: Record<string, unknown> = { clientDataJSON: toBase64Url(r.clientDataJSON) };
+  if (r instanceof AuthenticatorAttestationResponse) {
     response.attestationObject = toBase64Url(r.attestationObject);
     response.transports = r.getTransports?.() ?? [];
   } else {
-    response.authenticatorData = toBase64Url(r.authenticatorData);
-    response.signature = toBase64Url(r.signature);
-    if (r.userHandle) response.userHandle = toBase64Url(r.userHandle);
+    const assertion = r as AuthenticatorAssertionResponse;
+    response.authenticatorData = toBase64Url(assertion.authenticatorData);
+    response.signature = toBase64Url(assertion.signature);
+    if (assertion.userHandle) response.userHandle = toBase64Url(assertion.userHandle);
   }
   return {
     id: credential.id,
@@ -65,7 +74,7 @@ function credentialJSON(credential) {
 
 // --- HTTP -------------------------------------------------------------------
 
-async function post(path, body = {}) {
+async function post(path: string, body: unknown = {}) {
   return fetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -73,10 +82,10 @@ async function post(path, body = {}) {
   });
 }
 
-async function getJSON(path) {
+async function getJSON<T>(path: string): Promise<T> {
   const response = await fetch(path);
   if (!response.ok) throw new Error(`${path}: ${response.status}`);
-  return response.json();
+  return response.json() as Promise<T>;
 }
 
 async function stepUp() {
@@ -87,7 +96,7 @@ async function stepUp() {
 }
 
 /** Make a request; if it needs a fresh step-up, do one with a passkey and try again. */
-async function withStepUp(request) {
+async function withStepUp(request: () => Promise<Response>) {
   let response = await request();
   if (response.status === 403) {
     const { error } = await response.clone().json();
@@ -99,8 +108,9 @@ async function withStepUp(request) {
   return response;
 }
 
-function ceremonyCancelled(error) {
-  return error?.name === "NotAllowedError" || error?.name === "AbortError";
+function ceremonyCancelled(error: unknown) {
+  const name = (error as { name?: unknown } | null | undefined)?.name;
+  return name === "NotAllowedError" || name === "AbortError";
 }
 
 // --- entry ------------------------------------------------------------------
@@ -117,7 +127,7 @@ async function supportsImmediateMediation() {
 const CHOICES_GUIDANCE = "If you do not have a passkey here yet, register; if you lost yours, recover.";
 
 /** Reveal register and recover. Never registers anyone by itself. */
-function revealChoices(reason) {
+function revealChoices(reason: string) {
   $("choices-reason").textContent = reason;
   $("choices").hidden = false;
 }
@@ -135,7 +145,8 @@ async function showEntry() {
 
 // The two ways a browser may spell an immediate request: the proposal's
 // mediation value, and Chrome's `uiMode`, which rejects the other as a TypeError.
-const IMMEDIATE_REQUESTS = [{ mediation: "immediate" }, { uiMode: "immediate" }];
+// Neither is in TypeScript's DOM types yet.
+const IMMEDIATE_REQUESTS = [{ mediation: "immediate" }, { uiMode: "immediate" }] as unknown as CredentialRequestOptions[];
 
 /**
  * Ask for any passkey this site knows, with immediate mediation where the
@@ -145,7 +156,7 @@ const IMMEDIATE_REQUESTS = [{ mediation: "immediate" }, { uiMode: "immediate" }]
  * rejection cannot tell the two apart. A browser that rejects every spelling
  * as malformed falls back to an ordinary request.
  */
-async function getPasskey(options) {
+async function getPasskey(options: PublicKeyCredentialRequestOptionsJSON) {
   if (await supportsImmediateMediation()) {
     for (const immediate of IMMEDIATE_REQUESTS) {
       try {
@@ -178,24 +189,24 @@ async function continueWithPasskey() {
   await showHome();
 }
 
-let availabilityTimer;
+let availabilityTimer: ReturnType<typeof setTimeout> | undefined;
 function checkAvailability() {
   clearTimeout(availabilityTimer);
-  const name = $("register-name").value;
+  const name = input("register-name").value;
   $("name-availability").textContent = "";
-  if (!$("register-name").checkValidity()) return;
+  if (!input("register-name").checkValidity()) return;
   availabilityTimer = setTimeout(async () => {
     // A refused check says nothing either way; registering still reports a taken name.
     const response = await fetch(`/auth/member-name?name=${encodeURIComponent(name)}`);
-    if (!response.ok || $("register-name").value !== name) return;
-    const { available } = await response.json();
+    if (!response.ok || input("register-name").value !== name) return;
+    const { available } = (await response.json()) as { available: boolean };
     $("name-availability").textContent = available ? "Available" : "Taken";
   }, 300);
 }
 
-async function register(event) {
+async function register(event: SubmitEvent) {
   event.preventDefault();
-  const memberName = new FormData(event.target).get("memberName");
+  const memberName = new FormData(event.target as HTMLFormElement).get("memberName");
   const optionsResponse = await post("/auth/register/options", { memberName });
   if (optionsResponse.status === 409) return status(`The member name ${memberName} is not available.`);
   const options = await optionsResponse.json();
@@ -211,9 +222,9 @@ async function register(event) {
   showCodes(await verified.json());
 }
 
-async function recover(event) {
+async function recover(event: SubmitEvent) {
   event.preventDefault();
-  const form = new FormData(event.target);
+  const form = new FormData(event.target as HTMLFormElement);
   const memberName = form.get("memberName");
   const options = await (await post("/auth/recover/options", { memberName })).json();
   let credential;
@@ -225,13 +236,13 @@ async function recover(event) {
   }
   const verified = await post("/auth/recover", { memberName, code: form.get("code"), response: credentialJSON(credential) });
   if (!verified.ok) return status("Recovery was refused.");
-  const { codesLeft } = await verified.json();
+  const { codesLeft } = (await verified.json()) as { codesLeft: number };
   await showHome();
   $("rotate-message").textContent = rotateMessage(codesLeft);
   $("rotate-prompt").hidden = false;
 }
 
-function rotateMessage(codesLeft) {
+function rotateMessage(codesLeft: number) {
   const left = codesLeft === 0 ? "none" : codesLeft === 1 ? "1 code" : `${codesLeft} codes`;
   return (
     `This recovery used one of your recovery codes; you have ${left} left. ` +
@@ -258,10 +269,15 @@ async function rebind() {
 }
 
 // Each code as its UR, or as the same UR body in words, for reading aloud or writing down.
-let shownCodes = { recoveryCodes: [], recoveryCodeWords: [] };
+interface ShownCodes {
+  recoveryCodes: string[];
+  recoveryCodeWords: string[];
+}
+
+let shownCodes: ShownCodes = { recoveryCodes: [], recoveryCodeWords: [] };
 let showingWords = false;
 
-function listCodes(asWords) {
+function listCodes(asWords: boolean) {
   showingWords = asWords;
   const codes = asWords ? shownCodes.recoveryCodeWords : shownCodes.recoveryCodes;
   $("code-list").replaceChildren(
@@ -274,20 +290,20 @@ function listCodes(asWords) {
   $("codes-toggle").textContent = asWords ? "Show as codes" : "Show as words";
 }
 
-function showCodes({ recoveryCodes, recoveryCodeWords }) {
+function showCodes({ recoveryCodes, recoveryCodeWords }: ShownCodes) {
   shownCodes = { recoveryCodes, recoveryCodeWords };
   listCodes(false);
   // The codes are shown once, so Continue waits for the person to say they saved them.
-  $("codes-saved").checked = false;
-  $("codes-done").disabled = true;
+  input("codes-saved").checked = false;
+  button("codes-done").disabled = true;
   show("codes");
 }
 
 // --- home -------------------------------------------------------------------
 
-const when = (ms) => (ms ? new Date(ms).toLocaleString() : "never");
+const when = (ms: number | null | undefined) => (ms ? new Date(ms).toLocaleString() : "never");
 
-function row(cells, action) {
+function row(cells: string[], action?: HTMLElement) {
   const tr = document.createElement("tr");
   for (const cell of cells) {
     const td = document.createElement("td");
@@ -302,14 +318,32 @@ function row(cells, action) {
   return tr;
 }
 
+interface Passkey {
+  label: string;
+  provider: string | null;
+  backupEligible: boolean;
+  createdAt: number;
+  lastUsedAt: number | null;
+}
+
+interface Session {
+  userAgent: string;
+  current: boolean;
+  createdAt: number;
+  expiresAt: number;
+}
+
 async function showHome() {
   const meResponse = await fetch("/me");
   if (meResponse.status === 401) {
     await showEntry();
     return;
   }
-  const me = await meResponse.json();
-  const [{ credentials }, { sessions }] = await Promise.all([getJSON("/me/credentials"), getJSON("/me/sessions")]);
+  const me = (await meResponse.json()) as { memberName: string; operator: boolean };
+  const [{ credentials }, { sessions }] = await Promise.all([
+    getJSON<{ credentials: Passkey[] }>("/me/credentials"),
+    getJSON<{ sessions: Session[] }>("/me/sessions"),
+  ]);
   $("member-name").textContent = me.memberName;
   $("credential-rows").replaceChildren(
     ...credentials.map((c) => {
@@ -341,19 +375,19 @@ async function addPasskey() {
   if (!verified.ok) {
     status("Adding the passkey was refused.");
   } else {
-    const { label } = await verified.json();
+    const { label } = (await verified.json()) as { label: string };
     status(`Added passkey ${label}.`);
   }
   await showHome();
 }
 
-async function revokePasskey(label) {
+async function revokePasskey(label: string) {
   if (!confirm(`Revoke the passkey ${label}? It will no longer log in.`)) return;
   const response = await withStepUp(() => post("/me/credentials/revoke", { label }));
   if (response.status === 409) status("You cannot revoke your only passkey. Add another first.");
   else if (!response.ok) status("Could not revoke that passkey.");
   else {
-    const { passkeyName, provider } = await response.json();
+    const { passkeyName, provider } = (await response.json()) as { passkeyName: string; provider: string | null };
     status(`Revoked ${label}. Delete '${passkeyName}' from ${provider ?? "your password manager"} too; it no longer logs in.`);
   }
   await showHome();
@@ -364,25 +398,28 @@ async function rotateCodes() {
   const response = await withStepUp(() => post("/me/recovery-codes/rotate"));
   if (!response.ok) return status("Could not replace your recovery codes.");
   $("rotate-prompt").hidden = true;
-  showCodes(await response.json());
+  showCodes((await response.json()) as ShownCodes);
 }
 
-async function operatorAction(event) {
+const OPERATOR_PATHS: Record<string, string> = { rebind: "/operator/rebind-links", suspend: "/operator/suspend", resume: "/operator/resume" };
+
+async function operatorAction(event: SubmitEvent) {
   event.preventDefault();
-  const action = event.submitter.value;
-  const memberName = new FormData(event.target).get("memberName");
-  const path = { rebind: "/operator/rebind-links", suspend: "/operator/suspend", resume: "/operator/resume" }[action];
+  const action = (event.submitter as HTMLButtonElement).value;
+  const memberName = new FormData(event.target as HTMLFormElement).get("memberName");
+  const path = OPERATOR_PATHS[action];
+  if (!path) throw new Error(`unknown operator action ${action}`);
   const response = await withStepUp(() => post(path, { memberName }));
   if (!response.ok) return ($("operator-result").textContent = `Refused (${response.status}).`);
-  const result = await response.json();
+  const result = (await response.json()) as { link?: string };
   $("operator-result").textContent = result.link ? `Send this link to ${memberName}: ${result.link}` : "Done.";
 }
 
 // --- wiring -----------------------------------------------------------------
 
-function guard(fn) {
-  return (...args) =>
-    fn(...args).catch((error) => {
+function guard<A extends unknown[]>(fn: (...args: A) => Promise<unknown>) {
+  return (...args: A) =>
+    void fn(...args).catch((error) => {
       console.error(error);
       status(ceremonyCancelled(error) ? "Cancelled." : "Something went wrong.");
     });
@@ -390,10 +427,10 @@ function guard(fn) {
 
 $("continue").addEventListener("click", guard(continueWithPasskey));
 $("register-name").addEventListener("input", checkAvailability);
-$("register-form").addEventListener("submit", guard(register));
-$("recover-form").addEventListener("submit", guard(recover));
+$("register-form").addEventListener("submit", guard((event: Event) => register(event as SubmitEvent)));
+$("recover-form").addEventListener("submit", guard((event: Event) => recover(event as SubmitEvent)));
 $("rebind-button").addEventListener("click", guard(rebind));
-$("codes-saved").addEventListener("change", (event) => ($("codes-done").disabled = !event.target.checked));
+input("codes-saved").addEventListener("change", () => (button("codes-done").disabled = !input("codes-saved").checked));
 $("codes-done").addEventListener("click", guard(showHome));
 $("codes-toggle").addEventListener("click", () => listCodes(!showingWords));
 $("add-passkey").addEventListener("click", guard(addPasskey));
@@ -407,7 +444,7 @@ $("logout-everywhere").addEventListener("click", guard(async () => {
   await post("/auth/logout-everywhere");
   await showEntry();
 }));
-$("operator-form").addEventListener("submit", guard(operatorAction));
+$("operator-form").addEventListener("submit", guard((event: Event) => operatorAction(event as SubmitEvent)));
 
 if (location.pathname === "/rebind" && location.hash.length > 1) show("rebind");
 else guard(showHome)();

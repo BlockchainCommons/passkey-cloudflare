@@ -5,6 +5,8 @@
   "compatibility_date": "2026-08-15",
   "routes": [{ "pattern": "canvas.shallweplay.com", "custom_domain": true }],
   "workers_dev": false,
+  // Bundles browser/app.ts into public/app.js before dev and deploy.
+  "build": { "command": "npm run build:browser", "watch_dir": "browser" },
   "assets": {
     "directory": "public",
     "not_found_handling": "single-page-application",
