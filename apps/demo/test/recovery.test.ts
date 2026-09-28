@@ -173,6 +173,18 @@ describe("recovery", () => {
     expect((await recover(app.browser(), name, recoveryCodes[0]!)).status).toBe(200);
   });
 
+  it("finds a name typed without its accents or capitals", async () => {
+    const app = testApp();
+    const suffix = uniqueName("");
+    const { recordId, recoveryCodes } = await app.browser().register(`José${suffix}`);
+    const newDevice = app.browser();
+
+    const recovered = await recover(newDevice, `jose${suffix}`, recoveryCodes[0]!);
+
+    expect(recovered.status).toBe(200);
+    expect(await newDevice.json(newDevice.get("/me"))).toMatchObject({ recordId, memberName: `José${suffix}` });
+  });
+
   it("refuses an unknown member name like any other refusal", async () => {
     const app = testApp();
 

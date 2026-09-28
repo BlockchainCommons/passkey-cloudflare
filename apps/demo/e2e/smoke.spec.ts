@@ -123,6 +123,29 @@ test("without immediate mode, register and recover show from the start", async (
   expect(registrations).toEqual([]);
 });
 
+test("the register form checks names by the library's rules and explains them", async ({ page }) => {
+  await page.addInitScript(() => {
+    PublicKeyCredential.getClientCapabilities = async () => ({ immediateGet: false });
+  });
+  await page.goto("/");
+  const name = page.locator("#register-name");
+  const rules = page.getByText("A member name is 3 to 32 characters long and starts with a letter.", { exact: false });
+
+  await expect(rules).toBeHidden();
+  await page.getByRole("button", { name: "About member names" }).click();
+  await expect(rules).toBeVisible();
+
+  await name.fill("a.bc");
+  expect(await name.evaluate((el: HTMLInputElement) => el.validity.patternMismatch)).toBe(true);
+
+  // Typed decomposed, the name is composed in place and checked as available.
+  const accented = `Zoë${Date.now().toString(36)}`;
+  await name.fill(accented.normalize("NFD"));
+  await expect(name).toHaveValue(accented.normalize("NFC"));
+  expect(await name.evaluate((el: HTMLInputElement) => el.validity.valid)).toBe(true);
+  await expect(page.locator("#name-availability")).toHaveText("Available");
+});
+
 test("recover on a new device with a recovery code, and be prompted to replace the rest", async ({ page, browser }) => {
   await addAuthenticator(page);
   const memberName = `recover${Date.now().toString(36)}`;

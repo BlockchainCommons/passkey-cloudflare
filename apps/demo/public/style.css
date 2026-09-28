@@ -54,6 +54,10 @@ td {
   /* One line each for the site, the member name and the issue time. */
   white-space: pre-line;
 }
+#name-rules-toggle {
+  justify-self: start;
+  padding: 0 0.5rem;
+}
 #operator-form {
   grid-template-columns: 1fr;
 }

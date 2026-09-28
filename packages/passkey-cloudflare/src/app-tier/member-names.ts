@@ -1,18 +1,10 @@
 import { DurableObject } from "cloudflare:workers";
 import type { RecordId } from "../identity/secrets.ts";
+import { memberNameKey } from "../member-name-rules.ts";
 
 // Unique member names, each resolving to a record id, with history kept.
-// Uniqueness is case-insensitive; the name is shown as the person typed it.
-
-const MEMBER_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]{2,31}$/;
-
-export function isValidMemberName(name: unknown): name is string {
-  return typeof name === "string" && MEMBER_NAME.test(name);
-}
-
-export function memberNameKey(name: string): string {
-  return name.toLowerCase();
-}
+// Uniqueness ignores case and accents; the name is shown as the person typed
+// it, normalized to NFC.
 
 export class MemberNameRegistry<Env = unknown> extends DurableObject<Env> {
   private readonly sql: SqlStorage;
@@ -42,7 +34,8 @@ export class MemberNameRegistry<Env = unknown> extends DurableObject<Env> {
   }
 
   /** Claim a name for a record. Refuses a name that is taken. */
-  claim(name: string, recordId: RecordId, now: number): boolean {
+  claim(typed: string, recordId: RecordId, now: number): boolean {
+    const name = typed.normalize("NFC");
     if (!this.isAvailable(name)) return false;
     this.ctx.storage.transactionSync(() => {
       this.sql.exec("INSERT INTO names (key, name, record_id) VALUES (?, ?, ?)", memberNameKey(name), name, recordId);
@@ -57,7 +50,8 @@ export class MemberNameRegistry<Env = unknown> extends DurableObject<Env> {
   }
 
   /** Undo a claim whose registration did not complete. */
-  release(name: string, recordId: RecordId, now: number): void {
+  release(typed: string, recordId: RecordId, now: number): void {
+    const name = typed.normalize("NFC");
     this.ctx.storage.transactionSync(() => {
       this.sql.exec("DELETE FROM names WHERE key = ? AND record_id = ?", memberNameKey(name), recordId);
       this.sql.exec(

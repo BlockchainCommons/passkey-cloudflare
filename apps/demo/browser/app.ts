@@ -6,6 +6,7 @@ import {
   createPasskey,
   findPasskey,
   formatRecoveryCodes,
+  MEMBER_NAME_RULES,
   recoveryCodesHeader,
   usePasskey,
   type PublicKeyCredentialCreationOptionsJSON,
@@ -121,9 +122,12 @@ async function continueWithPasskey() {
 }
 
 let availabilityTimer: ReturnType<typeof setTimeout> | undefined;
-function checkAvailability() {
+function checkAvailability(event: Event) {
   clearTimeout(availabilityTimer);
-  const name = input("register-name").value;
+  // The rules' pattern checks composed text, which the server stores; leave
+  // text an input method is still composing alone.
+  const name = input("register-name").value.normalize("NFC");
+  if (!(event as InputEvent).isComposing && name !== input("register-name").value) input("register-name").value = name;
   $("name-availability").textContent = "";
   if (!input("register-name").checkValidity()) return;
   availabilityTimer = setTimeout(async () => {
@@ -344,6 +348,16 @@ function guard<A extends unknown[]>(fn: (...args: A) => Promise<unknown>) {
 }
 
 $("continue").addEventListener("click", guard(continueWithPasskey));
+input("register-name").minLength = MEMBER_NAME_RULES.minLength;
+// No maxLength: it counts a decomposed name before the input handler composes
+// it, and would cut a pasted name short. The pattern holds the upper bound.
+input("register-name").pattern = MEMBER_NAME_RULES.pattern;
+$("name-rules").textContent = MEMBER_NAME_RULES.description;
+$("name-rules-toggle").addEventListener("click", () => {
+  const open = $("name-rules").hidden;
+  $("name-rules").hidden = !open;
+  $("name-rules-toggle").setAttribute("aria-expanded", String(open));
+});
 $("register-name").addEventListener("input", checkAvailability);
 $("register-form").addEventListener("submit", guard((event: Event) => register(event as SubmitEvent)));
 $("recover-form").addEventListener("submit", guard((event: Event) => recover(event as SubmitEvent)));

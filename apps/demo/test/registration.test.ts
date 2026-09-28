@@ -49,6 +49,47 @@ describe("registration", () => {
     expect(options.status).toBe(409);
   });
 
+  it("treats names that differ only in accents as one name", async () => {
+    const app = testApp();
+    const suffix = uniqueName("");
+    const first = app.browser();
+    const second = app.browser();
+    await first.register(`Jose${suffix}`);
+
+    for (const name of [`José${suffix}`, `josé${suffix}`, `JOSÉ${suffix}`]) {
+      expect(await second.json(second.get(`/auth/member-name?name=${encodeURIComponent(name)}`)), name).toEqual({
+        available: false,
+      });
+      expect((await second.post("/auth/register/options", { memberName: name })).status, name).toBe(409);
+    }
+  });
+
+  it("treats ß and ss as one name", async () => {
+    const app = testApp();
+    const suffix = uniqueName("");
+    await app.browser().register(`Strasse${suffix}`);
+    const second = app.browser();
+
+    expect((await second.post("/auth/register/options", { memberName: `Straße${suffix}` })).status).toBe(409);
+  });
+
+  it("stores a decomposed name as its composed form", async () => {
+    const browser = testApp().browser();
+    const name = `José${uniqueName("")}`;
+
+    await browser.register(name.normalize("NFD"));
+
+    expect(await browser.json(browser.get("/me"))).toMatchObject({ memberName: name.normalize("NFC") });
+  });
+
+  it("refuses a name that breaks the rules", async () => {
+    const browser = testApp().browser();
+
+    for (const memberName of [`a.${uniqueName()}`, `Аda${uniqueName("")}`]) {
+      expect((await browser.post("/auth/register/options", { memberName })).status, memberName).toBe(409);
+    }
+  });
+
   it("names the passkey after the member and a distinct label", async () => {
     const browser = testApp().browser();
     const name = uniqueName();

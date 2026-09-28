@@ -3,7 +3,8 @@ import type { CeremonyFailures } from "./app-tier/ceremony-failures.ts";
 import type { ChallengeStore } from "./app-tier/challenges.ts";
 import { providerName } from "./app-tier/aaguid-names.ts";
 import { parseLabel, randomLabel, type CredentialLabels } from "./app-tier/labels.ts";
-import { isValidMemberName, memberNameKey, type MemberNameRegistry } from "./app-tier/member-names.ts";
+import type { MemberNameRegistry } from "./app-tier/member-names.ts";
+import { isValidMemberName, memberNameKey } from "./member-name-rules.ts";
 import { DEFAULT_RATE_LIMITS, type Limit, type RateLimiter, type RateLimits } from "./app-tier/rate-limit.ts";
 import { sha256Hex, toBase64Url } from "./encoding.ts";
 import type { CredentialIndex } from "./identity/credential-index.ts";
@@ -310,8 +311,9 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       return names().nameOf(recordId);
     },
 
-    async registrationOptions(ctx: RequestContext, memberName: string) {
-      if (!(await isMemberNameAvailable(memberName))) throw new PasskeyError("member-name-unavailable");
+    async registrationOptions(ctx: RequestContext, typedName: string) {
+      if (!(await isMemberNameAvailable(typedName))) throw new PasskeyError("member-name-unavailable");
+      const memberName = typedName.normalize("NFC");
       const label = randomLabel();
       const challenge = await issueChallenge("register", { memberName, label }, ctx.now);
       return creationOptions({ rp: config.rp, challenge, userName: passkeyName(memberName, label) });
@@ -570,7 +572,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       if (!isValidMemberName(memberName)) throw new PasskeyError("not-found");
       const recordId = await names().resolve(memberName);
       const label = randomLabel();
-      const shownName = recordId ? await names().nameOf(recordId) : memberName;
+      const shownName = recordId ? await names().nameOf(recordId) : memberName.normalize("NFC");
       const challenge = await issueChallenge("recover", { memberName, recordId, label }, ctx.now);
       return creationOptions({ rp: config.rp, challenge, userName: passkeyName(shownName ?? memberName, label) });
     },

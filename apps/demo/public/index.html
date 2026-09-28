@@ -20,8 +20,10 @@
             <h2>New here? Register</h2>
             <label>
               Member name
-              <input id="register-name" name="memberName" autocomplete="username" required minlength="3" maxlength="32" pattern="[A-Za-z0-9][A-Za-z0-9_.\-]{2,31}" />
+              <input id="register-name" name="memberName" autocomplete="username" required />
             </label>
+            <button id="name-rules-toggle" type="button" aria-label="About member names" aria-expanded="false" aria-controls="name-rules">&#9432;</button>
+            <p id="name-rules" hidden></p>
             <span id="name-availability" aria-live="polite"></span>
             <button type="submit">Register with a passkey</button>
           </form>
