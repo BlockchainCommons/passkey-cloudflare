@@ -132,3 +132,27 @@ test("recover on a new device with a recovery code, and be prompted to replace t
   await expect(device.locator("#rotate-prompt")).toContainText("Replace your remaining codes now");
   await device.context().close();
 });
+
+test("adding a passkey on a device that already has one says so, and adds nothing", async ({ page }) => {
+  await addAuthenticator(page);
+  const memberName = `twice${Date.now().toString(36)}`;
+  const enrolments: string[] = [];
+  page.on("request", (r) => {
+    if (r.url().endsWith("/me/credentials/enrol/verify")) enrolments.push(r.url());
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Continue with passkey" }).click();
+  await page.locator("#register-name").fill(memberName);
+  await page.getByRole("button", { name: "Register with a passkey" }).click();
+  await page.getByRole("checkbox", { name: "I have saved my recovery codes" }).check();
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(page.locator("#credential-rows tr")).toHaveCount(1);
+
+  // The same authenticator holds this record's passkey, which enrolment excludes.
+  await page.getByRole("button", { name: "Add a passkey" }).click();
+  await expect(page.locator("#status")).toHaveText(
+    "This device already has a passkey for you. Use it to log in, or add one on another device.",
+  );
+  expect(enrolments).toEqual([]);
+  await expect(page.locator("#credential-rows tr")).toHaveCount(1);
+});
