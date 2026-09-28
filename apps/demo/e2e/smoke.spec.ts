@@ -2,10 +2,11 @@ import { expect, test, type Page } from "@playwright/test";
 
 const NO_PASSKEY_USED = "No passkey was used. If you do not have a passkey here yet, register; if you lost yours, recover.";
 
+/** Give the page a virtual authenticator; returns what reaches it over CDP. */
 async function addAuthenticator(page: Page) {
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("WebAuthn.enable");
-  await cdp.send("WebAuthn.addVirtualAuthenticator", {
+  const { authenticatorId } = await cdp.send("WebAuthn.addVirtualAuthenticator", {
     options: {
       protocol: "ctap2",
       transport: "internal",
@@ -15,6 +16,24 @@ async function addAuthenticator(page: Page) {
       automaticPresenceSimulation: true,
     },
   });
+  return { cdp, authenticatorId };
+}
+
+type Authenticator = Awaited<ReturnType<typeof addAuthenticator>>;
+
+/** Put every passkey `from` holds on `to`, replacing `to`'s copies. */
+async function copyCredentials(from: Authenticator, to: Authenticator) {
+  const { credentials } = await from.cdp.send("WebAuthn.getCredentials", { authenticatorId: from.authenticatorId });
+  const held = await to.cdp.send("WebAuthn.getCredentials", { authenticatorId: to.authenticatorId });
+  for (const credential of credentials) {
+    if (held.credentials.some((c) => c.credentialId === credential.credentialId)) {
+      await to.cdp.send("WebAuthn.removeCredential", {
+        authenticatorId: to.authenticatorId,
+        credentialId: credential.credentialId,
+      });
+    }
+    await to.cdp.send("WebAuthn.addCredential", { authenticatorId: to.authenticatorId, credential });
+  }
 }
 
 test("register, log out and log back in with a passkey", async ({ page }) => {
@@ -171,4 +190,43 @@ test("adding a passkey on a device that already has one says so, and adds nothin
   );
   expect(enrolments).toEqual([]);
   await expect(page.locator("#credential-rows tr")).toHaveCount(1);
+});
+
+test("log out everywhere else steps up, then leaves only this session", async ({ page, browser }) => {
+  const laptop = await addAuthenticator(page);
+  const memberName = `elsewhere${Date.now().toString(36)}`;
+  const statuses: number[] = [];
+  page.on("response", (r) => {
+    if (r.url().endsWith("/auth/logout-elsewhere")) statuses.push(r.status());
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Continue with passkey" }).click();
+  await page.locator("#register-name").fill(memberName);
+  await page.getByRole("button", { name: "Register with a passkey" }).click();
+  await page.getByRole("checkbox", { name: "I have saved my recovery codes" }).check();
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(page.locator("#home")).toBeVisible();
+
+  // A second device holding the same passkey logs in, so the record has two sessions.
+  const phone = await (await browser.newContext()).newPage();
+  const phoneAuthenticator = await addAuthenticator(phone);
+  await copyCredentials(laptop, phoneAuthenticator);
+  await phone.goto("/");
+  await phone.getByRole("button", { name: "Continue with passkey" }).click();
+  await expect(phone.locator("#home")).toBeVisible();
+  // The phone's login advanced the passkey's sign counter; the laptop takes that copy, as a synced passkey would.
+  await copyCredentials(phoneAuthenticator, laptop);
+  await page.reload();
+  await expect(page.locator("#session-rows tr")).toHaveCount(2);
+
+  await page.getByRole("button", { name: "Log out everywhere else" }).click();
+
+  await expect(page.locator("#status")).toHaveText("Logged out everywhere else.");
+  expect(statuses).toEqual([403, 200]);
+  await expect(page.locator("#session-rows tr")).toHaveCount(1);
+  await expect(page.locator("#session-rows tr")).toContainText("(this one)");
+  await phone.reload();
+  await expect(phone.getByRole("button", { name: "Continue with passkey" })).toBeVisible();
+  await expect(phone.locator("#home")).toBeHidden();
+  await phone.context().close();
 });

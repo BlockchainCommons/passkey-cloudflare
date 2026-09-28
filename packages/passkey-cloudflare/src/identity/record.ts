@@ -476,6 +476,17 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
     return this.sql.exec<{ id: string }>("DELETE FROM sessions RETURNING id").toArray().map((r) => r.id);
   }
 
+  /** End every session of this record but the presented one, which must be stepped up. Returns the ids ended. */
+  revokeOtherSessions(tokenHash: string, now: number): RecordResult<{ sessionIds: string[] }, SessionCause> {
+    const check = this.checkStepUp(tokenHash, now);
+    if (!check.ok) return check;
+    const sessionIds = this.sql
+      .exec<{ id: string }>("DELETE FROM sessions WHERE id != ? RETURNING id", check.sessionId)
+      .toArray()
+      .map((r) => r.id);
+    return { ok: true, sessionIds };
+  }
+
   /** The record's live sessions, if the presented one is live. */
   listSessions(tokenHash: string, now: number): SessionSummary[] | null {
     const principal = this.authenticate(tokenHash, now);

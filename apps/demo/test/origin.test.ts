@@ -13,6 +13,7 @@ const STATE_CHANGING_ROUTES = [
   "/auth/login/verify",
   "/auth/logout",
   "/auth/logout-everywhere",
+  "/auth/logout-elsewhere",
   "/auth/recover/options",
   "/auth/recover",
   "/auth/rebind/options",

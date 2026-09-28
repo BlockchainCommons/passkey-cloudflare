@@ -133,6 +133,11 @@ const POST: Record<string, Handler> = {
     return json({ ok: true }, { headers: { "Set-Cookie": clearedSessionCookie() } });
   },
 
+  "/auth/logout-elsewhere": async ({ passkeys, request }) => {
+    await passkeys.logoutElsewhere(sessionValueFrom(request));
+    return json({ ok: true });
+  },
+
   "/auth/recover/options": async ({ passkeys, ctx, body }) =>
     optionsResponse(await passkeys.anonymousOptions(ctx, () => passkeys.recoverOptions(ctx, body.memberName))),
 

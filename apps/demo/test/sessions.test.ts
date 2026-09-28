@@ -71,6 +71,31 @@ describe("sessions", () => {
     expect((await laptop.get("/me")).status).toBe(401);
   });
 
+  it("but this one end on logout everywhere else, after a fresh step-up", async () => {
+    const app = testApp();
+    const phone = app.browser();
+    await phone.register(uniqueName());
+    const laptop = app.browser();
+    laptop.authenticator.credentials.push(...phone.authenticator.credentials);
+    await laptop.login();
+
+    const refused = await laptop.post("/auth/logout-elsewhere");
+    expect({ status: refused.status, body: await refused.json() }).toEqual({
+      status: 403,
+      body: { error: "step-up-required" },
+    });
+    expect((await phone.get("/me")).status).toBe(200);
+
+    await laptop.stepUp();
+    const out = await laptop.post("/auth/logout-elsewhere");
+
+    expect(out.status).toBe(200);
+    expect(out.headers.get("Set-Cookie")).toBeNull();
+    expect((await phone.get("/me")).status).toBe(401);
+    const { sessions } = await laptop.json(laptop.get("/me/sessions"));
+    expect(sessions.map((s: any) => s.current)).toEqual([true]);
+  });
+
   it("can be presented as a bearer header", async () => {
     const browser = testApp().browser();
     const { recordId } = await browser.register(uniqueName());
@@ -115,5 +140,39 @@ describe("revocation hook", () => {
     await browser.post("/auth/logout-everywhere");
     expect(events[1]).toMatchObject({ reason: "logout-everywhere", recordId });
     expect(events[1]!.sessionIds).toHaveLength(2);
+  });
+
+  it("fires for logout everywhere else with only the sessions it ended", async () => {
+    const events: RevocationEvent[] = [];
+    const app = testApp({ onRevoke: (event) => void events.push(event) });
+    const phone = app.browser();
+    const { recordId } = await phone.register(uniqueName());
+    const laptop = app.browser();
+    laptop.authenticator.credentials.push(...phone.authenticator.credentials);
+    await laptop.login();
+    await phone.login();
+    const { sessions } = await laptop.json(laptop.get("/me/sessions"));
+    const others = sessions.filter((s: any) => !s.current).map((s: any) => s.id);
+    expect(others).toHaveLength(2);
+
+    await laptop.stepUp();
+    await laptop.post("/auth/logout-elsewhere");
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ reason: "logout-elsewhere", recordId });
+    expect(events[0]!.sessionIds.sort()).toEqual(others.sort());
+  });
+
+  it("does not fire for logout everywhere else when no other session exists", async () => {
+    const events: RevocationEvent[] = [];
+    const browser = testApp({ onRevoke: (event) => void events.push(event) }).browser();
+    await browser.register(uniqueName());
+    await browser.stepUp();
+
+    const out = await browser.post("/auth/logout-elsewhere");
+
+    expect(out.status).toBe(200);
+    expect(events).toEqual([]);
+    expect((await browser.get("/me")).status).toBe(200);
   });
 });

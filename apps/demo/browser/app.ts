@@ -366,6 +366,11 @@ $("logout-everywhere").addEventListener("click", guard(async () => {
   await post("/auth/logout-everywhere");
   await showEntry();
 }));
+$("logout-elsewhere").addEventListener("click", guard(async () => {
+  const response = await withStepUp(() => post("/auth/logout-elsewhere"));
+  status(response.ok ? "Logged out everywhere else." : "Could not log out everywhere else.");
+  await showHome();
+}));
 $("operator-form").addEventListener("submit", guard((event: Event) => operatorAction(event as SubmitEvent)));
 
 if (location.pathname === "/rebind" && location.hash.length > 1) show("rebind");

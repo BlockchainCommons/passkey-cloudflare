@@ -52,13 +52,14 @@ export interface PasskeyConfig {
   rateLimits?: Partial<RateLimits>;
   /**
    * Called within the same request whenever sessions end by logout, logout
-   * everywhere or suspension, so the application can close live connections.
+   * everywhere, logout everywhere else or suspension, so the application can
+   * close live connections.
    */
   onRevoke?: (event: RevocationEvent) => void | Promise<void>;
 }
 
 export interface RevocationEvent {
-  reason: "logout" | "logout-everywhere" | "suspension";
+  reason: "logout" | "logout-everywhere" | "logout-elsewhere" | "suspension";
   recordId: RecordId;
   sessionIds: string[];
 }
@@ -391,6 +392,20 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       if (!sessionIds) return false;
       await revoked({ reason: "logout-everywhere", recordId: parsed.recordId, sessionIds });
       return true;
+    },
+
+    /**
+     * End every session of the presented session's record but that one. Needs
+     * a fresh step-up, so a stolen session cannot shut the owner out.
+     */
+    async logoutElsewhere(sessionValue: string | null | undefined): Promise<void> {
+      const parsed = await parseRecordToken(sessionValue);
+      if (!parsed) throw new PasskeyError("not-logged-in");
+      const done = await record(parsed.recordId).revokeOtherSessions(parsed.tokenHash, clock());
+      if (!done.ok) throw new PasskeyError(done.cause);
+      if (done.sessionIds.length > 0) {
+        await revoked({ reason: "logout-elsewhere", recordId: parsed.recordId, sessionIds: done.sessionIds });
+      }
     },
 
     async sessions(sessionValue: string | null | undefined): Promise<SessionSummary[] | null> {
