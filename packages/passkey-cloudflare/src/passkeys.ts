@@ -316,7 +316,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       return creationOptions({ rp: config.rp, challenge, userName: passkeyName(memberName, label) });
     },
 
-    /** Complete registration: a new record, its first credential, recovery codes and a session. */
+    /** Complete registration: a new record, its first credential, recovery codes (with when they were issued) and a session. */
     async register(ctx: RequestContext, response: RegistrationResponseJSON) {
       const { challenge, payload } = await consumeChallenge<{ memberName: string; label: string }>(
         "register",
@@ -351,7 +351,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
         await names().release(payload.memberName, recordId, ctx.now);
         throw new CeremonyRefusal(created.cause);
       }
-      return { recordId, session: session.value, recoveryCodes: recovery.codes };
+      return { recordId, session: session.value, recoveryCodes: recovery.codes, issuedAt: ctx.now };
     },
 
     async loginOptions(ctx: RequestContext) {
@@ -532,7 +532,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       };
     },
 
-    /** Replace every recovery code. Returns the new codes, shown once. */
+    /** Replace every recovery code. Returns the new codes, shown once, and when they were issued. */
     async rotateRecoveryCodes(ctx: RequestContext, sessionValue: string | null | undefined) {
       const session = await steppedUpSession(sessionValue, ctx.now);
       const recovery = await mintRecoveryCodes();
@@ -542,7 +542,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
         now: ctx.now,
       });
       if (!done.ok) throw new PasskeyError(done.cause);
-      return recovery.codes;
+      return { recoveryCodes: recovery.codes, issuedAt: ctx.now };
     },
 
     /**

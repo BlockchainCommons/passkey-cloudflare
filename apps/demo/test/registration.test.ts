@@ -26,6 +26,13 @@ describe("registration", () => {
     for (const code of recoveryCodes) expect(me).not.toContain(code);
   });
 
+  it("says when the recovery codes were issued", async () => {
+    const issuedAt = Date.UTC(2026, 8, 27, 12);
+    const browser = testApp({ clock: () => issuedAt }).browser();
+
+    expect((await browser.register(uniqueName())).issuedAt).toBe(issuedAt);
+  });
+
   it("says a member name is taken before any ceremony starts", async () => {
     const app = testApp();
     const name = uniqueName();

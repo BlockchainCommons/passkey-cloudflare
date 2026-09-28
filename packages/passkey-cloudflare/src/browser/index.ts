@@ -13,6 +13,7 @@ import type {
 import { fromBase64Url, toBase64Url } from "../base64url.ts";
 
 export { fromBase64Url, toBase64Url };
+export { formatRecoveryCodes, recoveryCodesHeader, type RecoveryCodesText } from "./recovery-codes.ts";
 export type {
   AuthenticationResponseJSON,
   PublicKeyCredentialCreationOptionsJSON,

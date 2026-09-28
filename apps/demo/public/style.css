@@ -50,6 +50,10 @@ td {
 #code-list li + li {
   margin-top: 0.25rem;
 }
+#codes-header {
+  /* One line each for the site, the member name and the issue time. */
+  white-space: pre-line;
+}
 #operator-form {
   grid-template-columns: 1fr;
 }

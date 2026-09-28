@@ -43,9 +43,9 @@ function json(value: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(value), { ...init, headers });
 }
 
-/** Recovery codes with each one's word form, which the page offers for reading aloud. */
-function withWords(recoveryCodes: string[]) {
-  return { recoveryCodes, recoveryCodeWords: recoveryCodes.map(seedWords) };
+/** Fresh recovery codes, when they were issued, and each one's word form, which the page offers for reading aloud. */
+function withWords({ recoveryCodes, issuedAt }: { recoveryCodes: string[]; issuedAt: number }) {
+  return { recoveryCodes, recoveryCodeWords: recoveryCodes.map(seedWords), issuedAt };
 }
 
 function error(status: number, message: string): Response {
@@ -109,8 +109,8 @@ const POST: Record<string, Handler> = {
   "/auth/register/verify": async ({ passkeys, ctx, body }) => {
     const outcome = await passkeys.ceremony(ctx, "register", () => passkeys.register(ctx, body.response));
     if (!outcome.ok) return outcome.response;
-    const { recordId, session, recoveryCodes } = outcome.value;
-    return json({ recordId, ...withWords(recoveryCodes) }, { headers: { "Set-Cookie": sessionCookie(session) } });
+    const { recordId, session, ...codes } = outcome.value;
+    return json({ recordId, ...withWords(codes) }, { headers: { "Set-Cookie": sessionCookie(session) } });
   },
 
   "/auth/login/options": async ({ passkeys, ctx }) =>

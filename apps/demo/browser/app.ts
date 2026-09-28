@@ -5,6 +5,8 @@ import {
   canFindWithoutSheet,
   createPasskey,
   findPasskey,
+  formatRecoveryCodes,
+  recoveryCodesHeader,
   usePasskey,
   type PublicKeyCredentialCreationOptionsJSON,
 } from "passkey-cloudflare/browser";
@@ -142,7 +144,7 @@ async function register(event: SubmitEvent) {
   if (!response) return;
   const verified = await post("/auth/register/verify", { response });
   if (!verified.ok) return status("Registration was refused.");
-  showCodes(await verified.json());
+  await showCodes(await verified.json());
 }
 
 async function recover(event: SubmitEvent) {
@@ -188,6 +190,8 @@ interface ShownCodes {
 }
 
 let shownCodes: ShownCodes = { recoveryCodes: [], recoveryCodeWords: [] };
+// The codes as text to keep, always in their UR form: the words view is for display only.
+let codesText = "";
 let showingWords = false;
 
 function listCodes(asWords: boolean) {
@@ -203,8 +207,14 @@ function listCodes(asWords: boolean) {
   $("codes-toggle").textContent = asWords ? "Show as codes" : "Show as words";
 }
 
-function showCodes({ recoveryCodes, recoveryCodeWords }: ShownCodes) {
+/** A fresh set, as the server returns it with when it was issued. */
+async function showCodes({ recoveryCodes, recoveryCodeWords, issuedAt }: ShownCodes & { issuedAt: number }) {
+  const { memberName } = await getJSON<{ memberName: string }>("/me");
   shownCodes = { recoveryCodes, recoveryCodeWords };
+  // The demo's RP ID is its host name.
+  const about = { site: location.hostname, memberName, issuedAt };
+  codesText = formatRecoveryCodes({ ...about, codes: recoveryCodes });
+  $("codes-header").textContent = recoveryCodesHeader(about).join("\n");
   listCodes(false);
   // The codes are shown once, so Continue waits for the person to say they saved them.
   input("codes-saved").checked = false;
@@ -306,7 +316,7 @@ async function rotateCodes() {
   const response = await withStepUp(() => post("/me/recovery-codes/rotate"));
   if (!response.ok) return status("Could not replace your recovery codes.");
   $("rotate-prompt").hidden = true;
-  showCodes((await response.json()) as ShownCodes);
+  await showCodes(await response.json());
 }
 
 const OPERATOR_PATHS: Record<string, string> = { rebind: "/operator/rebind-links", suspend: "/operator/suspend", resume: "/operator/resume" };
@@ -341,6 +351,10 @@ $("rebind-button").addEventListener("click", guard(rebind));
 input("codes-saved").addEventListener("change", () => (button("codes-done").disabled = !input("codes-saved").checked));
 $("codes-done").addEventListener("click", guard(showHome));
 $("codes-toggle").addEventListener("click", () => listCodes(!showingWords));
+$("codes-copy").addEventListener("click", guard(async () => {
+  await navigator.clipboard.writeText(codesText);
+  status("Copied your recovery codes.");
+}));
 $("add-passkey").addEventListener("click", guard(addPasskey));
 $("rotate-codes").addEventListener("click", guard(rotateCodes));
 $("rotate-now").addEventListener("click", guard(rotateCodes));

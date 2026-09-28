@@ -341,4 +341,16 @@ describe("recovery codes", () => {
     for (const code of rotated.recoveryCodes) expect(recoveryCodes).not.toContain(code);
     expect(rotated.recoveryCodeWords).toEqual(rotated.recoveryCodes.map(seedWords));
   });
+
+  it("say when a rotated set was issued", async () => {
+    let now = Date.UTC(2026, 8, 27, 12);
+    const browser = testApp({ clock: () => now }).browser();
+    await browser.register(uniqueName());
+    await browser.stepUp();
+    now += 60_000;
+
+    const rotated = await browser.json(browser.post("/me/recovery-codes/rotate"));
+
+    expect(rotated.issuedAt).toBe(now);
+  });
 });

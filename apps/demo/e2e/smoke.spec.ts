@@ -43,6 +43,22 @@ test("register, log out and log back in with a passkey", async ({ page }) => {
   await page.locator("#register-name").fill(memberName);
   await page.getByRole("button", { name: "Register with a passkey" }).click();
   await expect(page.locator("#code-list li")).toHaveCount(8);
+  const header = `Recovery codes for localhost\nMember name: ${memberName}\nIssued: `;
+  const issued = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$/;
+  const headerText = (await page.locator("#codes-header").textContent())!;
+  expect(headerText.startsWith(header)).toBe(true);
+  expect(headerText.slice(header.length)).toMatch(issued);
+  // Copy takes the codes as text to keep, in their UR form even while the words show.
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.getByRole("button", { name: "Show as words" }).click();
+  await page.getByRole("button", { name: "Copy" }).click();
+  await expect(page.locator("#status")).toHaveText("Copied your recovery codes.");
+  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  const codes = copied.split("\n").filter((line) => /^\d+\. /.test(line));
+  expect(copied.startsWith(`${headerText}\n\n`)).toBe(true);
+  expect(codes).toHaveLength(8);
+  for (const line of codes) expect(line).toMatch(/^\d\. ur:seed\/[a-z]{46}$/);
+  expect(copied).toContain("Each code works once. Recover at localhost with your member name and one code.");
   // The codes are shown once, so leaving them takes a deliberate tick first.
   const saved = page.getByRole("checkbox", { name: "I have saved my recovery codes" });
   const done = page.getByRole("button", { name: "Continue", exact: true });

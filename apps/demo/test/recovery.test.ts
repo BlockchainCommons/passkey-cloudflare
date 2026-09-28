@@ -1,5 +1,6 @@
 import { env, runInDurableObject } from "cloudflare:test";
 import type { CredentialLabels } from "passkey-cloudflare";
+import { formatRecoveryCodes } from "passkey-cloudflare/browser";
 import { decodeTypedBytewords, encodeBytewords } from "passkey-cloudflare/gordian";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { testApp, uniqueName, type Browser } from "./harness.ts";
@@ -58,6 +59,20 @@ describe("recovery", () => {
     expect((await recovered.json<any>()).recordId).toBe(recordId);
     // Both forms name one code, so the UR is spent with it.
     expect((await recover(app.browser(), name, recoveryCodes[2]!)).status).toBe(400);
+  });
+
+  it("accepts a whole line pasted from the copied codes", async () => {
+    const app = testApp();
+    const name = uniqueName();
+    const { recordId, recoveryCodes, issuedAt } = await app.browser().register(name);
+    const text = formatRecoveryCodes({ site: "canvas.shallweplay.com", memberName: name, issuedAt, codes: recoveryCodes });
+    const line = text.split("\n").find((l) => l.includes(recoveryCodes[4]!))!;
+
+    const recovered = await recover(app.browser(), name, ` ${line}\n`);
+
+    expect(recovered.status).toBe(200);
+    expect((await recovered.json<any>()).recordId).toBe(recordId);
+    expect((await recover(app.browser(), name, recoveryCodes[4]!)).status).toBe(400);
   });
 
   it("reports how many unused codes are left after each recovery", async () => {
