@@ -2,11 +2,13 @@
 // Bundled into public/app.js by esbuild; see build.command in wrangler.jsonc.
 
 import {
+  CAPITAL_NUDGE_MESSAGE,
   canFindWithoutSheet,
   createPasskey,
   findPasskey,
   formatRecoveryCodes,
   MEMBER_NAME_RULES,
+  needsCapitalNudge,
   recoveryCodesHeader,
   usePasskey,
   type PublicKeyCredentialCreationOptionsJSON,
@@ -129,6 +131,7 @@ function checkAvailability(event: Event) {
   const name = input("register-name").value.normalize("NFC");
   if (!(event as InputEvent).isComposing && name !== input("register-name").value) input("register-name").value = name;
   $("name-availability").textContent = "";
+  $("capital-nudge").hidden = true;
   if (!input("register-name").checkValidity()) return;
   availabilityTimer = setTimeout(async () => {
     // A refused check says nothing either way; registering still reports a taken name.
@@ -142,6 +145,12 @@ function checkAvailability(event: Event) {
 async function register(event: SubmitEvent) {
   event.preventDefault();
   const memberName = new FormData(event.target as HTMLFormElement).get("memberName");
+  // An all-lowercase name registers on the second press, once the nudge has shown.
+  if (typeof memberName === "string" && needsCapitalNudge(memberName) && $("capital-nudge").hidden) {
+    $("capital-nudge").textContent = `${CAPITAL_NUDGE_MESSAGE} Register again to keep ${memberName} as typed.`;
+    $("capital-nudge").hidden = false;
+    return;
+  }
   const optionsResponse = await post("/auth/register/options", { memberName });
   if (optionsResponse.status === 409) return status(`The member name ${memberName} is not available.`);
   const response = await newPasskey(await optionsResponse.json(), "Registration cancelled.");

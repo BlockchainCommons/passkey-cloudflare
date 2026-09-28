@@ -13,7 +13,13 @@ import type {
 import { fromBase64Url, toBase64Url } from "../base64url.ts";
 
 export { fromBase64Url, toBase64Url };
-export { MEMBER_NAME_RULES, isValidMemberName, memberNameKey } from "../member-name-rules.ts";
+export {
+  CAPITAL_NUDGE_MESSAGE,
+  MEMBER_NAME_RULES,
+  isValidMemberName,
+  memberNameKey,
+  needsCapitalNudge,
+} from "../member-name-rules.ts";
 export { formatRecoveryCodes, recoveryCodesHeader, type RecoveryCodesText } from "./recovery-codes.ts";
 export type {
   AuthenticationResponseJSON,

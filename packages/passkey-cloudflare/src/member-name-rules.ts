@@ -45,3 +45,11 @@ export function memberNameKey(name: string): string {
     .toLowerCase()
     .replace(FOLDED, (letter) => FOLDS[letter]!);
 }
+
+/** Words an application can show when a name has no capital letter. */
+export const CAPITAL_NUDGE_MESSAGE = "Member names display as typed, and most read best with a capital letter.";
+
+/** Whether a name has no capital letter, so an application might suggest one. */
+export function needsCapitalNudge(name: string): boolean {
+  return name === name.toLowerCase();
+}

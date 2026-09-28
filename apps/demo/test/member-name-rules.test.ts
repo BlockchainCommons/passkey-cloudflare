@@ -1,5 +1,11 @@
 import * as main from "passkey-cloudflare";
-import { MEMBER_NAME_RULES, isValidMemberName, memberNameKey } from "passkey-cloudflare/browser";
+import {
+  CAPITAL_NUDGE_MESSAGE,
+  MEMBER_NAME_RULES,
+  isValidMemberName,
+  memberNameKey,
+  needsCapitalNudge,
+} from "passkey-cloudflare/browser";
 import { describe, expect, it } from "vitest";
 
 const nfd = (name: string) => name.normalize("NFD");
@@ -106,9 +112,24 @@ describe("member-name rules", () => {
     expect(MEMBER_NAME_RULES.description).toMatch(/^[^\n]+\.$/);
   });
 
+  it.each(["ada", "josé", nfd("josé"), "r2d2", "straße", "a-b_c"])("nudges %j toward a capital", (name) => {
+    expect(needsCapitalNudge(name)).toBe(true);
+  });
+
+  it.each(["Ada", "José", nfd("José"), "R2d2", "ÆTHELRED", "adA", "a-B_c"])("leaves %j alone", (name) => {
+    expect(needsCapitalNudge(name)).toBe(false);
+  });
+
+  it("says why a capital helps, in one plain sentence or two", () => {
+    expect(CAPITAL_NUDGE_MESSAGE).toMatch(/^[^\n]+\.$/);
+    expect(CAPITAL_NUDGE_MESSAGE).toMatch(/capital/);
+  });
+
   it("exports the same rules from the main entry", () => {
     expect(main.MEMBER_NAME_RULES).toBe(MEMBER_NAME_RULES);
     expect(main.isValidMemberName).toBe(isValidMemberName);
     expect(main.memberNameKey).toBe(memberNameKey);
+    expect(main.needsCapitalNudge).toBe(needsCapitalNudge);
+    expect(main.CAPITAL_NUDGE_MESSAGE).toBe(CAPITAL_NUDGE_MESSAGE);
   });
 });

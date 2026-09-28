@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
+const CAPITAL_NUDGE = "Member names display as typed, and most read best with a capital letter.";
 const NO_PASSKEY_USED = "No passkey was used. If you do not have a passkey here yet, register; if you lost yours, recover.";
 
 /** Give the page a virtual authenticator; returns what reaches it over CDP. */
@@ -38,7 +39,7 @@ async function copyCredentials(from: Authenticator, to: Authenticator) {
 
 test("register, log out and log back in with a passkey", async ({ page }) => {
   await addAuthenticator(page);
-  const memberName = `smoke${Date.now().toString(36)}`;
+  const memberName = `Smoke${Date.now().toString(36)}`;
 
   const logins: number[] = [];
   const registrations: string[] = [];
@@ -146,9 +147,41 @@ test("the register form checks names by the library's rules and explains them", 
   await expect(page.locator("#name-availability")).toHaveText("Available");
 });
 
+test("an all-lowercase name is nudged toward a capital once before it registers", async ({ page }) => {
+  await addAuthenticator(page);
+  const registrations: string[] = [];
+  page.on("request", (r) => {
+    if (r.url().includes("/auth/register")) registrations.push(r.url());
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Continue with passkey" }).click();
+  const name = page.locator("#register-name");
+  const register = page.getByRole("button", { name: "Register with a passkey" });
+  const nudge = page.getByText(CAPITAL_NUDGE);
+
+  await name.fill(`nudge${Date.now().toString(36)}`);
+  await register.click();
+  await expect(nudge).toBeVisible();
+  expect(registrations).toEqual([]);
+
+  // Editing the name takes the nudge back; the next lowercase name is nudged afresh.
+  const memberName = `nudged${Date.now().toString(36)}`;
+  await name.fill(memberName);
+  await expect(nudge).toBeHidden();
+  await register.click();
+  await expect(nudge).toBeVisible();
+  expect(registrations).toEqual([]);
+
+  await register.click();
+  await expect(page.locator("#code-list li")).toHaveCount(8);
+  await page.getByRole("checkbox", { name: "I have saved my recovery codes" }).check();
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(page.locator("#member-name")).toHaveText(memberName);
+});
+
 test("recover on a new device with a recovery code, and be prompted to replace the rest", async ({ page, browser }) => {
   await addAuthenticator(page);
-  const memberName = `recover${Date.now().toString(36)}`;
+  const memberName = `Recover${Date.now().toString(36)}`;
   await page.goto("/");
   await page.getByRole("button", { name: "Continue with passkey" }).click();
   await page.locator("#register-name").fill(memberName);
@@ -179,7 +212,8 @@ test("recover on a new device with a recovery code, and be prompted to replace t
   await device.getByRole("button", { name: "Continue with passkey" }).click();
   await expect(device.getByText(NO_PASSKEY_USED)).toBeVisible();
   const recoverForm = device.locator("#recover-form");
-  await recoverForm.getByLabel("Member name").fill(memberName);
+  // Recovery takes any spelling of the name, and never nudges it toward a capital.
+  await recoverForm.getByLabel("Member name").fill(memberName.toLowerCase());
   await recoverForm.getByLabel("Recovery code").fill(code);
   await recoverForm.getByRole("button", { name: "Recover with a new passkey" }).click();
 
@@ -187,13 +221,14 @@ test("recover on a new device with a recovery code, and be prompted to replace t
   await expect(device.locator("#member-name")).toHaveText(memberName);
   await expect(device.locator("#rotate-prompt")).toBeVisible();
   await expect(device.locator("#rotate-prompt")).toContainText("you have 7 codes left");
+  await expect(device.getByText(CAPITAL_NUDGE)).toHaveCount(0);
   await expect(device.locator("#rotate-prompt")).toContainText("Replace your remaining codes now");
   await device.context().close();
 });
 
 test("adding a passkey on a device that already has one says so, and adds nothing", async ({ page }) => {
   await addAuthenticator(page);
-  const memberName = `twice${Date.now().toString(36)}`;
+  const memberName = `Twice${Date.now().toString(36)}`;
   const enrolments: string[] = [];
   page.on("request", (r) => {
     if (r.url().endsWith("/me/credentials/enrol/verify")) enrolments.push(r.url());
@@ -217,7 +252,7 @@ test("adding a passkey on a device that already has one says so, and adds nothin
 
 test("log out everywhere else steps up, then leaves only this session", async ({ page, browser }) => {
   const laptop = await addAuthenticator(page);
-  const memberName = `elsewhere${Date.now().toString(36)}`;
+  const memberName = `Elsewhere${Date.now().toString(36)}`;
   const statuses: number[] = [];
   page.on("response", (r) => {
     if (r.url().endsWith("/auth/logout-elsewhere")) statuses.push(r.status());
