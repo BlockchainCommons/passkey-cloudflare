@@ -1,0 +1,21 @@
+import { vi } from "vitest";
+
+/** The label a pinned draw gives: three zero bytes. */
+export const PINNED_LABEL = "able-able-able";
+
+/**
+ * Make the next `count` labels drawn, or every one, `PINNED_LABEL`, leaving
+ * all other randomness alone. Labels are the only draws shorter than eight
+ * bytes. Returns the number of label draws made so far. Undo it with
+ * `vi.restoreAllMocks()`.
+ */
+export function pinLabelDraws(count = Infinity): () => number {
+  const real = crypto.getRandomValues.bind(crypto);
+  let draws = 0;
+  vi.spyOn(crypto, "getRandomValues").mockImplementation(((array: Uint8Array) => {
+    if (array.length >= 8) return real(array);
+    draws++;
+    return draws <= count ? array.fill(0) : real(array);
+  }) as typeof crypto.getRandomValues);
+  return () => draws;
+}

@@ -1,6 +1,7 @@
 import { env, runInDurableObject } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { testApp, uniqueName } from "./harness.ts";
+import { PINNED_LABEL, pinLabelDraws } from "./label-draws.ts";
 
 const MINUTE = 60 * 1000;
 const APPLE_PASSWORDS = "fbfc3007-154e-4ecc-8c0b-6e020557d7bd";
@@ -13,6 +14,10 @@ async function dropLabelBindings(recordId: string) {
     state.storage.sql.exec("UPDATE labels SET credential_id = NULL");
   });
 }
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 function aaguidBytes(uuid: string): Uint8Array {
   return new Uint8Array(uuid.replace(/-/g, "").match(/../g)!.map((h) => parseInt(h, 16)));
@@ -204,6 +209,44 @@ describe("passkeys", () => {
     expect(await old.json()).toMatchObject({ passkeyName: `${name} (amber-falcon)` });
     const { credentials } = await browser.json(browser.get("/me/credentials"));
     expect(credentials).toHaveLength(1);
+  });
+
+  it("never reissue a revoked passkey's label, when adding a passkey or when recovering", async () => {
+    const app = testApp();
+    const name = uniqueName();
+    const browser = app.browser();
+    pinLabelDraws(1);
+    const { recoveryCodes } = await browser.register(name);
+    vi.restoreAllMocks();
+    await browser.stepUp();
+    await browser.enrol();
+    expect((await browser.post("/me/credentials/revoke", { label: PINNED_LABEL })).status).toBe(200);
+
+    // Adding a passkey: the retired label is drawn first, and passed over.
+    const enrolDraws = pinLabelDraws(1);
+    const { label: enrolled } = await browser.enrol();
+    vi.restoreAllMocks();
+
+    expect(enrolDraws()).toBe(2);
+    expect(enrolled).toMatch(/^[a-z]{4}-[a-z]{4}-[a-z]{4}$/);
+    expect(enrolled).not.toBe(PINNED_LABEL);
+
+    // Recovering: the retired label is drawn unchecked, and never bound.
+    const device = app.browser();
+    const recoverDraws = pinLabelDraws(1);
+    const options = await device.json(device.post("/auth/recover/options", { memberName: name }));
+    vi.restoreAllMocks();
+    expect(recoverDraws()).toBe(1);
+    const response = await device.authenticator.create(options);
+    expect((await device.post("/auth/recover", { memberName: name, code: recoveryCodes[0], response })).status).toBe(200);
+
+    const { credentials } = await device.json(device.get("/me/credentials"));
+    const labels = credentials.map((c: any) => c.label);
+    expect(labels).toHaveLength(3);
+    expect(labels).not.toContain(PINNED_LABEL);
+    expect(new Set(labels).size).toBe(3);
+    await device.stepUp();
+    expect((await device.post("/me/credentials/revoke", { label: PINNED_LABEL })).status).toBe(404);
   });
 
   it("need a step-up to revoke", async () => {

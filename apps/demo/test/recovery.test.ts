@@ -3,6 +3,7 @@ import type { CredentialLabels } from "passkey-cloudflare";
 import { decodeTypedBytewords, encodeBytewords } from "passkey-cloudflare/gordian";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { testApp, uniqueName, type Browser } from "./harness.ts";
+import { pinLabelDraws } from "./label-draws.ts";
 
 const HOUR = 60 * 60 * 1000;
 // Well-formed recovery codes that are never issued.
@@ -15,22 +16,6 @@ async function labelRows(recordId: string): Promise<number> {
   return runInDurableObject(labelsOf(recordId), (_instance, state) =>
     state.storage.sql.exec<{ n: number }>("SELECT count(*) AS n FROM labels").one().n,
   );
-}
-
-/**
- * Make every label drawn from here on the same label, leaving all other
- * randomness alone. Labels are the only draws shorter than eight bytes.
- * Returns the number of label draws made so far.
- */
-function pinLabelDraws(): () => number {
-  const real = crypto.getRandomValues.bind(crypto);
-  let draws = 0;
-  vi.spyOn(crypto, "getRandomValues").mockImplementation(((array: Uint8Array) => {
-    if (array.length >= 8) return real(array);
-    draws++;
-    return array.fill(0);
-  }) as typeof crypto.getRandomValues);
-  return () => draws;
 }
 
 afterEach(() => {
