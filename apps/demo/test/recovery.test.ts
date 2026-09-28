@@ -3,7 +3,7 @@ import type { CredentialLabels } from "passkey-cloudflare";
 import { decodeTypedBytewords, encodeBytewords } from "passkey-cloudflare/gordian";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { testApp, uniqueName, type Browser } from "./harness.ts";
-import { pinLabelDraws } from "./label-draws.ts";
+import { PINNED_LABEL, PINNED_LABEL_BYTES, pinLabelDraws } from "./label-draws.ts";
 
 const HOUR = 60 * 60 * 1000;
 // Well-formed recovery codes that are never issued.
@@ -173,9 +173,13 @@ describe("recovery", () => {
     const labelDraws = pinLabelDraws();
     const device = app.browser();
     const options = await device.json(device.post("/auth/recover/options", { memberName: name }));
-    const pinned = /\((.+)\)$/.exec(options.user.name)![1]!;
+    expect(/\((.+)\)$/.exec(options.user.name)![1]).toBe(PINNED_LABEL);
     await runInDurableObject(labelsOf(recordId), (_instance, state) => {
-      state.storage.sql.exec("INSERT OR IGNORE INTO labels (label, minted_at) VALUES (?, ?)", pinned, Date.now());
+      state.storage.sql.exec(
+        "INSERT OR IGNORE INTO labels (label, minted_at) VALUES (?, ?)",
+        PINNED_LABEL_BYTES,
+        Date.now(),
+      );
     });
 
     const drawsBefore = labelDraws();

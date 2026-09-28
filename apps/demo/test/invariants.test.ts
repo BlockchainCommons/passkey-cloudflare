@@ -1,6 +1,6 @@
-import { seedSecretFromTyped } from "passkey-cloudflare/gordian";
+import { bytewordToken, seedSecretFromTyped } from "passkey-cloudflare/gordian";
 import { describe, expect, it } from "vitest";
-import { dumpDurableState } from "./durable-state.ts";
+import { dumpDurableState, hex } from "./durable-state.ts";
 import { ORIGIN, testApp, uniqueName, type Browser, type TestApp } from "./harness.ts";
 import { refusalArms } from "./refusal-arms.ts";
 
@@ -12,6 +12,15 @@ const REFUSAL = '{"error":"ceremony refused"}';
 /** A recovery code's 16-byte secret, in hex, as a dump of durable state would render it. */
 function codeSecretHex(code: string): string {
   return Array.from(seedSecretFromTyped(code)!, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * A label's 3 bytes as a dump of durable state renders a whole blob: `|hex|`.
+ * It matches only a blob that is exactly the label. Three bytes searched for
+ * inside longer values would turn up by chance in the run's many hex hashes.
+ */
+function labelBlob(label: string): string {
+  return `|${hex(Uint8Array.from(label.split("-"), (word) => bytewordToken(word)!))}|`;
 }
 
 async function recoverWith(device: Browser, memberName: string, code: string) {
@@ -186,8 +195,11 @@ describe("invariants", () => {
     const identityState = await dumpDurableState(["IDENTITY_RECORDS", "CREDENTIAL_INDEX"]);
 
     expect(identityState).not.toContain(name);
-    for (const label of labels) expect(identityState).not.toContain(label);
-    expect(await dumpDurableState(["CREDENTIAL_LABELS"])).toContain(labels[0]);
+    for (const label of labels) {
+      expect(identityState).not.toContain(label);
+      expect(identityState).not.toContain(labelBlob(label));
+    }
+    expect(await dumpDurableState(["CREDENTIAL_LABELS"])).toContain(labelBlob(labels[0]));
   });
 
   it("no distinguishable ceremony failure", async () => {

@@ -501,19 +501,19 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
 
     /**
      * Revoke the passkey with this label, typed in any form `parseLabel`
-     * reads. A label from before the Bytewords format matches exactly. The
-     * last passkey cannot be revoked. Returns the dead entry as the password
-     * manager shows it, and that password manager where its AAGUID is known.
+     * reads. The last passkey cannot be revoked. Returns the dead entry as
+     * the password manager shows it, and that password manager where its
+     * AAGUID is known.
      */
     async revokeCredential(
       ctx: RequestContext,
       sessionValue: string | null | undefined,
       typed: string,
     ): Promise<RevokedPasskey> {
-      const label = typeof typed === "string" ? (parseLabel(typed) ?? typed) : typed;
+      const label = typeof typed === "string" ? parseLabel(typed) : null;
       const session = await steppedUpSession(sessionValue, ctx.now);
-      const credentialId = typeof label === "string" ? await labels(session.recordId).resolve(label) : null;
-      if (!credentialId) throw new PasskeyError("not-found");
+      const credentialId = label === null ? null : await labels(session.recordId).resolve(label);
+      if (label === null || !credentialId) throw new PasskeyError("not-found");
       const memberName = await names().nameOf(session.recordId);
       const done = await record(session.recordId).revokeCredential({
         tokenHash: session.tokenHash,

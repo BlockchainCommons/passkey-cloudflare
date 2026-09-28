@@ -2,6 +2,8 @@ import { vi } from "vitest";
 
 /** The label a pinned draw gives: three zero bytes. */
 export const PINNED_LABEL = "able-able-able";
+/** `PINNED_LABEL` as the labels table stores it. */
+export const PINNED_LABEL_BYTES = new Uint8Array(3);
 
 /**
  * Make the next `count` labels drawn, or every one, `PINNED_LABEL`, leaving

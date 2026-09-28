@@ -189,26 +189,30 @@ describe("passkeys", () => {
     expect((await browser.post("/auth/login/verify", { response })).status).toBe(400);
   });
 
-  it("revoke by a label typed in capitals with spaces, or by a label from before three words", async () => {
-    const name = uniqueName();
+  it("stores a label as its three bytes, and spells it as words only when shown", async () => {
     const browser = testApp().browser();
-    const { recordId } = await browser.register(name);
-    await browser.stepUp();
-    const { label: typedLabel } = await browser.enrol();
-    await browser.enrol();
-    const [, , third] = browser.authenticator.credentials;
-    await runInDurableObject(labelsOf(recordId), (_instance, state) => {
-      state.storage.sql.exec("UPDATE labels SET label = 'amber-falcon' WHERE credential_id = ?", third!.id);
-    });
+    pinLabelDraws(1);
+    const { recordId } = await browser.register(uniqueName());
 
-    const typed = await browser.post("/me/credentials/revoke", { label: typedLabel!.toUpperCase().replace(/-/g, " ") });
-    const old = await browser.post("/me/credentials/revoke", { label: "amber-falcon" });
-
-    expect(typed.status).toBe(200);
-    expect(old.status).toBe(200);
-    expect(await old.json()).toMatchObject({ passkeyName: `${name} (amber-falcon)` });
+    const rows = await runInDurableObject(labelsOf(recordId), (_instance, state) =>
+      state.storage.sql
+        .exec<{ kind: string; hex: string }>("SELECT typeof(label) AS kind, hex(label) AS hex FROM labels")
+        .toArray(),
+    );
+    expect(rows).toEqual([{ kind: "blob", hex: "000000" }]);
     const { credentials } = await browser.json(browser.get("/me/credentials"));
-    expect(credentials).toHaveLength(1);
+    expect(credentials.map((c: any) => c.label)).toEqual([PINNED_LABEL]);
+  });
+
+  it("finds no passkey for a label in the earlier two-word format", async () => {
+    const browser = testApp().browser();
+    await browser.register(uniqueName());
+    await browser.stepUp();
+    await browser.enrol();
+
+    expect((await browser.post("/me/credentials/revoke", { label: "amber-falcon" })).status).toBe(404);
+    const { credentials } = await browser.json(browser.get("/me/credentials"));
+    expect(credentials).toHaveLength(2);
   });
 
   it("never reissue a revoked passkey's label, when adding a passkey or when recovering", async () => {
