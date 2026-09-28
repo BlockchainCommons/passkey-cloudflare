@@ -208,7 +208,7 @@ async function register(event) {
   }
   const verified = await post("/auth/register/verify", { response: credentialJSON(credential) });
   if (!verified.ok) return status("Registration was refused.");
-  showCodes((await verified.json()).recoveryCodes);
+  showCodes(await verified.json());
 }
 
 async function recover(event) {
@@ -257,7 +257,13 @@ async function rebind() {
   await showHome();
 }
 
-function showCodes(codes) {
+// Each code as its UR, or as the same UR body in words, for reading aloud or writing down.
+let shownCodes = { recoveryCodes: [], recoveryCodeWords: [] };
+let showingWords = false;
+
+function listCodes(asWords) {
+  showingWords = asWords;
+  const codes = asWords ? shownCodes.recoveryCodeWords : shownCodes.recoveryCodes;
   $("code-list").replaceChildren(
     ...codes.map((code) => {
       const li = document.createElement("li");
@@ -265,6 +271,12 @@ function showCodes(codes) {
       return li;
     }),
   );
+  $("codes-toggle").textContent = asWords ? "Show as codes" : "Show as words";
+}
+
+function showCodes({ recoveryCodes, recoveryCodeWords }) {
+  shownCodes = { recoveryCodes, recoveryCodeWords };
+  listCodes(false);
   // The codes are shown once, so Continue waits for the person to say they saved them.
   $("codes-saved").checked = false;
   $("codes-done").disabled = true;
@@ -352,7 +364,7 @@ async function rotateCodes() {
   const response = await withStepUp(() => post("/me/recovery-codes/rotate"));
   if (!response.ok) return status("Could not replace your recovery codes.");
   $("rotate-prompt").hidden = true;
-  showCodes((await response.json()).recoveryCodes);
+  showCodes(await response.json());
 }
 
 async function operatorAction(event) {
@@ -383,6 +395,7 @@ $("recover-form").addEventListener("submit", guard(recover));
 $("rebind-button").addEventListener("click", guard(rebind));
 $("codes-saved").addEventListener("change", (event) => ($("codes-done").disabled = !event.target.checked));
 $("codes-done").addEventListener("click", guard(showHome));
+$("codes-toggle").addEventListener("click", () => listCodes(!showingWords));
 $("add-passkey").addEventListener("click", guard(addPasskey));
 $("rotate-codes").addEventListener("click", guard(rotateCodes));
 $("rotate-now").addEventListener("click", guard(rotateCodes));

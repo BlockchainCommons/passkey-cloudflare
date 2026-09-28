@@ -24,6 +24,16 @@ export function seedUr(secret: Uint8Array): string {
 }
 
 /**
+ * A recovery code as words to read aloud or write down: the body of its UR in
+ * standard Bytewords. Takes the code in any form `seedSecretFromTyped` accepts.
+ */
+export function seedWords(code: string): string {
+  const secret = seedSecretFromTyped(code);
+  if (!secret) throw new Error("seedWords: not a recovery code");
+  return encodeBytewords(untaggedSeed(secret), "standard");
+}
+
+/**
  * The 16-byte secret in what a person typed, or null. Accepts the UR with or
  * without its prefix, and the tagged seed, the untagged seed or the bare
  * secret in any Bytewords style, in any case.

@@ -1,4 +1,5 @@
 import { env, runInDurableObject } from "cloudflare:test";
+import { seedWords } from "passkey-cloudflare/gordian";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { testApp, uniqueName } from "./harness.ts";
 import { PINNED_LABEL, pinLabelDraws } from "./label-draws.ts";
@@ -279,5 +280,6 @@ describe("recovery codes", () => {
 
     expect(rotated.recoveryCodes).toHaveLength(8);
     for (const code of rotated.recoveryCodes) expect(recoveryCodes).not.toContain(code);
+    expect(rotated.recoveryCodeWords).toEqual(rotated.recoveryCodes.map(seedWords));
   });
 });

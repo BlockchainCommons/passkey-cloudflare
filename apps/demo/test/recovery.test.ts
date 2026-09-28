@@ -45,6 +45,21 @@ describe("recovery", () => {
     expect((await newDevice.login()).recordId).toBe(recordId);
   });
 
+  it("accepts a code in the word form the page shows for reading aloud", async () => {
+    const app = testApp();
+    const name = uniqueName();
+    const { recordId, recoveryCodes, recoveryCodeWords } = await app.browser().register(name);
+    expect(recoveryCodeWords).toHaveLength(recoveryCodes.length);
+    for (const words of recoveryCodeWords) expect(words).toMatch(/^[a-z]{4}( [a-z]{4}){22}$/);
+
+    const recovered = await recover(app.browser(), name, recoveryCodeWords[2]!);
+
+    expect(recovered.status).toBe(200);
+    expect((await recovered.json<any>()).recordId).toBe(recordId);
+    // Both forms name one code, so the UR is spent with it.
+    expect((await recover(app.browser(), name, recoveryCodes[2]!)).status).toBe(400);
+  });
+
   it("reports how many unused codes are left after each recovery", async () => {
     const app = testApp();
     const name = uniqueName();

@@ -96,7 +96,17 @@ test("recover on a new device with a recovery code, and be prompted to replace t
   await page.locator("#register-name").fill(memberName);
   await page.getByRole("button", { name: "Register with a passkey" }).click();
   await expect(page.locator("#code-list li")).toHaveCount(8);
-  const code = (await page.locator("#code-list li").first().textContent())!;
+  const firstCode = page.locator("#code-list li").first();
+  const ur = (await firstCode.textContent())!;
+  expect(ur).toMatch(/^ur:seed\//);
+  // The words are the same code, read aloud or written down; recover with them.
+  await page.getByRole("button", { name: "Show as words" }).click();
+  await expect(firstCode).toHaveText(/^[a-z]{4}( [a-z]{4}){22}$/);
+  const code = (await firstCode.textContent())!;
+  await page.getByRole("button", { name: "Show as codes" }).click();
+  await expect(firstCode).toHaveText(ur);
+  await page.getByRole("button", { name: "Show as words" }).click();
+  await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeDisabled();
   await page.getByRole("checkbox", { name: "I have saved my recovery codes" }).check();
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   await expect(page.locator("#home")).toBeVisible();

@@ -22,4 +22,4 @@ export {
   type Envelope,
   type SeedMetadata,
 } from "./envelope.ts";
-export { SEED_LENGTH, seedSecretFromTyped, seedUr, taggedSeed, untaggedSeed } from "./seed.ts";
+export { SEED_LENGTH, seedSecretFromTyped, seedUr, seedWords, taggedSeed, untaggedSeed } from "./seed.ts";

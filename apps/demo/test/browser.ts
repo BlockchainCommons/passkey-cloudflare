@@ -83,7 +83,7 @@ export class Browser {
   async register(memberName: string) {
     const options = await this.json(this.post("/auth/register/options", { memberName }));
     const response = await this.authenticator.create(options);
-    return this.json<{ recordId: string; recoveryCodes: string[] }>(
+    return this.json<{ recordId: string; recoveryCodes: string[]; recoveryCodeWords: string[] }>(
       this.post("/auth/register/verify", { response }),
     );
   }

@@ -14,6 +14,7 @@ import {
   type RequestContext,
   type RevocationEvent,
 } from "passkey-cloudflare";
+import { seedWords } from "passkey-cloudflare/gordian";
 
 export interface AppOptions {
   /** Source of the current time, for tests. Defaults to `Date.now`. */
@@ -40,6 +41,11 @@ function json(value: unknown, init: ResponseInit = {}): Response {
   headers.set("Content-Type", "application/json");
   headers.set("Cache-Control", "no-store");
   return new Response(JSON.stringify(value), { ...init, headers });
+}
+
+/** Recovery codes with each one's word form, which the page offers for reading aloud. */
+function withWords(recoveryCodes: string[]) {
+  return { recoveryCodes, recoveryCodeWords: recoveryCodes.map(seedWords) };
 }
 
 function error(status: number, message: string): Response {
@@ -104,7 +110,7 @@ const POST: Record<string, Handler> = {
     const outcome = await passkeys.ceremony(ctx, "register", () => passkeys.register(ctx, body.response));
     if (!outcome.ok) return outcome.response;
     const { recordId, session, recoveryCodes } = outcome.value;
-    return json({ recordId, recoveryCodes }, { headers: { "Set-Cookie": sessionCookie(session) } });
+    return json({ recordId, ...withWords(recoveryCodes) }, { headers: { "Set-Cookie": sessionCookie(session) } });
   },
 
   "/auth/login/options": async ({ passkeys, ctx }) =>
@@ -199,7 +205,7 @@ const POST: Record<string, Handler> = {
   },
 
   "/me/recovery-codes/rotate": async ({ passkeys, ctx, request }) =>
-    json({ recoveryCodes: await passkeys.rotateRecoveryCodes(ctx, sessionValueFrom(request)) }),
+    json(withWords(await passkeys.rotateRecoveryCodes(ctx, sessionValueFrom(request)))),
 };
 
 const GET: Record<string, Handler> = {

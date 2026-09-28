@@ -18,6 +18,7 @@ import {
   seedEnvelope,
   seedSecretFromTyped,
   seedUr,
+  seedWords,
   taggedSeed,
   type BytewordsStyle,
   type Envelope,
@@ -162,9 +163,14 @@ describe("Envelope", () => {
 });
 
 describe("recovery code text", () => {
+  const input = (id: string) => vectors.recoveryCode.inputAccepted.find((c) => c.id === id)!.input;
+
   it("is the seed's UR", () => {
-    const ur = vectors.recoveryCode.inputAccepted.find((c) => c.id === "ur")!.input;
-    expect(seedUr(secret)).toBe(ur);
+    expect(seedUr(secret)).toBe(input("ur"));
+  });
+
+  it("reads aloud as the UR body in standard Bytewords", () => {
+    expect(seedWords(input("ur"))).toBe(input("ur-body-standard"));
   });
 
   for (const c of vectors.recoveryCode.inputAccepted) {
