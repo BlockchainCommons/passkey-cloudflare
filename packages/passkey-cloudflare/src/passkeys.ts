@@ -557,7 +557,10 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       return creationOptions({ rp: config.rp, challenge, userName: passkeyName(shownName ?? memberName, label) });
     },
 
-    /** Recover with a member name, a recovery code and a new passkey, in one request. */
+    /**
+     * Recover with a member name, a recovery code and a new passkey, in one
+     * request. Returns how many unused recovery codes the record has left.
+     */
     async recover(ctx: RequestContext, memberName: string, code: string, response: RegistrationResponseJSON) {
       const { challenge, payload } = await consumeChallenge<{
         memberName: string;
@@ -584,7 +587,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
         throw new CeremonyRefusal(done.cause, recordId);
       }
       await bindLabel(recordId, payload.label, credential.id, ctx.now);
-      return { recordId, session: session.value };
+      return { recordId, session: session.value, codesLeft: done.codesLeft };
     },
 
     /** The presented session, if it is live and stepped up within the window; otherwise a PasskeyError. */

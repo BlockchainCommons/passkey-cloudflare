@@ -118,6 +118,7 @@ test("recover on a new device with a recovery code, and be prompted to replace t
   await expect(device.locator("#home")).toBeVisible();
   await expect(device.locator("#member-name")).toHaveText(memberName);
   await expect(device.locator("#rotate-prompt")).toBeVisible();
+  await expect(device.locator("#rotate-prompt")).toContainText("you have 7 codes left");
   await expect(device.locator("#rotate-prompt")).toContainText("Replace your remaining codes now");
   await device.context().close();
 });

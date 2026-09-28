@@ -135,8 +135,8 @@ const POST: Record<string, Handler> = {
       passkeys.recover(ctx, body.memberName, body.code, body.response),
     );
     if (!outcome.ok) return outcome.response;
-    const { recordId, session } = outcome.value;
-    return json({ recordId }, { headers: { "Set-Cookie": sessionCookie(session) } });
+    const { recordId, session, codesLeft } = outcome.value;
+    return json({ recordId, codesLeft }, { headers: { "Set-Cookie": sessionCookie(session) } });
   },
 
   "/auth/rebind/options": async ({ passkeys, ctx, body }) =>

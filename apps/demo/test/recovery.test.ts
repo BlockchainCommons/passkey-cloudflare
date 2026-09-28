@@ -45,6 +45,19 @@ describe("recovery", () => {
     expect((await newDevice.login()).recordId).toBe(recordId);
   });
 
+  it("reports how many unused codes are left after each recovery", async () => {
+    const app = testApp();
+    const name = uniqueName();
+    const { recoveryCodes } = await app.browser().register(name);
+    expect(recoveryCodes).toHaveLength(8);
+
+    const first = await recover(app.browser(), name, recoveryCodes[0]!);
+    expect((await first.json<{ codesLeft: number }>()).codesLeft).toBe(7);
+
+    const second = await recover(app.browser(), name, recoveryCodes[5]!);
+    expect((await second.json<{ codesLeft: number }>()).codesLeft).toBe(6);
+  });
+
   it("accepts a code typed in capitals and without its ur:seed/ prefix", async () => {
     const app = testApp();
     const name = uniqueName();

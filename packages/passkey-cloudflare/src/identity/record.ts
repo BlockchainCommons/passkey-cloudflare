@@ -365,9 +365,15 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
   /**
    * Recover with a recovery code: check the throttle and the code, mark the
    * code used, bind the new credential and mint a session, in one transaction.
-   * Every attempt counts against the throttle, whatever its outcome.
+   * Every attempt counts against the throttle, whatever its outcome. Returns
+   * how many unused codes are left, counted in the same transaction.
    */
-  recover(input: { codeHash: string; credential: VerifiedCredential; session: NewSession; now: number }): RecordResult {
+  recover(input: {
+    codeHash: string;
+    credential: VerifiedCredential;
+    session: NewSession;
+    now: number;
+  }): RecordResult<{ codesLeft: number }> {
     const refused = this.unavailableCause();
     if (refused) return { ok: false, cause: refused };
     const recent = this.sql
@@ -376,14 +382,17 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
     if (recent >= RECOVERY_ATTEMPTS_PER_HOUR) return { ok: false, cause: "recovery-throttled" };
     this.sql.exec("DELETE FROM recovery_attempts WHERE at <= ?", input.now - HOUR_MS);
     this.sql.exec("INSERT INTO recovery_attempts (at) VALUES (?)", input.now);
-    return this.ctx.storage.transactionSync((): RecordResult => {
+    return this.ctx.storage.transactionSync((): RecordResult<{ codesLeft: number }> => {
       const used = this.sql
         .exec("UPDATE recovery_codes SET used_at = ? WHERE code_hash = ? AND used_at IS NULL RETURNING 1", input.now, input.codeHash)
         .toArray();
       if (used.length === 0) return { ok: false, cause: "wrong-recovery-code" };
       this.insertCredential(input.credential, input.now);
       this.insertSession(input.session, input.now);
-      return { ok: true };
+      const codesLeft = this.sql
+        .exec<{ n: number }>("SELECT COUNT(*) AS n FROM recovery_codes WHERE used_at IS NULL")
+        .one().n;
+      return { ok: true, codesLeft };
     });
   }
 

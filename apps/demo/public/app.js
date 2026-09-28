@@ -225,8 +225,19 @@ async function recover(event) {
   }
   const verified = await post("/auth/recover", { memberName, code: form.get("code"), response: credentialJSON(credential) });
   if (!verified.ok) return status("Recovery was refused.");
+  const { codesLeft } = await verified.json();
   await showHome();
+  $("rotate-message").textContent = rotateMessage(codesLeft);
   $("rotate-prompt").hidden = false;
+}
+
+function rotateMessage(codesLeft) {
+  const left = codesLeft === 0 ? "none" : codesLeft === 1 ? "1 code" : `${codesLeft} codes`;
+  return (
+    `This recovery used one of your recovery codes; you have ${left} left. ` +
+    "Replace your remaining codes now, in case the set was exposed. " +
+    "Replacing them stops every old code working, including any you keep elsewhere or have split into shares."
+  );
 }
 
 async function rebind() {
