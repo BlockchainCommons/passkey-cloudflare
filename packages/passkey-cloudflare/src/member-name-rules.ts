@@ -22,7 +22,7 @@ export const MEMBER_NAME_RULES = {
   description:
     `A member name is ${MIN_LENGTH} to ${MAX_LENGTH} characters long and starts with a letter. ` +
     "After that it may use letters, digits, hyphens and underscores, but a hyphen or underscore " +
-    "must sit between two letters or digits. Letters are A to Z, with or without accents. " +
+    "must sit between two letters or digits. Letters are A to Z and most accented Latin letters. " +
     "Names that differ only in capitals or accents count as the same name, so José and jose cannot both be taken.",
 } as const;
 
