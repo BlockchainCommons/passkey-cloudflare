@@ -2,7 +2,7 @@ import { env, runInDurableObject } from "cloudflare:test";
 import { seedWords } from "passkey-cloudflare/gordian";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { testApp, uniqueName } from "./harness.ts";
-import { PINNED_LABEL, pinLabelDraws, savedLabel } from "./label-draws.ts";
+import { PINNED_LABEL, PINNED_LABEL_BYTES, pinLabelDraws, savedLabel } from "./label-draws.ts";
 
 const MINUTE = 60 * 1000;
 const APPLE_PASSWORDS = "fbfc3007-154e-4ecc-8c0b-6e020557d7bd";
@@ -277,6 +277,40 @@ describe("passkeys", () => {
     expect(new Set(labels).size).toBe(3);
     await device.stepUp();
     expect((await device.post("/me/credentials/revoke", { label: PINNED_LABEL })).status).toBe(404);
+  });
+
+  it("never resolve a revoked passkey's label, even when its row names a passkey still in use", async () => {
+    const browser = testApp().browser();
+    const { recordId } = await browser.register(uniqueName());
+    await browser.stepUp();
+    pinLabelDraws(1);
+    await browser.enrol();
+    vi.restoreAllMocks();
+    // A third passkey, so the pinned one is never the last and a wrong resolve could revoke it.
+    await browser.enrol();
+    const [first, pinned] = browser.authenticator.credentials;
+    const retiredLabel = savedLabel(first!);
+    expect((await browser.post("/me/credentials/revoke", { label: retiredLabel })).status).toBe(200);
+
+    // A corrupted or migrated row: the retired label now names the pinned passkey. Its own
+    // row lets go of it first, since a credential holds at most one row.
+    await runInDurableObject(labelsOf(recordId), (_instance, state) => {
+      const sql = state.storage.sql;
+      const retired = sql.exec<{ label: ArrayBuffer }>("SELECT label FROM labels WHERE retired_at IS NOT NULL").toArray();
+      expect(retired).toHaveLength(1);
+      const pinnedId = sql
+        .exec<{ credential_id: string }>("SELECT credential_id FROM labels WHERE label = ?", PINNED_LABEL_BYTES)
+        .one().credential_id;
+      sql.exec("UPDATE labels SET credential_id = NULL WHERE label = ?", PINNED_LABEL_BYTES);
+      sql.exec("UPDATE labels SET credential_id = ? WHERE label = ?", pinnedId, retired[0]!.label);
+    });
+
+    expect((await browser.post("/me/credentials/revoke", { label: retiredLabel })).status).toBe(404);
+    const { credentials } = await browser.json(browser.get("/me/credentials"));
+    expect(credentials).toHaveLength(2);
+    const options = await browser.json(browser.post("/auth/login/options"));
+    const response = await browser.authenticator.get(options, {}, pinned!.id);
+    expect((await browser.post("/auth/login/verify", { response })).status).toBe(200);
   });
 
   it("need a step-up to revoke", async () => {
