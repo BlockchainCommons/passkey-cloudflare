@@ -13,8 +13,11 @@ A principal that is a natural person and proves itself with passkeys. Every agen
 _Avoid_: human, member, user
 
 **Member name**:
-The unique name a person chooses at registration, shown to others and used to find their identity record during recovery. It belongs to the app, not to the identity layer, and its history is kept.
+The name a person chooses at registration, unique ignoring case and accents (José and jose are the same name), shown to others and used to find their identity record during recovery. It belongs to the app, not to the identity layer, and never changes once registered.
 _Avoid_: handle, username, display name
+
+**Retired name**:
+A member name whose member has been removed. Nobody can register it again unless an operator allows it. A name freed by a registration that never completed was never a member's, so it is not retired.
 
 **Identity record**:
 The durable identity of one principal, which survives the loss of any single credential. Every grant and attribution refers to it.
