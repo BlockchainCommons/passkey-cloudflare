@@ -87,3 +87,37 @@ test("without immediate mode, register and recover show from the start", async (
   await expect(page.getByText(NO_PASSKEY_USED)).toBeVisible();
   expect(registrations).toEqual([]);
 });
+
+test("recover on a new device with a recovery code, and be prompted to replace the rest", async ({ page, browser }) => {
+  await addAuthenticator(page);
+  const memberName = `recover${Date.now().toString(36)}`;
+  await page.goto("/");
+  await page.getByRole("button", { name: "Continue with passkey" }).click();
+  await page.locator("#register-name").fill(memberName);
+  await page.getByRole("button", { name: "Register with a passkey" }).click();
+  await expect(page.locator("#code-list li")).toHaveCount(8);
+  const code = (await page.locator("#code-list li").first().textContent())!;
+  await page.getByRole("checkbox", { name: "I have saved my recovery codes" }).check();
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(page.locator("#home")).toBeVisible();
+  await expect(page.locator("#rotate-prompt")).toBeHidden();
+  await page.getByRole("button", { name: "Log out", exact: true }).click();
+  await expect(page.locator("#home")).toBeHidden();
+
+  // A new device: no session and no passkey, only the member name and a code.
+  const device = await (await browser.newContext()).newPage();
+  await addAuthenticator(device);
+  await device.goto("/");
+  await device.getByRole("button", { name: "Continue with passkey" }).click();
+  await expect(device.getByText(NO_PASSKEY_USED)).toBeVisible();
+  const recoverForm = device.locator("#recover-form");
+  await recoverForm.getByLabel("Member name").fill(memberName);
+  await recoverForm.getByLabel("Recovery code").fill(code);
+  await recoverForm.getByRole("button", { name: "Recover with a new passkey" }).click();
+
+  await expect(device.locator("#home")).toBeVisible();
+  await expect(device.locator("#member-name")).toHaveText(memberName);
+  await expect(device.locator("#rotate-prompt")).toBeVisible();
+  await expect(device.locator("#rotate-prompt")).toContainText("Replace your remaining codes now");
+  await device.context().close();
+});
