@@ -2,14 +2,14 @@ import { env, runInDurableObject } from "cloudflare:test";
 import { seedWords } from "passkey-cloudflare/gordian";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { testApp, uniqueName } from "./harness.ts";
-import { PINNED_LABEL, pinLabelDraws } from "./label-draws.ts";
+import { PINNED_LABEL, pinLabelDraws, savedLabel } from "./label-draws.ts";
 
 const MINUTE = 60 * 1000;
 const APPLE_PASSWORDS = "fbfc3007-154e-4ecc-8c0b-6e020557d7bd";
 
 const labelsOf = (recordId: string) => env.CREDENTIAL_LABELS.get(env.CREDENTIAL_LABELS.idFromName(recordId));
 
-/** Leave a record's credentials as a failed label bind would: no label bound to any of them. */
+/** Leave a record's credentials with no label bound to any of them. */
 async function dropLabelBindings(recordId: string) {
   await runInDurableObject(labelsOf(recordId), (_instance, state) => {
     state.storage.sql.exec("UPDATE labels SET credential_id = NULL");
@@ -190,6 +190,27 @@ describe("passkeys", () => {
     expect((await browser.post("/auth/login/verify", { response })).status).toBe(400);
   });
 
+  it("are not recovered onto a label another passkey holds, and the recovery code still works", async () => {
+    const app = testApp();
+    const name = uniqueName();
+    pinLabelDraws(2);
+    const { recoveryCodes } = await app.browser().register(name);
+    const collided = app.browser();
+    const options = await collided.json(collided.post("/auth/recover/options", { memberName: name }));
+    const response = await collided.authenticator.create(options);
+    expect(collided.authenticator.credentials[0]!.userName).toBe(`${name} (${PINNED_LABEL})`);
+
+    const refused = await collided.post("/auth/recover", { memberName: name, code: recoveryCodes[0], response });
+
+    expect(refused.status).toBe(400);
+    const retry = app.browser();
+    const again = await retry.json(retry.post("/auth/recover/options", { memberName: name }));
+    const retried = await retry.authenticator.create(again);
+    expect((await retry.post("/auth/recover", { memberName: name, code: recoveryCodes[0], response: retried })).status).toBe(200);
+    const { credentials } = await retry.json(retry.get("/me/credentials"));
+    expect(credentials.map((c: any) => c.label)).toEqual([PINNED_LABEL, savedLabel(retry.authenticator.credentials[0]!)]);
+  });
+
   it("stores a label as its three bytes, and spells it as words only when shown", async () => {
     const browser = testApp().browser();
     pinLabelDraws(1);
@@ -236,14 +257,18 @@ describe("passkeys", () => {
     expect(enrolled).toMatch(/^[a-z]{4}-[a-z]{4}-[a-z]{4}$/);
     expect(enrolled).not.toBe(PINNED_LABEL);
 
-    // Recovering: the retired label is drawn unchecked, and never bound.
-    const device = app.browser();
+    // Recovering: the retired label is drawn unchecked, never bound, and the recovery is refused.
+    const refusedDevice = app.browser();
     const recoverDraws = pinLabelDraws(1);
-    const options = await device.json(device.post("/auth/recover/options", { memberName: name }));
+    const options = await refusedDevice.json(refusedDevice.post("/auth/recover/options", { memberName: name }));
     vi.restoreAllMocks();
     expect(recoverDraws()).toBe(1);
-    const response = await device.authenticator.create(options);
-    expect((await device.post("/auth/recover", { memberName: name, code: recoveryCodes[0], response })).status).toBe(200);
+    const response = await refusedDevice.authenticator.create(options);
+    expect((await refusedDevice.post("/auth/recover", { memberName: name, code: recoveryCodes[0], response })).status).toBe(400);
+    const device = app.browser();
+    const retry = await device.json(device.post("/auth/recover/options", { memberName: name }));
+    const retried = await device.authenticator.create(retry);
+    expect((await device.post("/auth/recover", { memberName: name, code: recoveryCodes[0], response: retried })).status).toBe(200);
 
     const { credentials } = await device.json(device.get("/me/credentials"));
     const labels = credentials.map((c: any) => c.label);

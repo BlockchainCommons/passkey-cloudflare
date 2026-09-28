@@ -43,6 +43,8 @@ export interface StoredCredential {
   id: string;
   rpId: string;
   userHandle: string;
+  /** The name the relying party asked to save the passkey under, as a password manager shows it. */
+  userName: string;
   algorithm: Algorithm;
   privateKey: CryptoKey;
   signCount: number;
@@ -167,6 +169,7 @@ export class SoftwareAuthenticator {
       id,
       rpId,
       userHandle: options.user.id,
+      userName: options.user.name,
       algorithm: this.algorithm,
       privateKey,
       signCount,

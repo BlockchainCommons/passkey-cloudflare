@@ -3,9 +3,9 @@ import { randomBytes } from "../encoding.ts";
 import { bytewordsIdentifier, bytewordToken } from "../gordian/bytewords.ts";
 
 // A per-record namespace of credential labels. A label is minted when a
-// ceremony starts, bound to a credential when it completes, and retired when
-// the credential is revoked. A credential whose bind never happened is given a
-// label when it is next listed. Labels are never reused within a record.
+// ceremony starts, bound to a credential before the record commits it, and
+// retired when the credential is revoked. A credential with no label is given
+// one when it is next listed. Labels are never reused within a record.
 //
 // A label is three random bytes, stored as those bytes. It is spelled as
 // Bytewords with no checksum, lower case and hyphenated, `wand-meow-nail`,
@@ -19,8 +19,7 @@ const MINT_TRIES = 64;
 
 /**
  * A label drawn at random and not checked against any namespace. A label that
- * turns out to be taken when it is bound leaves the credential unlabelled
- * until it is next listed.
+ * turns out to be taken when it is bound refuses the ceremony.
  */
 export function randomLabel(): string {
   return bytesToLabel(randomBytes(LABEL_BYTES));
@@ -89,12 +88,14 @@ export class CredentialLabels<Env = unknown> extends DurableObject<Env> {
   }
 
   /**
-   * Bind a label to a credential. A label minted elsewhere is recorded here
-   * first. A credential that already has a label, as a listing gives one whose
-   * bind came late, keeps it.
+   * Bind a label to a credential, returning whether the credential now holds
+   * it. A label minted elsewhere is recorded here first. A label taken by
+   * another credential or retired is not bound, and a credential that already
+   * has a label keeps it.
    */
-  bind(label: string, credentialId: string, now: number): void {
-    if (this.labelOf(credentialId) !== null) return;
+  bind(label: string, credentialId: string, now: number): boolean {
+    const held = this.labelOf(credentialId);
+    if (held !== null) return held === label;
     this.sql.exec(
       `INSERT INTO labels (label, credential_id, minted_at) VALUES (?, ?, ?)
        ON CONFLICT (label) DO UPDATE SET credential_id = excluded.credential_id
@@ -103,6 +104,7 @@ export class CredentialLabels<Env = unknown> extends DurableObject<Env> {
       credentialId,
       now,
     );
+    return this.labelOf(credentialId) === label;
   }
 
   /** The label a credential has or had. A credential has at most one, retired or not. */
@@ -130,7 +132,7 @@ export class CredentialLabels<Env = unknown> extends DurableObject<Env> {
 
   /**
    * The label of each credential, minting one for any credential that never
-   * had one, as a failed bind leaves it. A credential revoked since its caller
+   * had one. A credential revoked since its caller
    * listed it keeps its retired label rather than gaining an active one.
    */
   labelEach(credentialIds: readonly string[], now: number): Record<string, string> {

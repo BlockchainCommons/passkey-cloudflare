@@ -5,6 +5,11 @@ export const PINNED_LABEL = "able-able-able";
 /** `PINNED_LABEL` as the labels table stores it. */
 export const PINNED_LABEL_BYTES = new Uint8Array(3);
 
+/** The label in the name a passkey was saved under, as its password manager shows it. */
+export function savedLabel(credential: { userName: string }): string {
+  return /\(([a-z-]+)\)$/.exec(credential.userName)![1]!;
+}
+
 /**
  * Make the next `count` labels drawn, or every one, `PINNED_LABEL`, leaving
  * all other randomness alone. Labels are the only draws shorter than eight

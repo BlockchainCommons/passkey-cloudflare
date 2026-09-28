@@ -1,12 +1,13 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { testApp, uniqueName, type Browser, type TestApp } from "./harness.ts";
+import { savedLabel } from "./label-draws.ts";
 
-// A label is bound after the record has committed the ceremony's credential
-// and session. These tests make that bind fail and check that the ceremony
-// still succeeds, and that the credential is labelled when next listed. The
-// failure is faked at the binding because a thrown bind is the behaviour under
-// test; what a lost bind leaves in storage is tested in credentials.test.ts.
+// A label is bound before the record commits the ceremony's credential, so
+// that every passkey the record holds is listed under the label its password
+// manager saved it under. These tests make that bind fail and check that the
+// ceremony is refused and leaves nothing it would have spent. The failure is
+// faked at the binding because a thrown bind is the behaviour under test.
 
 /** The labels namespace, with every bind failing as an unreachable object would. */
 function labelsThatRefuseToBind(): Env["CREDENTIAL_LABELS"] {
@@ -44,61 +45,74 @@ async function listedLabels(browser: Browser): Promise<string[]> {
   return credentials.map((c: any) => c.label);
 }
 
-describe("a ceremony whose label bind fails", () => {
-  it("still registers, with a session and recovery codes", async () => {
+async function recoverOnto(browser: Browser, memberName: string, code: string) {
+  const options = await browser.json(browser.post("/auth/recover/options", { memberName }));
+  const response = await browser.authenticator.create(options);
+  return browser.post("/auth/recover", { memberName, code, response });
+}
+
+describe("a ceremony whose label bind fails is refused", () => {
+  it("at registration, leaving the member name free", async () => {
     const app = testApp();
     const browser = app.browser();
     const name = uniqueName();
+    const options = await browser.json(browser.post("/auth/register/options", { memberName: name }));
+    const response = await browser.authenticator.create(options);
     breakLabelBinds(app);
 
-    const { recordId, recoveryCodes } = await browser.register(name);
+    const refused = await browser.post("/auth/register/verify", { response });
 
-    expect(recoveryCodes).toHaveLength(8);
-    expect(await browser.json(browser.get("/me"))).toMatchObject({ recordId, memberName: name });
+    expect(refused.status).toBe(400);
+    expect(browser.session).toBeUndefined();
     restoreLabelBinds(app);
-    const labels = await listedLabels(browser);
-    expect(labels).toHaveLength(1);
-    expect(labels[0]).toMatch(/^[a-z]{4}-[a-z]{4}-[a-z]{4}$/);
+    const retry = app.browser();
+    await retry.register(name);
+    expect(await listedLabels(retry)).toEqual([savedLabel(retry.authenticator.credentials[0]!)]);
   });
 
-  it("still enrols the passkey, returning no label", async () => {
+  it("when adding a passkey, which then cannot log in", async () => {
     const app = testApp();
     const browser = app.browser();
     await browser.register(uniqueName());
     await browser.stepUp();
+    const options = await browser.json(browser.post("/me/credentials/enrol/options"));
+    const response = await browser.authenticator.create(options);
     breakLabelBinds(app);
 
-    const { label } = await browser.enrol();
+    const refused = await browser.post("/me/credentials/enrol/verify", { response });
 
-    expect(label).toBeNull();
-    const [, second] = browser.authenticator.credentials;
+    expect(refused.status).toBe(400);
     restoreLabelBinds(app);
-    const labels = await listedLabels(browser);
-    expect(labels).toHaveLength(2);
-    expect(new Set(labels).size).toBe(2);
-    browser.session = undefined;
-    await browser.login(second!.id);
-    expect(browser.session).toBeDefined();
+    expect(await listedLabels(browser)).toHaveLength(1);
+    const [, second] = browser.authenticator.credentials;
+    const login = await browser.json(browser.post("/auth/login/options"));
+    const assertion = await browser.authenticator.get(login, {}, second!.id);
+    expect((await browser.post("/auth/login/verify", { response: assertion })).status).toBe(400);
   });
 
-  it("still recovers, with a session", async () => {
+  it("when recovering, leaving the recovery code unused", async () => {
     const app = testApp();
     const name = uniqueName();
     const { recordId, recoveryCodes } = await app.browser().register(name);
     const newDevice = app.browser();
-    const options = await newDevice.json(newDevice.post("/auth/recover/options", { memberName: name }));
-    const response = await newDevice.authenticator.create(options);
     breakLabelBinds(app);
 
-    const recovered = await newDevice.post("/auth/recover", { memberName: name, code: recoveryCodes[0], response });
+    const refused = await recoverOnto(newDevice, name, recoveryCodes[0]!);
 
-    expect(recovered.status).toBe(200);
-    expect(await newDevice.json(newDevice.get("/me"))).toMatchObject({ recordId });
+    expect(refused.status).toBe(400);
     restoreLabelBinds(app);
-    expect(await listedLabels(newDevice)).toHaveLength(2);
+    const retry = app.browser();
+    expect((await recoverOnto(retry, name, recoveryCodes[0]!)).status).toBe(200);
+    expect(await retry.json(retry.get("/me"))).toMatchObject({ recordId });
+    const labels = await listedLabels(retry);
+    expect(labels).toHaveLength(2);
+    expect(labels[1]).toBe(savedLabel(retry.authenticator.credentials[0]!));
+    await retry.stepUp();
+    const revoked = await retry.json(retry.post("/me/credentials/revoke", { label: labels[1] }));
+    expect(revoked.passkeyName).toBe(retry.authenticator.credentials[0]!.userName);
   });
 
-  it("still rebinds, with a session", async () => {
+  it("when rebinding, leaving the link usable", async () => {
     const app = testApp();
     const operator = app.browser();
     const { recordId: operatorId } = await operator.register(uniqueName("operator"));
@@ -108,16 +122,22 @@ describe("a ceremony whose label bind fails", () => {
     const { recordId } = await app.browser().register(name);
     const { link } = await operator.json(operator.post("/operator/rebind-links", { memberName: name }));
     const fragment = new URL(link).hash.slice(1);
-    const newDevice = app.browser();
-    const options = await newDevice.json(newDevice.post("/auth/rebind/options", { link: fragment }));
-    const response = await newDevice.authenticator.create(options);
+    const rebindOnto = async (browser: Browser) => {
+      const options = await browser.json(browser.post("/auth/rebind/options", { link: fragment }));
+      const response = await browser.authenticator.create(options);
+      return browser.post("/auth/rebind/verify", { link: fragment, response });
+    };
     breakLabelBinds(app);
 
-    const rebound = await newDevice.post("/auth/rebind/verify", { link: fragment, response });
+    const refused = await rebindOnto(app.browser());
 
-    expect(rebound.status).toBe(200);
-    expect(await newDevice.json(newDevice.get("/me"))).toMatchObject({ recordId });
+    expect(refused.status).toBe(400);
     restoreLabelBinds(app);
-    expect(await listedLabels(newDevice)).toHaveLength(2);
+    const retry = app.browser();
+    expect((await rebindOnto(retry)).status).toBe(200);
+    expect(await retry.json(retry.get("/me"))).toMatchObject({ recordId });
+    const labels = await listedLabels(retry);
+    expect(labels).toHaveLength(2);
+    expect(labels[1]).toBe(savedLabel(retry.authenticator.credentials[0]!));
   });
 });

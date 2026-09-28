@@ -230,17 +230,17 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
   }
 
   /**
-   * Bind a completed ceremony's label to its credential. The record has
-   * already committed, so a failed bind does not fail the ceremony: the
-   * credential is given a label when it is next listed. Returns whether the
-   * label was bound.
+   * Bind a ceremony's label to its credential before the record commits it,
+   * so that every passkey a record holds is listed under the label its
+   * password manager saved it under. Returns false if the label is taken or
+   * the bind failed, and the caller refuses the ceremony. A label bound for a
+   * ceremony the record then refuses names no passkey and is never reissued.
    */
   async function bindLabel(recordId: RecordId, label: string, credentialId: string, now: number) {
     try {
-      await labels(recordId).bind(label, credentialId, now);
-      return true;
+      return await labels(recordId).bind(label, credentialId, now);
     } catch (error) {
-      console.error("passkey label bind failed; the credential is labelled when next listed", error);
+      console.error("passkey label bind failed; refusing the ceremony", error);
       return false;
     }
   }
@@ -332,6 +332,11 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
         await names().release(payload.memberName, recordId, ctx.now);
         throw new CeremonyRefusal("credential-exists");
       }
+      if (!(await bindLabel(recordId, payload.label, credential.id, ctx.now))) {
+        await index().delete(credential.id);
+        await names().release(payload.memberName, recordId, ctx.now);
+        throw new CeremonyRefusal("label-unbound");
+      }
       const session = await newSession(recordId, ctx);
       const recovery = await mintRecoveryCodes();
       const created = await record(recordId).createPerson({
@@ -346,7 +351,6 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
         await names().release(payload.memberName, recordId, ctx.now);
         throw new CeremonyRefusal(created.cause);
       }
-      await bindLabel(recordId, payload.label, credential.id, ctx.now);
       return { recordId, session: session.value, recoveryCodes: recovery.codes };
     },
 
@@ -449,11 +453,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       });
     },
 
-    /**
-     * Add a passkey to the stepped-up session's record. Returns its label, or
-     * null if the label could not be bound, in which case the passkey is given
-     * a label when the record's passkeys are next listed.
-     */
+    /** Add a passkey to the stepped-up session's record. Returns its label. */
     async enrol(ctx: RequestContext, sessionValue: string | null | undefined, response: RegistrationResponseJSON) {
       const session = await liveSession(sessionValue, ctx.now);
       const { challenge, payload } = await consumeChallenge<{ recordId: RecordId; sessionId: string; label: string }>(
@@ -466,6 +466,10 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       if (!(await index().put(credential.id, session.recordId))) {
         throw new CeremonyRefusal("credential-exists", session.recordId);
       }
+      if (!(await bindLabel(session.recordId, payload.label, credential.id, ctx.now))) {
+        await index().delete(credential.id);
+        throw new CeremonyRefusal("label-unbound", session.recordId);
+      }
       const added = await record(session.recordId).addCredential({
         tokenHash: session.tokenHash,
         sessionId: payload.sessionId,
@@ -476,11 +480,10 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
         await index().delete(credential.id);
         refuse(added.cause, session.recordId);
       }
-      const bound = await bindLabel(session.recordId, payload.label, credential.id, ctx.now);
-      return { label: bound ? payload.label : null };
+      return { label: payload.label };
     },
 
-    /** The record's passkeys. One left without a label by a failed bind is given one here. */
+    /** The record's passkeys. One with no label is given one here. */
     async credentials(ctx: RequestContext, sessionValue: string | null | undefined): Promise<CredentialListing[]> {
       const session = await liveSession(sessionValue, ctx.now);
       const rows = await record(session.recordId).listCredentials(session.tokenHash, ctx.now);
@@ -575,6 +578,10 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       if (typeof code !== "string") throw new CeremonyRefusal("wrong-recovery-code", recordId);
       const credential = await verifyRegistrationFor(response, challenge, recordId);
       if (!(await index().put(credential.id, recordId))) throw new CeremonyRefusal("credential-exists", recordId);
+      if (!(await bindLabel(recordId, payload.label, credential.id, ctx.now))) {
+        await index().delete(credential.id);
+        throw new CeremonyRefusal("label-unbound", recordId);
+      }
       const session = await newSession(recordId, ctx);
       const done = await record(recordId).recover({
         codeHash: await hashRecoveryCode(code),
@@ -586,7 +593,6 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
         await index().delete(credential.id);
         throw new CeremonyRefusal(done.cause, recordId);
       }
-      await bindLabel(recordId, payload.label, credential.id, ctx.now);
       return { recordId, session: session.value, codesLeft: done.codesLeft };
     },
 
@@ -633,6 +639,10 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       const recordId = parsed.recordId;
       const credential = await verifyRegistrationFor(response, challenge, recordId);
       if (!(await index().put(credential.id, recordId))) throw new CeremonyRefusal("credential-exists", recordId);
+      if (!(await bindLabel(recordId, payload.label, credential.id, ctx.now))) {
+        await index().delete(credential.id);
+        throw new CeremonyRefusal("label-unbound", recordId);
+      }
       const session = await newSession(recordId, ctx);
       const done = await record(recordId).rebind({
         tokenHash: parsed.tokenHash,
@@ -644,7 +654,6 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
         await index().delete(credential.id);
         throw new CeremonyRefusal(done.cause, recordId);
       }
-      await bindLabel(recordId, payload.label, credential.id, ctx.now);
       return { recordId, session: session.value };
     },
 

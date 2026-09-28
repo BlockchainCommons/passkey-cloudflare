@@ -342,7 +342,7 @@ async function addPasskey() {
     status("Adding the passkey was refused.");
   } else {
     const { label } = await verified.json();
-    status(label ? `Added passkey ${label}.` : "Added the passkey.");
+    status(`Added passkey ${label}.`);
   }
   await showHome();
 }
