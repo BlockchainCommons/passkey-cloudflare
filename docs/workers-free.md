@@ -65,4 +65,17 @@ What this shows:
 - The first passkey verification a fresh version runs costs 9 to 16 ms, twice over the limit in three deploys. In these runs that was always a register verify, because each round starts with one; the cost belongs to whichever verification comes first, not to registration. Later verifies on the same version cost a few milliseconds.
 - One register verify after warm-up took 12 ms. Observability does not say which isolate served a request, so this may be a second isolate paying the same first-verification cost.
 
-So a Free deployment would refuse some ceremonies: most likely the first one after each deploy or idle eviction, and the first on each new isolate. Bringing that first verification under 10 ms, by finding what it does once and doing less of it, is the change a Free release would need.
+So a Free deployment would refuse some ceremonies: most likely the first one after each deploy or idle eviction, and the first on each new isolate.
+
+## Why the first verification costs more
+
+2026-09-28: the verification path of `@simplewebauthn/server` 14.0.2, profiled in a fresh Node process with the V8 inspector. Warming WebCrypto first, by importing a key and verifying a signature directly, left the library's first verification as slow as before. So the one-time cost is in the library's JavaScript, not in WebCrypto:
+
+- The first registration verify spends its extra time running the CBOR and authenticator data parsers for the first time.
+- The first assertion verify spends about 4 of its 6.5 ms in `@peculiar/asn1-schema`, a general ASN.1 parser. The library uses it to convert an ES256 signature from DER into raw form.
+
+The library also carries X.509 and attestation-certificate code for attestation formats the demo never accepts, since it asks for no attestation. In the demo Worker's bundle (`wrangler deploy --dry-run --outdir dist --metafile`), `@simplewebauthn/server` and its dependencies are about 690 KB of 774 KB, and the demo and library code are 85 KB.
+
+## Free is not supported
+
+A deployment on Workers Free will refuse some ceremonies, so the library and demo need Workers Paid. One way to fit under 10 ms is a narrow verifier that accepts only what the demo asks for: no attestation, ES256 and Ed25519, the DER signature unwrapped by hand, on `crypto.subtle`. That would replace a maintained library with hand-written code on the security-critical path, so it is not planned for now. Deployments that need RS256 or attestation would still need the full library.
