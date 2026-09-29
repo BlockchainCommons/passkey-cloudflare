@@ -4,17 +4,19 @@ import type {
   PublicKeyCredentialRequestOptionsJSON,
   RegistrationResponseJSON,
 } from "@simplewebauthn/server";
-import { concatBytes, randomBytes, sha256, toBase64Url } from "../encoding.ts";
+import { concatBytes, fromBase64Url, randomBytes, sha256, toBase64Url } from "../encoding.ts";
 import { encodeCbor } from "./cbor.ts";
 
-// A software authenticator for tests. It generates real ES256 and Ed25519 keys
+// A software authenticator for tests. It generates real ES256, Ed25519 and RS256 keys
 // and produces real attestation and assertion responses, and it can be told to
 // produce malformed ones. Never use it as a real authenticator: its private
 // keys live in memory and it performs no user verification.
 
-export type Algorithm = "ES256" | "Ed25519";
+export type Algorithm = "ES256" | "Ed25519" | "RS256";
 
-const COSE_ALG: Record<Algorithm, number> = { ES256: -7, Ed25519: -8 };
+const COSE_ALG: Record<Algorithm, number> = { ES256: -7, Ed25519: -8, RS256: -257 };
+
+const RS256_KEY = { name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" };
 
 export interface AuthenticatorOptions {
   /** The origin written into clientDataJSON. */
@@ -37,6 +39,8 @@ export interface Tamper {
   signCount?: number;
   /** Clear the user-present flag. */
   userAbsent?: boolean;
+  /** The attestation format to report, with an empty statement. Default "none". */
+  attestationFormat?: string;
 }
 
 export interface StoredCredential {
@@ -135,6 +139,16 @@ export class SoftwareAuthenticator {
         [-2, raw.slice(1, 33)],
         [-3, raw.slice(33, 65)],
       ]);
+    } else if (this.algorithm === "RS256") {
+      const pair = (await crypto.subtle.generateKey(RS256_KEY, true, ["sign", "verify"])) as CryptoKeyPair;
+      privateKey = pair.privateKey;
+      const jwk = (await crypto.subtle.exportKey("jwk", pair.publicKey)) as JsonWebKey;
+      coseKey = new Map<number, number | Uint8Array>([
+        [1, 3],
+        [3, -257],
+        [-1, fromBase64Url(jwk.n!)],
+        [-2, fromBase64Url(jwk.e!)],
+      ]);
     } else {
       const pair = (await crypto.subtle.generateKey({ name: "Ed25519" }, true, [
         "sign",
@@ -161,7 +175,7 @@ export class SoftwareAuthenticator {
       credentialId,
       encodeCbor(coseKey),
     );
-    const attestationObject = encodeCbor({ fmt: "none", attStmt: {}, authData });
+    const attestationObject = encodeCbor({ fmt: tamper.attestationFormat ?? "none", attStmt: {}, authData });
     const clientDataJSON = this.clientData("webauthn.create", options.challenge, tamper);
 
     const id = toBase64Url(credentialId);
@@ -227,7 +241,9 @@ export class SoftwareAuthenticator {
               await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, credential.privateKey, signed),
             ),
           )
-        : new Uint8Array(await crypto.subtle.sign({ name: "Ed25519" }, credential.privateKey, signed));
+        : credential.algorithm === "RS256"
+          ? new Uint8Array(await crypto.subtle.sign({ name: "RSASSA-PKCS1-v1_5" }, credential.privateKey, signed))
+          : new Uint8Array(await crypto.subtle.sign({ name: "Ed25519" }, credential.privateKey, signed));
     if (tamper.badSignature) {
       signature = signature.slice();
       signature[signature.length - 1]! ^= 0x01;

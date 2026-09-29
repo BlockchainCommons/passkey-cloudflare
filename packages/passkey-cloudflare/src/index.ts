@@ -9,7 +9,13 @@ export {
 } from "./identity/record.ts";
 export { isRecordId, type RecordId } from "./identity/secrets.ts";
 export { CredentialIndex } from "./identity/credential-index.ts";
-export { CEREMONY_POLICY, type RelyingParty } from "./identity/webauthn.ts";
+export {
+  CEREMONY_POLICY,
+  type RelyingParty,
+  type VerifiedCredential,
+  type Verifier,
+} from "./identity/webauthn.ts";
+export { narrowVerifier } from "./identity/narrow-verifier.ts";
 
 // Application-tier building blocks
 export { ChallengeStore, CHALLENGE_LIFETIME_MS } from "./app-tier/challenges.ts";

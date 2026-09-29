@@ -1,27 +1,25 @@
-import {
-  generateAuthenticationOptions,
-  generateRegistrationOptions,
-  verifyAuthenticationResponse,
-  verifyRegistrationResponse,
-  type AuthenticationResponseJSON,
-  type PublicKeyCredentialCreationOptionsJSON,
-  type PublicKeyCredentialRequestOptionsJSON,
-  type RegistrationResponseJSON,
+import type {
+  AuthenticationResponseJSON,
+  PublicKeyCredentialCreationOptionsJSON,
+  PublicKeyCredentialRequestOptionsJSON,
+  RegistrationResponseJSON,
 } from "@simplewebauthn/server";
-import { decodeAttestationObject, decodeCredentialPublicKey, cose } from "@simplewebauthn/server/helpers";
 import { fromBase64Url, randomBytes } from "../encoding.ts";
 import { CeremonyRefusal } from "../refusal.ts";
 
-// Every login-critical ceremony property is a constant here, never a parameter
-// and never a library default.
+// Every login-critical ceremony property is a constant here or in a verifier,
+// never a parameter and never a library default.
 export const CEREMONY_POLICY = {
   residentKey: "required",
   userVerification: "preferred",
   attestation: "none",
-  /** EdDSA (-8) and ES256 (-7) only. */
-  algorithms: [-8, -7],
   timeoutMs: 300_000,
 } as const;
+
+/** COSE algorithm identifiers. */
+export const COSE_ES256 = -7;
+export const COSE_EDDSA = -8;
+export const COSE_RS256 = -257;
 
 export interface RelyingParty {
   id: string;
@@ -44,48 +42,46 @@ export interface VerifiedCredential {
 export const FLAG_BACKUP_ELIGIBLE = 0x08;
 export const FLAG_BACKED_UP = 0x10;
 
-export function newChallenge(): Uint8Array<ArrayBuffer> {
-  return randomBytes(32);
-}
-
-export async function creationOptions(input: {
+export interface CreationInput {
   rp: RelyingParty;
   challenge: Uint8Array<ArrayBuffer>;
   userName: string;
   excludeCredentialIds?: string[];
-}): Promise<PublicKeyCredentialCreationOptionsJSON> {
-  return generateRegistrationOptions({
-    rpName: input.rp.name,
-    rpID: input.rp.id,
-    // A fresh user handle for every ceremony, presented and never stored.
-    userID: randomBytes(32),
-    userName: input.userName,
-    userDisplayName: input.userName,
-    challenge: input.challenge,
-    timeout: CEREMONY_POLICY.timeoutMs,
-    attestationType: CEREMONY_POLICY.attestation,
-    excludeCredentials: (input.excludeCredentialIds ?? []).map((id) => ({ id })),
-    authenticatorSelection: {
-      residentKey: CEREMONY_POLICY.residentKey,
-      requireResidentKey: true,
-      userVerification: CEREMONY_POLICY.userVerification,
-    },
-    supportedAlgorithmIDs: [...CEREMONY_POLICY.algorithms],
-  });
 }
 
-export async function requestOptions(input: {
+export interface RequestInput {
   rp: RelyingParty;
   challenge: Uint8Array<ArrayBuffer>;
   allowCredentialIds?: string[];
-}): Promise<PublicKeyCredentialRequestOptionsJSON> {
-  return generateAuthenticationOptions({
-    rpID: input.rp.id,
-    challenge: input.challenge,
-    timeout: CEREMONY_POLICY.timeoutMs,
-    userVerification: CEREMONY_POLICY.userVerification,
-    allowCredentials: (input.allowCredentialIds ?? []).map((id) => ({ id })),
-  });
+}
+
+export interface AssertionExpectation {
+  rp: RelyingParty;
+  challenge: string;
+  credential: { id: string; publicKey: Uint8Array<ArrayBuffer>; signCount: number; enforceCounter: boolean };
+}
+
+/**
+ * WebAuthn options and verification for one algorithm and attestation policy.
+ * A refused response throws a CeremonyRefusal naming the cause.
+ */
+export interface Verifier {
+  /** The COSE algorithms offered at registration, in order of preference. */
+  readonly algorithms: readonly number[];
+  creationOptions(input: CreationInput): Promise<PublicKeyCredentialCreationOptionsJSON>;
+  requestOptions(input: RequestInput): Promise<PublicKeyCredentialRequestOptionsJSON>;
+  verifyRegistration(
+    response: RegistrationResponseJSON,
+    expected: { rp: RelyingParty; challenge: string },
+  ): Promise<VerifiedCredential>;
+  verifyAssertion(
+    response: AuthenticationResponseJSON,
+    expected: AssertionExpectation,
+  ): Promise<{ signCount: number; flags: number }>;
+}
+
+export function newChallenge(): Uint8Array<ArrayBuffer> {
+  return randomBytes(32);
 }
 
 /** Read the challenge a client claims to answer, without trusting anything else in it. */
@@ -98,86 +94,4 @@ export function claimedChallenge(response: unknown): string {
   } catch {
     throw new CeremonyRefusal("malformed-response");
   }
-}
-
-function causeOf(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  if (/origin/i.test(message)) return "wrong-origin";
-  if (/RP ID/i.test(message)) return "wrong-rp-id";
-  if (/challenge/i.test(message)) return "wrong-challenge";
-  if (/signature/i.test(message)) return "bad-signature";
-  if (/counter/i.test(message)) return "counter-regressed";
-  if (/type/i.test(message)) return "wrong-type";
-  if (/user.*present/i.test(message)) return "user-not-present";
-  return "verification-failed";
-}
-
-export async function verifyRegistration(
-  response: RegistrationResponseJSON,
-  expected: { rp: RelyingParty; challenge: string },
-): Promise<VerifiedCredential> {
-  let verification;
-  try {
-    verification = await verifyRegistrationResponse({
-      response,
-      expectedChallenge: expected.challenge,
-      expectedOrigin: expected.rp.origin,
-      expectedRPID: expected.rp.id,
-      expectedType: "webauthn.create",
-      requireUserPresence: true,
-      requireUserVerification: false,
-      supportedAlgorithmIDs: [...CEREMONY_POLICY.algorithms],
-    });
-  } catch (error) {
-    throw new CeremonyRefusal(causeOf(error));
-  }
-  if (!verification.verified) throw new CeremonyRefusal("verification-failed");
-  const info = verification.registrationInfo;
-  const attestation = decodeAttestationObject(fromBase64Url(response.response.attestationObject));
-  const authData = attestation.get("authData");
-  const algorithm = decodeCredentialPublicKey(info.credential.publicKey).get(cose.COSEKEYS.alg);
-  if (typeof algorithm !== "number") throw new CeremonyRefusal("verification-failed");
-  return {
-    id: info.credential.id,
-    publicKey: info.credential.publicKey,
-    algorithm,
-    signCount: info.credential.counter,
-    registrationFlags: authData[32]!,
-    aaguid: info.aaguid,
-    transports: (response.response.transports ?? []) as string[],
-  };
-}
-
-export async function verifyAssertion(
-  response: AuthenticationResponseJSON,
-  expected: {
-    rp: RelyingParty;
-    challenge: string;
-    credential: { id: string; publicKey: Uint8Array<ArrayBuffer>; signCount: number; enforceCounter: boolean };
-  },
-): Promise<{ signCount: number; flags: number }> {
-  let verification;
-  try {
-    verification = await verifyAuthenticationResponse({
-      response,
-      expectedChallenge: expected.challenge,
-      expectedOrigin: expected.rp.origin,
-      expectedRPID: expected.rp.id,
-      expectedType: "webauthn.get",
-      requireUserVerification: false,
-      credential: {
-        id: expected.credential.id,
-        publicKey: expected.credential.publicKey,
-        // A zero stored counter disables the library's monotonic check, which is
-        // what synced (backup-eligible) credentials need.
-        counter: expected.credential.enforceCounter ? expected.credential.signCount : 0,
-      },
-    });
-  } catch (error) {
-    throw new CeremonyRefusal(causeOf(error));
-  }
-  // The library reports a signature that does not verify as unverified rather than as an error.
-  if (!verification.verified) throw new CeremonyRefusal("bad-signature");
-  const authData = fromBase64Url(response.response.authenticatorData);
-  return { signCount: verification.authenticationInfo.newCounter, flags: authData[32]! };
 }

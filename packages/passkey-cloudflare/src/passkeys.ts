@@ -18,15 +18,8 @@ import {
   parseRecordToken,
   type RecordId,
 } from "./identity/secrets.ts";
-import {
-  claimedChallenge,
-  creationOptions,
-  newChallenge,
-  requestOptions,
-  verifyAssertion,
-  verifyRegistration,
-  type RelyingParty,
-} from "./identity/webauthn.ts";
+import { narrowVerifier } from "./identity/narrow-verifier.ts";
+import { claimedChallenge, newChallenge, type RelyingParty, type Verifier } from "./identity/webauthn.ts";
 import { CeremonyRefusal, uniformRefusal, type Ceremony } from "./refusal.ts";
 
 // The ceremonies, composed from the identity layer (records, credential index,
@@ -45,6 +38,13 @@ export interface PasskeyBindings {
 
 export interface PasskeyConfig {
   rp: RelyingParty;
+  /**
+   * How WebAuthn responses are verified. Defaults to the narrow verifier
+   * (ES256 and Ed25519, no attestation). Pass `fullVerifier` from
+   * `passkey-cloudflare/full-verifier` to also accept RS256, at more CPU on a
+   * fresh isolate than Workers Free allows.
+   */
+  verifier?: Verifier;
   /** Minimum time before any ceremony refusal is returned, in milliseconds. */
   refusalFloorMs: number;
   /** Source of the current time. Defaults to `Date.now`. */
@@ -118,6 +118,7 @@ export interface RevokedPasskey {
 
 export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig) {
   const clock = config.clock ?? Date.now;
+  const verifier = config.verifier ?? narrowVerifier;
   const limits: RateLimits = { ...DEFAULT_RATE_LIMITS, ...config.rateLimits };
   const revoked = async (event: RevocationEvent) => {
     await config.onRevoke?.(event);
@@ -187,7 +188,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
     const stored = await record(recordId).credentialForAssertion(credentialId);
     if (!stored) throw new CeremonyRefusal("unknown-credential", recordId);
     try {
-      const verified = await verifyAssertion(response, {
+      const verified = await verifier.verifyAssertion(response, {
         rp: config.rp,
         challenge,
         credential: { id: credentialId, ...stored },
@@ -224,7 +225,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
   /** Verify a new passkey's registration for a known record, keeping the record on any refusal. */
   async function verifyRegistrationFor(response: RegistrationResponseJSON, challenge: string, recordId: RecordId) {
     try {
-      return await verifyRegistration(response, { rp: config.rp, challenge });
+      return await verifier.verifyRegistration(response, { rp: config.rp, challenge });
     } catch (error) {
       if (error instanceof CeremonyRefusal) throw new CeremonyRefusal(error.reason, recordId);
       throw error;
@@ -316,7 +317,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       const memberName = typedName.normalize("NFC");
       const label = randomLabel();
       const challenge = await issueChallenge("register", { memberName, label }, ctx.now);
-      return creationOptions({ rp: config.rp, challenge, userName: passkeyName(memberName, label) });
+      return verifier.creationOptions({ rp: config.rp, challenge, userName: passkeyName(memberName, label) });
     },
 
     /** Complete registration: a new record, its first credential, recovery codes (with when they were issued) and a session. */
@@ -326,7 +327,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
         response,
         ctx.now,
       );
-      const credential = await verifyRegistration(response, { rp: config.rp, challenge });
+      const credential = await verifier.verifyRegistration(response, { rp: config.rp, challenge });
       const recordId = newRecordId();
       if (!(await names().claim(payload.memberName, recordId, ctx.now))) {
         throw new CeremonyRefusal("member-name-taken");
@@ -359,7 +360,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
 
     async loginOptions(ctx: RequestContext) {
       const challenge = await issueChallenge("login", {}, ctx.now);
-      return requestOptions({ rp: config.rp, challenge });
+      return verifier.requestOptions({ rp: config.rp, challenge });
     },
 
     /** Complete a login with any of the site's passkeys, minting a session. */
@@ -425,7 +426,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
         { recordId: session.recordId, sessionId: session.sessionId },
         ctx.now,
       );
-      return requestOptions({ rp: config.rp, challenge, allowCredentialIds: ids });
+      return verifier.requestOptions({ rp: config.rp, challenge, allowCredentialIds: ids });
     },
 
     /** Prove control of one of the record's passkeys again, on this session. */
@@ -462,7 +463,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
         { recordId: session.recordId, sessionId: session.sessionId, label },
         ctx.now,
       );
-      return creationOptions({
+      return verifier.creationOptions({
         rp: config.rp,
         challenge,
         userName: passkeyName(memberName ?? session.recordId, label),
@@ -574,7 +575,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       const label = randomLabel();
       const shownName = recordId ? await names().nameOf(recordId) : memberName.normalize("NFC");
       const challenge = await issueChallenge("recover", { memberName, recordId, label }, ctx.now);
-      return creationOptions({ rp: config.rp, challenge, userName: passkeyName(shownName ?? memberName, label) });
+      return verifier.creationOptions({ rp: config.rp, challenge, userName: passkeyName(shownName ?? memberName, label) });
     },
 
     /**
@@ -641,7 +642,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       if (!parsed || !memberName) throw new PasskeyError("not-found");
       const label = await labels(parsed.recordId).mint(ctx.now);
       const challenge = await issueChallenge("rebind", { recordId: parsed.recordId, label }, ctx.now);
-      return creationOptions({ rp: config.rp, challenge, userName: passkeyName(memberName, label) });
+      return verifier.creationOptions({ rp: config.rp, challenge, userName: passkeyName(memberName, label) });
     },
 
     /** Redeem a rebind link with a new passkey, minting a session. */
