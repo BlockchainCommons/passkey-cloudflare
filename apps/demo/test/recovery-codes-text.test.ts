@@ -9,7 +9,7 @@ const codes = [
 describe("recovery codes as text", () => {
   it("names the site, the member and the issue time, then numbers the codes", () => {
     const text = formatRecoveryCodes({
-      site: "canvas.shallweplay.com",
+      site: "passkeydemo.shallweplay.com",
       memberName: "José",
       issuedAt: Date.UTC(2026, 8, 27, 23, 30),
       codes,
@@ -17,14 +17,14 @@ describe("recovery codes as text", () => {
 
     expect(text).toBe(
       [
-        "Recovery codes for canvas.shallweplay.com",
+        "Recovery codes for passkeydemo.shallweplay.com",
         "Member name: José",
         "Issued: 2026-09-27 23:30 UTC",
         "",
         "1. ur:seed/oyadgdinaauyatsojkdmflfdfrfxtpbkvyfrzmcwntvdta",
         "2. ur:seed/oyadgdtbhtwnrnehadcyhdcwmhecfpaordfnlpjztolbtpas",
         "",
-        "Each code works once. Recover at canvas.shallweplay.com with your member name and one code.",
+        "Each code works once. Recover at passkeydemo.shallweplay.com with your member name and one code.",
         "",
       ].join("\n"),
     );

@@ -3,13 +3,13 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Shall We Play canvas</title>
+    <title>Shall We Play passkey demo</title>
     <link rel="stylesheet" href="/style.css" />
     <script type="module" src="/app.js"></script>
   </head>
   <body>
     <header class="app-bar">
-      <h1>Shall We Play canvas</h1>
+      <h1>Shall We Play passkey demo</h1>
       <span id="signed-in" hidden>
         <strong id="member-name"></strong>
         <button id="open-settings" type="button">Settings</button>
@@ -19,9 +19,9 @@
 
     <main>
       <p id="status" role="status" aria-live="polite"></p>
-      <!-- Where the canvas will go. -->
-      <p id="app-signed-out" class="placeholder" hidden>Sign in to open your canvases.</p>
-      <p id="app-signed-in" class="placeholder" hidden>Your canvases will appear here.</p>
+      <!-- Where an app built on the library would go. -->
+      <p id="app-signed-out" class="placeholder" hidden>Sign in to try passkeys.</p>
+      <p id="app-signed-in" class="placeholder" hidden>You're signed in. The canvas will live at canvas.shallweplay.com.</p>
     </main>
 
     <dialog id="sign-in" aria-labelledby="sign-in-title">

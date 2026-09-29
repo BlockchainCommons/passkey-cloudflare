@@ -280,7 +280,7 @@ describe("invariants", () => {
     const again = await browser.json(browser.post("/auth/register/options", { memberName: name }));
     const login = await browser.json(browser.post("/auth/login/options"));
 
-    expect(registration.rp.id).toBe("canvas.shallweplay.com");
+    expect(registration.rp.id).toBe("passkeydemo.shallweplay.com");
     expect(registration.authenticatorSelection).toEqual({
       residentKey: "required",
       requireResidentKey: true,
@@ -294,7 +294,7 @@ describe("invariants", () => {
     expect(registration.timeout).toBe(300_000);
     expect(registration.challenge).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(again.user.id).not.toBe(registration.user.id);
-    expect(login.rpId).toBe("canvas.shallweplay.com");
+    expect(login.rpId).toBe("passkeydemo.shallweplay.com");
     expect(login.allowCredentials).toEqual([]);
     expect(login.userVerification).toBe("preferred");
     expect(login.timeout).toBe(300_000);

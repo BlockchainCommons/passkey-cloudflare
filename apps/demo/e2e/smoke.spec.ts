@@ -70,7 +70,7 @@ async function registerMember(page: Page, memberName: string) {
 
 test("the app opens signed out, with sign-in in a pane it can close", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByText("Sign in to open your canvases.")).toBeVisible();
+  await expect(page.getByText("Sign in to try passkeys.")).toBeVisible();
   await expect(page.locator("#sign-in")).toBeHidden();
   await expect(page.getByRole("button", { name: "Settings" })).toBeHidden();
 

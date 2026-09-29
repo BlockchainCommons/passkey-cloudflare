@@ -1,4 +1,4 @@
-// The demo's app shell: a placeholder where the canvas will go, a sign-in pane,
+// The demo's app shell: a placeholder where an app built on the library would go, a sign-in pane,
 // a settings pane for passkeys and sessions, and a pane for fresh recovery codes.
 // Bundled into public/app.js by esbuild; see build.command in wrangler.jsonc.
 

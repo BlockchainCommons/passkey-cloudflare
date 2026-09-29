@@ -1,9 +1,9 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
-  "name": "passkey-canvas-demo",
+  "name": "passkey-demo",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-15",
-  "routes": [{ "pattern": "canvas.shallweplay.com", "custom_domain": true }],
+  "routes": [{ "pattern": "passkeydemo.shallweplay.com", "custom_domain": true }],
   "workers_dev": false,
   // Bundles browser/app.ts into public/app.js before dev and deploy.
   "build": { "command": "npm run build:browser", "watch_dir": "browser" },
@@ -13,9 +13,9 @@
     "run_worker_first": ["/auth/*", "/me", "/me/*", "/operator/*"]
   },
   "vars": {
-    "RP_ID": "canvas.shallweplay.com",
-    "RP_NAME": "Shall We Play canvas",
-    "ORIGIN": "https://canvas.shallweplay.com",
+    "RP_ID": "passkeydemo.shallweplay.com",
+    "RP_NAME": "Shall We Play passkey demo",
+    "ORIGIN": "https://passkeydemo.shallweplay.com",
     "REFUSAL_FLOOR_MS": "650"
   },
   "durable_objects": {
