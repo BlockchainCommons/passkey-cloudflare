@@ -1,4 +1,5 @@
-// The demo's entry page and the signed-in page for managing passkeys and sessions.
+// The demo's app shell: a placeholder where the canvas will go, a sign-in pane,
+// a settings pane for passkeys and sessions, and a pane for fresh recovery codes.
 // Bundled into public/app.js by esbuild; see build.command in wrangler.jsonc.
 
 import {
@@ -23,12 +24,20 @@ function $<T extends HTMLElement = HTMLElement>(id: string): T {
 const input = (id: string) => $<HTMLInputElement>(id);
 const button = (id: string) => $<HTMLButtonElement>(id);
 
-function show(section: string) {
-  for (const id of ["entry", "rebind", "codes", "home"]) $(id).hidden = id !== section;
+const pane = (id: string) => $<HTMLDialogElement>(id);
+
+function openPane(id: string) {
+  if (!pane(id).open) pane(id).showModal();
 }
 
+function closePane(id: string) {
+  if (pane(id).open) pane(id).close();
+}
+
+/** Show a message in the topmost open pane, or in the app when none is open. */
 function status(message: string) {
-  $("status").textContent = message;
+  const open = ["codes", "settings", "sign-in"].find((id) => pane(id).open);
+  $(open ? `${open}-status` : "status").textContent = message;
 }
 
 // --- HTTP -------------------------------------------------------------------
@@ -84,7 +93,34 @@ async function newPasskey(options: PublicKeyCredentialCreationOptionsJSON, cance
   return undefined;
 }
 
-// --- entry ------------------------------------------------------------------
+// --- app --------------------------------------------------------------------
+
+interface Me {
+  memberName: string;
+  operator: boolean;
+}
+
+/** Draw the app for whoever is signed in, or for nobody. Returns who that is. */
+async function showApp(): Promise<Me | null> {
+  const response = await fetch("/me");
+  if (!response.ok && response.status !== 401) throw new Error(`/me: ${response.status}`);
+  const me = response.ok ? ((await response.json()) as Me) : null;
+  $("app-signed-out").hidden = me !== null;
+  $("open-sign-in").hidden = me !== null;
+  $("app-signed-in").hidden = me === null;
+  $("signed-in").hidden = me === null;
+  if (me) $("member-name").textContent = me.memberName;
+  return me;
+}
+
+/** Leave the settings pane for the signed-out app. */
+async function signedOut() {
+  closePane("settings");
+  $("rotate-prompt").hidden = true;
+  await showApp();
+}
+
+// --- sign-in pane -----------------------------------------------------------
 
 const CHOICES_GUIDANCE = "If you do not have a passkey here yet, register; if you lost yours, recover.";
 
@@ -95,14 +131,20 @@ function revealChoices(reason: string) {
 }
 
 /**
- * Show the entry page. A browser without immediate mediation cannot say "no
- * passkey here" without a sheet to cancel, so register and recover show at once;
- * with it, they wait for Continue to end without a passkey.
+ * Open the sign-in pane at `step`: Continue and the choices, or a rebind link's passkey.
+ * A browser without immediate mediation cannot say "no passkey here" without a
+ * sheet to cancel, so register and recover show at once; with it, they wait
+ * for Continue to end without a passkey.
  */
-async function showEntry() {
-  show("entry");
-  if (await canFindWithoutSheet()) $("choices").hidden = true;
-  else revealChoices(CHOICES_GUIDANCE);
+async function openSignIn(step: "entry" | "rebind" = "entry") {
+  $("sign-in-status").textContent = "";
+  $("entry").hidden = step !== "entry";
+  $("rebind").hidden = step !== "rebind";
+  if (step === "entry") {
+    if (await canFindWithoutSheet()) $("choices").hidden = true;
+    else revealChoices(CHOICES_GUIDANCE);
+  }
+  openPane("sign-in");
 }
 
 async function continueWithPasskey() {
@@ -120,7 +162,8 @@ async function continueWithPasskey() {
     revealChoices("You can register, or recover with a recovery code.");
     return;
   }
-  await showHome();
+  closePane("sign-in");
+  await showApp();
 }
 
 let availabilityTimer: ReturnType<typeof setTimeout> | undefined;
@@ -157,6 +200,8 @@ async function register(event: SubmitEvent) {
   if (!response) return;
   const verified = await post("/auth/register/verify", { response });
   if (!verified.ok) return status("Registration was refused.");
+  closePane("sign-in");
+  await showApp();
   await showCodes(await verified.json());
 }
 
@@ -170,9 +215,12 @@ async function recover(event: SubmitEvent) {
   const verified = await post("/auth/recover", { memberName, code: form.get("code"), response });
   if (!verified.ok) return status("Recovery was refused.");
   const { codesLeft } = (await verified.json()) as { codesLeft: number };
-  await showHome();
+  closePane("sign-in");
+  await showApp();
+  // Recovery ends in settings, where the prompt to replace the codes waits at the top.
   $("rotate-message").textContent = rotateMessage(codesLeft);
   $("rotate-prompt").hidden = false;
+  await showSettings();
 }
 
 function rotateMessage(codesLeft: number) {
@@ -193,7 +241,8 @@ async function rebind() {
   const verified = await post("/auth/rebind/verify", { link, response });
   if (!verified.ok) return status("This link was refused. It may have been used or have expired.");
   history.replaceState(null, "", "/");
-  await showHome();
+  closePane("sign-in");
+  await showApp();
 }
 
 // Each code as its UR, or as the same UR body in words, for reading aloud or writing down.
@@ -206,6 +255,8 @@ let shownCodes: ShownCodes = { recoveryCodes: [], recoveryCodeWords: [] };
 // The codes as text to keep, always in their UR form: the words view is for display only.
 let codesText = "";
 let showingWords = false;
+// The codes pane stays open until the person says they saved the codes.
+let codesSaved = false;
 
 function listCodes(asWords: boolean) {
   showingWords = asWords;
@@ -232,10 +283,19 @@ async function showCodes({ recoveryCodes, recoveryCodeWords, issuedAt }: ShownCo
   // The codes are shown once, so Continue waits for the person to say they saved them.
   input("codes-saved").checked = false;
   button("codes-done").disabled = true;
-  show("codes");
+  $("codes-status").textContent = "";
+  codesSaved = false;
+  openPane("codes");
 }
 
-// --- home -------------------------------------------------------------------
+/** Leave the codes for where the person was: settings after a replacement, else the app. */
+async function leaveCodes() {
+  codesSaved = true;
+  closePane("codes");
+  if (pane("settings").open) await showSettings();
+}
+
+// --- settings pane ----------------------------------------------------------
 
 const when = (ms: number | null | undefined) => (ms ? new Date(ms).toLocaleString() : "never");
 
@@ -269,18 +329,14 @@ interface Session {
   expiresAt: number;
 }
 
-async function showHome() {
-  const meResponse = await fetch("/me");
-  if (meResponse.status === 401) {
-    await showEntry();
-    return;
-  }
-  const me = (await meResponse.json()) as { memberName: string; operator: boolean };
+/** Fill the settings pane from the server and open it; a lapsed session leaves for the signed-out app. */
+async function showSettings() {
+  const me = await showApp();
+  if (!me) return signedOut();
   const [{ credentials }, { sessions }] = await Promise.all([
     getJSON<{ credentials: Passkey[] }>("/me/credentials"),
     getJSON<{ sessions: Session[] }>("/me/sessions"),
   ]);
-  $("member-name").textContent = me.memberName;
   $("credential-rows").replaceChildren(
     ...credentials.map((c) => {
       const revoke = document.createElement("button");
@@ -294,7 +350,7 @@ async function showHome() {
     ...sessions.map((s) => row([`${s.userAgent}${s.current ? " (this one)" : ""}`, when(s.createdAt), when(s.expiresAt)])),
   );
   $("operator").hidden = !me.operator;
-  show("home");
+  openPane("settings");
 }
 
 async function addPasskey() {
@@ -309,7 +365,7 @@ async function addPasskey() {
     const { label } = (await verified.json()) as { label: string };
     status(`Added passkey ${label}.`);
   }
-  await showHome();
+  await showSettings();
 }
 
 async function revokePasskey(label: string) {
@@ -321,7 +377,7 @@ async function revokePasskey(label: string) {
     const { passkeyName, provider } = (await response.json()) as { passkeyName: string; provider: string | null };
     status(`Revoked ${label}. Delete '${passkeyName}' from ${provider ?? "your password manager"} too; it no longer logs in.`);
   }
-  await showHome();
+  await showSettings();
 }
 
 async function rotateCodes() {
@@ -356,6 +412,20 @@ function guard<A extends unknown[]>(fn: (...args: A) => Promise<unknown>) {
     });
 }
 
+$("open-sign-in").addEventListener("click", guard(() => openSignIn()));
+$("open-settings").addEventListener("click", guard(async () => {
+  $("settings-status").textContent = "";
+  await showSettings();
+}));
+for (const close of document.querySelectorAll<HTMLButtonElement>("dialog .close")) {
+  close.addEventListener("click", () => close.closest("dialog")!.close());
+}
+// Esc does not leave codes that are shown once. Chrome may close a dialog on a
+// repeated Esc even so, and the pane opens again until the person has saved them.
+pane("codes").addEventListener("cancel", (event) => event.preventDefault());
+pane("codes").addEventListener("close", () => {
+  if (!codesSaved) pane("codes").showModal();
+});
 $("continue").addEventListener("click", guard(continueWithPasskey));
 input("register-name").minLength = MEMBER_NAME_RULES.minLength;
 // No maxLength: it counts a decomposed name before the input handler composes
@@ -372,7 +442,7 @@ $("register-form").addEventListener("submit", guard((event: Event) => register(e
 $("recover-form").addEventListener("submit", guard((event: Event) => recover(event as SubmitEvent)));
 $("rebind-button").addEventListener("click", guard(rebind));
 input("codes-saved").addEventListener("change", () => (button("codes-done").disabled = !input("codes-saved").checked));
-$("codes-done").addEventListener("click", guard(showHome));
+$("codes-done").addEventListener("click", guard(leaveCodes));
 $("codes-toggle").addEventListener("click", () => listCodes(!showingWords));
 $("codes-copy").addEventListener("click", guard(async () => {
   await navigator.clipboard.writeText(codesText);
@@ -383,18 +453,25 @@ $("rotate-codes").addEventListener("click", guard(rotateCodes));
 $("rotate-now").addEventListener("click", guard(rotateCodes));
 $("logout").addEventListener("click", guard(async () => {
   await post("/auth/logout");
-  await showEntry();
+  await signedOut();
 }));
 $("logout-everywhere").addEventListener("click", guard(async () => {
   await post("/auth/logout-everywhere");
-  await showEntry();
+  await signedOut();
 }));
 $("logout-elsewhere").addEventListener("click", guard(async () => {
   const response = await withStepUp(() => post("/auth/logout-elsewhere"));
   status(response.ok ? "Logged out everywhere else." : "Could not log out everywhere else.");
-  await showHome();
+  await showSettings();
 }));
 $("operator-form").addEventListener("submit", guard((event: Event) => operatorAction(event as SubmitEvent)));
 
-if (location.pathname === "/rebind" && location.hash.length > 1) show("rebind");
-else guard(showHome)();
+// A rebind link opens the sign-in pane at its passkey; anything else shows the app.
+if (location.pathname === "/rebind" && location.hash.length > 1) {
+  guard(async () => {
+    await showApp();
+    await openSignIn("rebind");
+  })();
+} else {
+  guard(showApp)();
+}

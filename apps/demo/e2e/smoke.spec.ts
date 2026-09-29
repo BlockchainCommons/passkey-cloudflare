@@ -37,6 +37,52 @@ async function copyCredentials(from: Authenticator, to: Authenticator) {
   }
 }
 
+/** Open the sign-in pane from the app bar. */
+async function openSignIn(page: Page) {
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page.locator("#sign-in")).toBeVisible();
+}
+
+/** The app bar names the member once they are signed in, and the sign-in pane has closed. */
+async function expectSignedIn(page: Page, memberName: string) {
+  await expect(page.locator("#sign-in")).toBeHidden();
+  await expect(page.locator("#member-name")).toHaveText(memberName);
+  await expect(page.getByRole("button", { name: "Settings" })).toBeVisible();
+}
+
+/** Open the settings pane from the app bar. */
+async function openSettings(page: Page) {
+  await page.getByRole("button", { name: "Settings" }).click();
+  await expect(page.locator("#settings")).toBeVisible();
+}
+
+/** Register a new member from the sign-in pane and leave the recovery codes. */
+async function registerMember(page: Page, memberName: string) {
+  await page.goto("/");
+  await openSignIn(page);
+  await page.getByRole("button", { name: "Continue with passkey" }).click();
+  await page.locator("#register-name").fill(memberName);
+  await page.getByRole("button", { name: "Register with a passkey" }).click();
+  await page.getByRole("checkbox", { name: "I have saved my recovery codes" }).check();
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await expectSignedIn(page, memberName);
+}
+
+test("the app opens signed out, with sign-in in a pane it can close", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByText("Sign in to open your canvases.")).toBeVisible();
+  await expect(page.locator("#sign-in")).toBeHidden();
+  await expect(page.getByRole("button", { name: "Settings" })).toBeHidden();
+
+  await openSignIn(page);
+  await expect(page.getByRole("button", { name: "Continue with passkey" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#sign-in")).toBeHidden();
+  await openSignIn(page);
+  await page.getByRole("button", { name: "Close" }).click();
+  await expect(page.locator("#sign-in")).toBeHidden();
+});
+
 test("register, log out and log back in with a passkey", async ({ page }) => {
   await addAuthenticator(page);
   const memberName = `Smoke${Date.now().toString(36)}`;
@@ -50,6 +96,7 @@ test("register, log out and log back in with a passkey", async ({ page }) => {
     if (r.url().includes("/auth/register")) registrations.push(r.url());
   });
   await page.goto("/");
+  await openSignIn(page);
   await expect(page.getByRole("button", { name: "Continue with passkey" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "New here? Register" })).toBeHidden();
 
@@ -72,7 +119,7 @@ test("register, log out and log back in with a passkey", async ({ page }) => {
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
   await page.getByRole("button", { name: "Show as words" }).click();
   await page.getByRole("button", { name: "Copy" }).click();
-  await expect(page.locator("#status")).toHaveText("Copied your recovery codes.");
+  await expect(page.locator("#codes-status")).toHaveText("Copied your recovery codes.");
   const copied = await page.evaluate(() => navigator.clipboard.readText());
   const codes = copied.split("\n").filter((line) => /^\d+\. /.test(line));
   expect(copied.startsWith(`${headerText}\n\n`)).toBe(true);
@@ -87,19 +134,24 @@ test("register, log out and log back in with a passkey", async ({ page }) => {
   await expect(done).toBeEnabled();
   await saved.uncheck();
   await expect(done).toBeDisabled();
+  // Esc does not leave codes that are shown once.
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#codes")).toBeVisible();
   await saved.check();
   await done.click();
-  await expect(page.locator("#home")).toBeVisible();
-  await expect(page.locator("#member-name")).toHaveText(memberName);
+  await expect(page.locator("#codes")).toBeHidden();
+  await expectSignedIn(page, memberName);
 
+  await openSettings(page);
   await page.getByRole("button", { name: "Log out", exact: true }).click();
-  await expect(page.locator("#home")).toBeHidden();
+  await expect(page.locator("#settings")).toBeHidden();
+  await expect(page.getByRole("button", { name: "Settings" })).toBeHidden();
+  await openSignIn(page);
   await expect(page.getByRole("button", { name: "Continue with passkey" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "New here? Register" })).toBeHidden();
 
   await page.getByRole("button", { name: "Continue with passkey" }).click();
-  await expect(page.locator("#home")).toBeVisible();
-  await expect(page.locator("#member-name")).toHaveText(memberName);
+  await expectSignedIn(page, memberName);
   expect(logins).toEqual([200]);
 });
 
@@ -114,6 +166,7 @@ test("without immediate mode, register and recover show from the start", async (
     if (r.url().includes("/auth/register")) registrations.push(r.url());
   });
   await page.goto("/");
+  await openSignIn(page);
   await expect(page.getByRole("button", { name: "Continue with passkey" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "New here? Register" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Lost your passkeys? Recover" })).toBeVisible();
@@ -129,6 +182,7 @@ test("the register form checks names by the library's rules and explains them", 
     PublicKeyCredential.getClientCapabilities = async () => ({ immediateGet: false });
   });
   await page.goto("/");
+  await openSignIn(page);
   const name = page.locator("#register-name");
   const rules = page.getByText("A member name is 3 to 32 characters long and starts with a letter.", { exact: false });
 
@@ -154,6 +208,7 @@ test("an all-lowercase name is nudged toward a capital once before it registers"
     if (r.url().includes("/auth/register")) registrations.push(r.url());
   });
   await page.goto("/");
+  await openSignIn(page);
   await page.getByRole("button", { name: "Continue with passkey" }).click();
   const name = page.locator("#register-name");
   const register = page.getByRole("button", { name: "Register with a passkey" });
@@ -176,13 +231,14 @@ test("an all-lowercase name is nudged toward a capital once before it registers"
   await expect(page.locator("#code-list li")).toHaveCount(8);
   await page.getByRole("checkbox", { name: "I have saved my recovery codes" }).check();
   await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await expect(page.locator("#member-name")).toHaveText(memberName);
+  await expectSignedIn(page, memberName);
 });
 
 test("recover on a new device with a recovery code, and be prompted to replace the rest", async ({ page, browser }) => {
   await addAuthenticator(page);
   const memberName = `Recover${Date.now().toString(36)}`;
   await page.goto("/");
+  await openSignIn(page);
   await page.getByRole("button", { name: "Continue with passkey" }).click();
   await page.locator("#register-name").fill(memberName);
   await page.getByRole("button", { name: "Register with a passkey" }).click();
@@ -200,15 +256,17 @@ test("recover on a new device with a recovery code, and be prompted to replace t
   await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeDisabled();
   await page.getByRole("checkbox", { name: "I have saved my recovery codes" }).check();
   await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await expect(page.locator("#home")).toBeVisible();
+  await expectSignedIn(page, memberName);
+  await openSettings(page);
   await expect(page.locator("#rotate-prompt")).toBeHidden();
   await page.getByRole("button", { name: "Log out", exact: true }).click();
-  await expect(page.locator("#home")).toBeHidden();
+  await expect(page.getByRole("button", { name: "Settings" })).toBeHidden();
 
   // A new device: no session and no passkey, only the member name and a code.
   const device = await (await browser.newContext()).newPage();
   await addAuthenticator(device);
   await device.goto("/");
+  await openSignIn(device);
   await device.getByRole("button", { name: "Continue with passkey" }).click();
   await expect(device.getByText(NO_PASSKEY_USED)).toBeVisible();
   const recoverForm = device.locator("#recover-form");
@@ -217,12 +275,25 @@ test("recover on a new device with a recovery code, and be prompted to replace t
   await recoverForm.getByLabel("Recovery code").fill(code);
   await recoverForm.getByRole("button", { name: "Recover with a new passkey" }).click();
 
-  await expect(device.locator("#home")).toBeVisible();
+  // Recovery ends in settings, with the prompt to replace the codes at the top.
+  await expect(device.locator("#sign-in")).toBeHidden();
+  await expect(device.locator("#settings")).toBeVisible();
   await expect(device.locator("#member-name")).toHaveText(memberName);
   await expect(device.locator("#rotate-prompt")).toBeVisible();
   await expect(device.locator("#rotate-prompt")).toContainText("you have 7 codes left");
   await expect(device.getByText(CAPITAL_NUDGE)).toHaveCount(0);
   await expect(device.locator("#rotate-prompt")).toContainText("Replace your remaining codes now");
+
+  // Replacing them shows the new set over settings, then returns there without the prompt.
+  device.on("dialog", (d) => void d.accept());
+  await device.getByRole("button", { name: "Replace them now" }).click();
+  await expect(device.locator("#codes")).toBeVisible();
+  await expect(device.locator("#code-list li")).toHaveCount(8);
+  await device.getByRole("checkbox", { name: "I have saved my recovery codes" }).check();
+  await device.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(device.locator("#codes")).toBeHidden();
+  await expect(device.locator("#settings")).toBeVisible();
+  await expect(device.locator("#rotate-prompt")).toBeHidden();
   await device.context().close();
 });
 
@@ -233,17 +304,13 @@ test("adding a passkey on a device that already has one says so, and adds nothin
   page.on("request", (r) => {
     if (r.url().endsWith("/me/credentials/enrol/verify")) enrolments.push(r.url());
   });
-  await page.goto("/");
-  await page.getByRole("button", { name: "Continue with passkey" }).click();
-  await page.locator("#register-name").fill(memberName);
-  await page.getByRole("button", { name: "Register with a passkey" }).click();
-  await page.getByRole("checkbox", { name: "I have saved my recovery codes" }).check();
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await registerMember(page, memberName);
+  await openSettings(page);
   await expect(page.locator("#credential-rows tr")).toHaveCount(1);
 
   // The same authenticator holds this record's passkey, which enrolment excludes.
   await page.getByRole("button", { name: "Add a passkey" }).click();
-  await expect(page.locator("#status")).toHaveText(
+  await expect(page.locator("#settings-status")).toHaveText(
     "This device already has a passkey for you. Use it to log in, or add one on another device.",
   );
   expect(enrolments).toEqual([]);
@@ -257,34 +324,39 @@ test("log out everywhere else steps up, then leaves only this session", async ({
   page.on("response", (r) => {
     if (r.url().endsWith("/auth/logout-elsewhere")) statuses.push(r.status());
   });
-  await page.goto("/");
-  await page.getByRole("button", { name: "Continue with passkey" }).click();
-  await page.locator("#register-name").fill(memberName);
-  await page.getByRole("button", { name: "Register with a passkey" }).click();
-  await page.getByRole("checkbox", { name: "I have saved my recovery codes" }).check();
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await expect(page.locator("#home")).toBeVisible();
+  await registerMember(page, memberName);
 
   // A second device holding the same passkey logs in, so the record has two sessions.
   const phone = await (await browser.newContext()).newPage();
   const phoneAuthenticator = await addAuthenticator(phone);
   await copyCredentials(laptop, phoneAuthenticator);
   await phone.goto("/");
+  await openSignIn(phone);
   await phone.getByRole("button", { name: "Continue with passkey" }).click();
-  await expect(phone.locator("#home")).toBeVisible();
+  await expectSignedIn(phone, memberName);
   // The phone's login advanced the passkey's sign counter; the laptop takes that copy, as a synced passkey would.
   await copyCredentials(phoneAuthenticator, laptop);
   await page.reload();
+  await openSettings(page);
   await expect(page.locator("#session-rows tr")).toHaveCount(2);
 
   await page.getByRole("button", { name: "Log out everywhere else" }).click();
 
-  await expect(page.locator("#status")).toHaveText("Logged out everywhere else.");
+  await expect(page.locator("#settings-status")).toHaveText("Logged out everywhere else.");
   expect(statuses).toEqual([403, 200]);
   await expect(page.locator("#session-rows tr")).toHaveCount(1);
   await expect(page.locator("#session-rows tr")).toContainText("(this one)");
   await phone.reload();
-  await expect(phone.getByRole("button", { name: "Continue with passkey" })).toBeVisible();
-  await expect(phone.locator("#home")).toBeHidden();
+  await expect(phone.getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
+  await expect(phone.getByRole("button", { name: "Settings" })).toBeHidden();
   await phone.context().close();
+});
+
+test("a rebind link opens the sign-in pane at its passkey, and says when the link is not valid", async ({ page }) => {
+  await page.goto("/rebind#not-a-link");
+  await expect(page.locator("#sign-in")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Create a passkey" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Continue with passkey" })).toBeHidden();
+  await page.getByRole("button", { name: "Create a passkey" }).click();
+  await expect(page.locator("#sign-in-status")).toHaveText("This link is not valid.");
 });

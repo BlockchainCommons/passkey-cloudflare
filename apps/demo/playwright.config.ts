@@ -1,6 +1,6 @@
 import { defineConfig } from "@playwright/test";
 
-// One browser smoke test against the real entry page, served by `wrangler dev`
+// Browser smoke tests against the real demo page, served by `wrangler dev`
 // with the relying party set to localhost. `--local-upstream` stops wrangler
 // rewriting each request's Origin to the custom-domain route, which the Worker
 // would refuse.

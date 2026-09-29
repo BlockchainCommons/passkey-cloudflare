@@ -3,10 +3,74 @@
   font-family: system-ui, sans-serif;
   line-height: 1.5;
 }
+body {
+  margin: 0;
+}
+.app-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+}
+.app-bar h1 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+#signed-in:not([hidden]) {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
 main {
   max-width: 44rem;
   margin: 2rem auto;
   padding: 0 1rem;
+}
+.placeholder {
+  padding: 3rem 1rem;
+  text-align: center;
+  border: 1px dashed color-mix(in srgb, currentColor 35%, transparent);
+  border-radius: 0.5rem;
+}
+
+/* Panes open over the app as modal dialogs. */
+dialog {
+  width: min(28rem, calc(100vw - 2rem));
+  max-height: calc(100dvh - 2rem);
+  padding: 1rem 1.25rem 1.25rem;
+  color: CanvasText;
+  background: Canvas;
+  border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+  border-radius: 0.75rem;
+}
+#settings {
+  width: min(44rem, calc(100vw - 2rem));
+}
+dialog::backdrop {
+  background: rgb(0 0 0 / 0.45);
+}
+dialog h2 {
+  margin: 0;
+}
+.pane-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.close {
+  border-color: transparent;
+  font-size: 1.4rem;
+  line-height: 1;
+  padding: 0.2rem 0.5rem;
+}
+#settings table {
+  /* Five columns of dates and names; scroll them on a narrow screen rather than squeeze them. */
+  display: block;
+  overflow-x: auto;
 }
 /* Buttons draw no native look, so they read the same in every browser.
    A view's main action is .primary; every other button is secondary. */
