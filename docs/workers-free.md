@@ -10,10 +10,10 @@ You need `wrangler` logged in, and a Node version that runs TypeScript files dir
 
 1. Deploy the measurement Worker, `apps/demo/wrangler.measure.jsonc`, once to learn its workers.dev host. It runs the same code as the demo with its own Durable Objects, and has Workers observability turned on.
 
-2. Deploy it again with the relying party set to that host. Wait until the new version answers, for example until `POST /auth/login/options` with `Origin: https://<host>` returns 200, then run the ceremonies:
+2. Deploy it again with the relying party set to that host, and with an `RP_NAME` used by no earlier deploy. Wait until the new version answers: until `POST /auth/register/options` with `Origin: https://<host>` returns options whose `rp.name` is that name. Every deploy of the same code answers any other request the same way, so only the name tells the new version from the last. Then run the ceremonies:
 
    ```sh
-   npx wrangler deploy -c wrangler.measure.jsonc --var RP_ID:<host> --var ORIGIN:https://<host>
+   npx wrangler deploy -c wrangler.measure.jsonc --var RP_ID:<host> --var ORIGIN:https://<host> --var RP_NAME:<unique name>
    node scripts/measure-cpu.ts https://<host>      # 20 rounds after round 0 by default
    ```
 
