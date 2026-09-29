@@ -1,7 +1,7 @@
-// A throwaway deployment of the demo for measuring refusal timing; see
-// docs/refusal-floor.md. It has its own Durable Objects, no floor, and rate
-// limits too high to refuse. Deploy it with RP_ID and ORIGIN set to its
-// workers.dev host, measure, then delete it.
+// A throwaway deployment of the demo for measuring refusal timing and CPU time;
+// see docs/refusal-floor.md and docs/workers-free.md. It has its own Durable
+// Objects, no floor, and rate limits too high to refuse. Deploy it with RP_ID
+// and ORIGIN set to its workers.dev host, measure, then delete it.
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "passkey-canvas-measure",
@@ -38,5 +38,6 @@
         "OperatorLog"
       ]
     }
-  ]
+  ],
+  "observability": { "enabled": true }
 }
