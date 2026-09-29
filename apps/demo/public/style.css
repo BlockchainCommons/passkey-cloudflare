@@ -72,6 +72,16 @@ dialog h2 {
   display: block;
   overflow-x: auto;
 }
+#account-details {
+  margin-bottom: 0.75rem;
+}
+#account-details summary {
+  cursor: pointer;
+}
+#record-id {
+  /* A 36-character UUID; let it wrap on a narrow screen. */
+  overflow-wrap: anywhere;
+}
 /* Buttons draw no native look, so they read the same in every browser.
    A view's main action is .primary; every other button is secondary. */
 :root {

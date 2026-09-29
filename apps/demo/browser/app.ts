@@ -96,6 +96,7 @@ async function newPasskey(options: PublicKeyCredentialCreationOptionsJSON, cance
 // --- app --------------------------------------------------------------------
 
 interface Me {
+  recordId: string;
   memberName: string;
   operator: boolean;
 }
@@ -349,6 +350,7 @@ async function showSettings() {
   $("session-rows").replaceChildren(
     ...sessions.map((s) => row([`${s.userAgent}${s.current ? " (this one)" : ""}`, when(s.createdAt), when(s.expiresAt)])),
   );
+  $("record-id").textContent = me.recordId;
   $("operator").hidden = !me.operator;
   openPane("settings");
 }
@@ -447,6 +449,10 @@ $("codes-toggle").addEventListener("click", () => listCodes(!showingWords));
 $("codes-copy").addEventListener("click", guard(async () => {
   await navigator.clipboard.writeText(codesText);
   status("Copied your recovery codes.");
+}));
+$("copy-record-id").addEventListener("click", guard(async () => {
+  await navigator.clipboard.writeText($("record-id").textContent ?? "");
+  status("Copied your record id.");
 }));
 $("add-passkey").addEventListener("click", guard(addPasskey));
 $("rotate-codes").addEventListener("click", guard(rotateCodes));

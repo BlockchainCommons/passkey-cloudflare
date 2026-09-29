@@ -352,6 +352,33 @@ test("log out everywhere else steps up, then leaves only this session", async ({
   await phone.context().close();
 });
 
+test("account details hold the record id and sessions, collapsed, with log-out left outside", async ({ page }) => {
+  await addAuthenticator(page);
+  const memberName = `Details${Date.now().toString(36)}`;
+  await registerMember(page, memberName);
+  await expect(page.locator("#app-signed-in")).toHaveText("You're signed in with a passkey.");
+  const { recordId } = await page.evaluate(() => fetch("/me").then((r) => r.json() as Promise<{ recordId: string }>));
+
+  await openSettings(page);
+  const details = page.locator("#account-details");
+  await expect(details).not.toHaveAttribute("open");
+  await expect(page.locator("#record-id")).toBeHidden();
+  await expect(page.locator("#session-rows")).toBeHidden();
+  for (const name of ["Log out", "Log out everywhere", "Log out everywhere else"]) {
+    await expect(page.getByRole("button", { name, exact: true })).toBeVisible();
+  }
+
+  await page.getByText("Account details").click();
+  await expect(page.locator("#record-id")).toHaveText(recordId);
+  await expect(page.locator("#session-rows tr")).toHaveCount(1);
+  await expect(page.locator("#session-rows tr")).toContainText("(this one)");
+
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.getByRole("button", { name: "Copy record id" }).click();
+  await expect(page.locator("#settings-status")).toHaveText("Copied your record id.");
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(recordId);
+});
+
 test("a rebind link opens the sign-in pane at its passkey, and says when the link is not valid", async ({ page }) => {
   await page.goto("/rebind#not-a-link");
   await expect(page.locator("#sign-in")).toBeVisible();
