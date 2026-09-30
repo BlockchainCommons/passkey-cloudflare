@@ -434,11 +434,16 @@ input("register-name").minLength = MEMBER_NAME_RULES.minLength;
 // it, and would cut a pasted name short. The pattern holds the upper bound.
 input("register-name").pattern = MEMBER_NAME_RULES.pattern;
 $("name-rules").textContent = MEMBER_NAME_RULES.description;
-$("name-rules-toggle").addEventListener("click", () => {
-  const open = $("name-rules").hidden;
-  $("name-rules").hidden = !open;
-  $("name-rules-toggle").setAttribute("aria-expanded", String(open));
-});
+for (const toggle of document.querySelectorAll<HTMLButtonElement>(".info-toggle")) {
+  const controls = toggle.getAttribute("aria-controls");
+  if (!controls) throw new Error(`#${toggle.id} names no aria-controls`);
+  const info = $(controls);
+  toggle.addEventListener("click", () => {
+    const open = info.hidden;
+    info.hidden = !open;
+    toggle.setAttribute("aria-expanded", String(open));
+  });
+}
 $("register-name").addEventListener("input", checkAvailability);
 $("register-form").addEventListener("submit", guard((event: Event) => register(event as SubmitEvent)));
 $("recover-form").addEventListener("submit", guard((event: Event) => recover(event as SubmitEvent)));

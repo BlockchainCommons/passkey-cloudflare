@@ -387,3 +387,55 @@ test("a rebind link opens the sign-in pane at its passkey, and says when the lin
   await page.getByRole("button", { name: "Create a passkey" }).click();
   await expect(page.locator("#sign-in-status")).toHaveText("This link is not valid.");
 });
+
+const INFO = {
+  passkeys:
+    "Held by is the password manager or security key that stores the passkey, when it can be identified. Synced means that manager can copy the passkey to your other devices. Revoking a passkey stops it signing in, though sessions it already started stay open, and you can't revoke your only one.",
+  codes:
+    "Recovery codes let you add a new passkey if you lose all of yours, and each one works once. Replacing them gives you a fresh set of 8, shown only once, and every old code stops working straight away, including copies kept elsewhere or split into shares.",
+  sessions:
+    "A session keeps one browser signed in for 7 days. Log out ends this one, and Log out everywhere ends all of them, this one included. Log out everywhere else keeps this one and asks for your passkey first, so someone holding a stolen session can't shut you out.",
+  recordId:
+    "Your record id names your identity record and never changes, even if every passkey and code does. It isn't secret. To make yourself an operator on your own deployment, add it to the OPERATOR_RECORD_IDS secret.",
+  operator:
+    "A rebind link lets the member add a new passkey. Send it yourself once you've confirmed who they are; it works once, within 24 hours, and leaves their old passkeys, sessions and codes in place. Suspend signs the member out everywhere and blocks sign-in, recovery and rebind links until you Resume, and every action here is logged.",
+};
+
+/** Click an info button open and shut, checking its text and aria-expanded each time. */
+async function expectInfoToggle(page: Page, name: string, text: string) {
+  const toggle = page.getByRole("button", { name, exact: true });
+  const info = page.locator(`#${await toggle.getAttribute("aria-controls")}`);
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(info).toBeHidden();
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(info).toBeVisible();
+  await expect(info).toHaveText(text);
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(info).toBeHidden();
+}
+
+test("info buttons in settings explain each section, and the operator's shows only to operators", async ({ page }) => {
+  await addAuthenticator(page);
+  await registerMember(page, `Info${Date.now().toString(36)}`);
+
+  await openSettings(page);
+  await expectInfoToggle(page, "About passkeys", INFO.passkeys);
+  await expectInfoToggle(page, "About recovery codes", INFO.codes);
+  await expectInfoToggle(page, "About sessions", INFO.sessions);
+  await page.getByText("Account details").click();
+  await expectInfoToggle(page, "About the record id", INFO.recordId);
+  await expect(page.locator("#account-details")).toHaveAttribute("open");
+  await expect(page.locator("#operator-info-toggle")).toHaveCount(1);
+  await expect(page.locator("#operator-info-toggle")).toBeHidden();
+
+  // The operator role comes from a Worker secret; here /me claims it, so the page shows the section.
+  await page.route("**/me", async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({ response, json: { ...(await response.json()), operator: true } });
+  });
+  await page.locator("#settings .close").click();
+  await openSettings(page);
+  await expectInfoToggle(page, "About the operator actions", INFO.operator);
+});

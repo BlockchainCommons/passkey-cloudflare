@@ -40,7 +40,7 @@
               Member name
               <input id="register-name" name="memberName" autocomplete="username" required />
             </label>
-            <button id="name-rules-toggle" type="button" aria-label="About member names" aria-expanded="false" aria-controls="name-rules">&#9432;</button>
+            <button id="name-rules-toggle" class="info-toggle" type="button" aria-label="About member names" aria-expanded="false" aria-controls="name-rules">&#9432;</button>
             <p id="name-rules" hidden></p>
             <span id="name-availability" aria-live="polite"></span>
             <p id="capital-nudge" aria-live="polite" hidden></p>
@@ -94,23 +94,37 @@
         <button id="rotate-now" type="button">Replace them now</button>
       </p>
 
-      <h3>Passkeys</h3>
+      <div class="section-heading">
+        <h3>Passkeys</h3>
+        <button id="passkeys-info-toggle" class="info-toggle" type="button" aria-label="About passkeys" aria-expanded="false" aria-controls="passkeys-info">&#9432;</button>
+      </div>
+      <p id="passkeys-info" hidden>Held by is the password manager or security key that stores the passkey, when it can be identified. Synced means that manager can copy the passkey to your other devices. Revoking a passkey stops it signing in, though sessions it already started stay open, and you can't revoke your only one.</p>
       <table>
         <thead><tr><th>Label</th><th>Held by</th><th>Synced</th><th>Created</th><th>Last used</th><th></th></tr></thead>
         <tbody id="credential-rows"></tbody>
       </table>
       <button id="add-passkey" type="button">Add a passkey</button>
 
-      <h3>Recovery codes</h3>
+      <div class="section-heading">
+        <h3>Recovery codes</h3>
+        <button id="codes-info-toggle" class="info-toggle" type="button" aria-label="About recovery codes" aria-expanded="false" aria-controls="codes-info">&#9432;</button>
+      </div>
+      <p id="codes-info" hidden>Recovery codes let you add a new passkey if you lose all of yours, and each one works once. Replacing them gives you a fresh set of 8, shown only once, and every old code stops working straight away, including copies kept elsewhere or split into shares.</p>
       <button id="rotate-codes" type="button">Replace my recovery codes</button>
 
-      <h3>Sessions</h3>
+      <div class="section-heading">
+        <h3>Sessions</h3>
+        <button id="sessions-info-toggle" class="info-toggle" type="button" aria-label="About sessions" aria-expanded="false" aria-controls="sessions-info">&#9432;</button>
+      </div>
+      <p id="sessions-info" hidden>A session keeps one browser signed in for 7 days. Log out ends this one, and Log out everywhere ends all of them, this one included. Log out everywhere else keeps this one and asks for your passkey first, so someone holding a stolen session can't shut you out.</p>
       <details id="account-details">
         <summary>Account details</summary>
         <p>
           Record id: <code id="record-id"></code>
           <button id="copy-record-id" type="button" aria-label="Copy record id">Copy</button>
+          <button id="record-id-info-toggle" class="info-toggle" type="button" aria-label="About the record id" aria-expanded="false" aria-controls="record-id-info">&#9432;</button>
         </p>
+        <p id="record-id-info" hidden>Your record id names your identity record and never changes, even if every passkey and code does. It isn't secret. To make yourself an operator on your own deployment, add it to the OPERATOR_RECORD_IDS secret.</p>
         <table>
           <thead><tr><th>Browser</th><th>Started</th><th>Ends</th></tr></thead>
           <tbody id="session-rows"></tbody>
@@ -121,7 +135,11 @@
       <button id="logout-elsewhere" type="button">Log out everywhere else</button>
 
       <section id="operator" hidden>
-        <h3>Operator</h3>
+        <div class="section-heading">
+          <h3>Operator</h3>
+          <button id="operator-info-toggle" class="info-toggle" type="button" aria-label="About the operator actions" aria-expanded="false" aria-controls="operator-info">&#9432;</button>
+        </div>
+        <p id="operator-info" hidden>A rebind link lets the member add a new passkey. Send it yourself once you've confirmed who they are; it works once, within 24 hours, and leaves their old passkeys, sessions and codes in place. Suspend signs the member out everywhere and blocks sign-in, recovery and rebind links until you Resume, and every action here is logged.</p>
         <form id="operator-form">
           <label>
             Member name

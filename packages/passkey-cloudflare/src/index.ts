@@ -1,13 +1,14 @@
 // Identity layer
 export {
   IdentityRecord,
+  REBIND_LINK_LIFETIME_MS,
   SESSION_LIFETIME_MS,
   type Principal,
   type RecordCause,
   type SessionCause,
   type SessionSummary,
 } from "./identity/record.ts";
-export { isRecordId, type RecordId } from "./identity/secrets.ts";
+export { isRecordId, RECOVERY_CODE_COUNT, type RecordId } from "./identity/secrets.ts";
 export { CredentialIndex } from "./identity/credential-index.ts";
 export { CEREMONY_POLICY, type RelyingParty } from "./identity/webauthn.ts";
 
