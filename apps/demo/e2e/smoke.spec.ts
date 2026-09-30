@@ -439,3 +439,85 @@ test("info buttons in settings explain each section, and the operator's shows on
   await openSettings(page);
   await expectInfoToggle(page, "About the operator actions", INFO.operator);
 });
+
+test("an operator looks up a member, and the actions act on the member shown", async ({ page }) => {
+  await addAuthenticator(page);
+  await registerMember(page, `Lookup${Date.now().toString(36)}`);
+  // The operator role comes from a Worker secret fixed when wrangler dev starts, so
+  // /me claims it here, and the operator routes answer as the vitest suite shows they do.
+  await page.route("**/me", async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({ response, json: { ...(await response.json()), operator: true } });
+  });
+  const recordId = "0b5f3a1e-6c2d-4e8f-9a7b-1c2d3e4f5a6b";
+  const operatorId = "9f8e7d6c-5b4a-4321-8fed-cba987654321";
+  const created = Date.UTC(2026, 0, 2, 3, 4, 5);
+  const summary = {
+    createdAt: created,
+    suspendedAt: null,
+    passkeys: 2,
+    sessions: 3,
+    recoveryCodesLeft: 7,
+    rebindLinkOutstanding: false,
+  };
+  const earlier = { operatorId, action: "resume", targetId: recordId, at: created + 1000 };
+  const lookups: unknown[] = [];
+  await page.route("**/operator/lookup", async (route) => {
+    const body = route.request().postDataJSON();
+    lookups.push(body);
+    if (body.memberName !== "Alice") return route.fulfill({ status: 404, json: { error: "no such member" } });
+    await route.fulfill({ json: { recordId, summary, entries: [earlier] } });
+  });
+  const suspends: unknown[] = [];
+  await page.route("**/operator/suspend", async (route) => {
+    suspends.push(route.request().postDataJSON());
+    const suspendedAt = created + 2000;
+    const entry = { operatorId, action: "suspend", targetId: recordId, at: suspendedAt };
+    await route.fulfill({
+      json: { ok: true, member: { recordId, summary: { ...summary, suspendedAt, sessions: 0 }, entries: [earlier, entry] } },
+    });
+  });
+  await openSettings(page);
+
+  const name = page.getByRole("textbox", { name: "Member name" });
+  const actions = ["Create rebind link", "Suspend", "Resume"].map((label) =>
+    page.locator("#operator").getByRole("button", { name: label, exact: true }),
+  );
+  for (const action of actions) await expect(action).toBeDisabled();
+
+  await name.fill("Nobody");
+  await page.getByRole("button", { name: "Look up" }).click();
+  await expect(page.locator("#operator-result")).toHaveText("No such member");
+  await expect(page.locator("#operator-member")).toHaveCount(1);
+  await expect(page.locator("#operator-member")).toBeHidden();
+
+  await name.fill("Alice");
+  await page.getByRole("button", { name: "Look up" }).click();
+  const member = page.locator("#operator-member");
+  await expect(member).toBeVisible();
+  await expect(member).toContainText(recordId);
+  await expect(member).toContainText("Active");
+  await expect(member).toContainText(new Date(created).toLocaleString());
+  await expect(page.locator("#operator-summary")).toContainText("Passkeys2");
+  await expect(page.locator("#operator-summary")).toContainText("Sessions3");
+  await expect(page.locator("#operator-summary")).toContainText("Recovery codes left7");
+  await expect(page.locator("#operator-summary")).toContainText("Rebind linkNone");
+  await expect(page.locator("#operator-entries tr")).toHaveCount(1);
+  await expect(page.locator("#operator-entries")).toContainText("resume");
+  for (const action of actions) await expect(action).toBeEnabled();
+
+  // Acting on the shown member sends its record id, not the typed name, and shows the member as it now stands.
+  await actions[1].click();
+  await expect(page.locator("#operator-result")).toHaveText("Done.");
+  expect(suspends).toEqual([{ recordId }]);
+  await expect(member).toContainText(`Suspended since ${new Date(created + 2000).toLocaleString()}`);
+  await expect(page.locator("#operator-summary")).toContainText("Sessions0");
+  await expect(page.locator("#operator-entries tr")).toHaveCount(2);
+
+  // Editing the name clears the result until the next lookup.
+  await name.fill("Alic");
+  await expect(member).toBeHidden();
+  await expect(page.locator("#operator-result")).toHaveText("");
+  for (const action of actions) await expect(action).toBeDisabled();
+  expect(lookups).toEqual([{ memberName: "Nobody" }, { memberName: "Alice" }]);
+});

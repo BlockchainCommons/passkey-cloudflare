@@ -8,7 +8,7 @@ import { isValidMemberName, memberNameKey } from "./member-name-rules.ts";
 import { DEFAULT_RATE_LIMITS, type Limit, type RateLimiter, type RateLimits } from "./app-tier/rate-limit.ts";
 import { sha256Hex, toBase64Url } from "./encoding.ts";
 import type { CredentialIndex } from "./identity/credential-index.ts";
-import type { IdentityRecord, Principal, SessionCause, SessionSummary } from "./identity/record.ts";
+import type { IdentityRecord, Principal, RecordSummary, SessionCause, SessionSummary } from "./identity/record.ts";
 import {
   hashRecoveryCode,
   mintRebindToken,
@@ -632,6 +632,23 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       const done = await record(recordId).createRebindToken(token.tokenHash, ctx.now);
       if (!done.ok) throw new PasskeyError("not-found");
       return token.value;
+    },
+
+    /**
+     * A record's state and counts, read without the member's session. Who may
+     * call this is the application's decision.
+     *
+     * It returns counts and state only, to keep small what an operator sees day
+     * to day. The device detail (passkey providers, last use, session browsers)
+     * still exists in storage, so this is no privacy guarantee against an
+     * operator, who runs the deployment and can read its storage directly. A
+     * member's privacy from an operator rests on trusting the operator, not on
+     * the software.
+     */
+    async recordSummary(recordId: RecordId): Promise<RecordSummary> {
+      const summary = await record(recordId).summary(clock());
+      if (!summary) throw new PasskeyError("not-found");
+      return summary;
     },
 
     async rebindOptions(ctx: RequestContext, link: string) {

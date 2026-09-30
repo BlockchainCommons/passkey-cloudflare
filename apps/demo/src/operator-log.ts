@@ -7,7 +7,7 @@ import type { RecordId } from "passkey-cloudflare";
 
 export interface OperatorLogEntry {
   operatorId: RecordId;
-  action: "create-rebind-link" | "suspend" | "resume";
+  action: "lookup" | "create-rebind-link" | "suspend" | "resume";
   targetId: RecordId;
   at: number;
 }
@@ -37,14 +37,33 @@ export class OperatorLog extends DurableObject {
     );
   }
 
+  /** Every entry that targets one record, oldest first. */
+  listFor(targetId: RecordId): OperatorLogEntry[] {
+    return this.sql
+      .exec<Row>("SELECT operator_id, action, target_id, at FROM entries WHERE target_id = ? ORDER BY seq", targetId)
+      .toArray()
+      .map(toEntry);
+  }
+
   list(limit = 200): OperatorLogEntry[] {
     return this.sql
-      .exec<{ operator_id: RecordId; action: OperatorLogEntry["action"]; target_id: RecordId; at: number }>(
+      .exec<Row>(
         "SELECT operator_id, action, target_id, at FROM entries ORDER BY seq DESC LIMIT ?",
         limit,
       )
       .toArray()
       .reverse()
-      .map((row) => ({ operatorId: row.operator_id, action: row.action, targetId: row.target_id, at: row.at }));
+      .map(toEntry);
   }
+}
+
+type Row = {
+  operator_id: RecordId;
+  action: OperatorLogEntry["action"];
+  target_id: RecordId;
+  at: number;
+};
+
+function toEntry(row: Row): OperatorLogEntry {
+  return { operatorId: row.operator_id, action: row.action, targetId: row.target_id, at: row.at };
 }

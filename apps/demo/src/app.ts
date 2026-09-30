@@ -90,6 +90,20 @@ async function targetRecordId(call: Call): Promise<RecordId | null> {
   return call.passkeys.resolveMemberName(call.body.memberName);
 }
 
+/** What an operator sees of a member: the record's state and counts, and the operator log entries that target it. */
+async function memberView(call: Call, recordId: RecordId) {
+  return {
+    recordId,
+    summary: await call.passkeys.recordSummary(recordId),
+    entries: await operatorLog(call.env).listFor(recordId),
+  };
+}
+
+/** When an action named its target by record id, as the operator pane does, the member as it now stands; otherwise nothing. */
+async function memberIfNamedById(call: Call, recordId: RecordId) {
+  return call.body.recordId === undefined ? {} : { member: await memberView(call, recordId) };
+}
+
 function optionsResponse(outcome: CeremonyOutcome<unknown>): Response {
   return outcome.ok ? json(outcome.value) : outcome.response;
 }
@@ -160,12 +174,20 @@ const POST: Record<string, Handler> = {
     return json({ recordId }, { headers: { "Set-Cookie": sessionCookie(session) } });
   },
 
+  "/operator/lookup": operator(async (call, operatorId) => {
+    const targetId = await call.passkeys.resolveMemberName(call.body.memberName);
+    if (!targetId) return error(404, "no such member");
+    const member = await memberView(call, targetId);
+    await operatorLog(call.env).append({ operatorId, action: "lookup", targetId, at: call.ctx.now });
+    return json(member);
+  }),
+
   "/operator/rebind-links": operator(async (call, operatorId) => {
     const targetId = await targetRecordId(call);
     if (!targetId) return error(404, "not found");
     const link = await call.passkeys.createRebindLink(call.ctx, targetId);
     await operatorLog(call.env).append({ operatorId, action: "create-rebind-link", targetId, at: call.ctx.now });
-    return json({ link: `${call.env.ORIGIN}/rebind#${link}` });
+    return json({ link: `${call.env.ORIGIN}/rebind#${link}`, ...(await memberIfNamedById(call, targetId)) });
   }),
 
   "/operator/suspend": operator(async (call, operatorId) => {
@@ -173,7 +195,7 @@ const POST: Record<string, Handler> = {
     if (!targetId) return error(404, "not found");
     await call.passkeys.suspend(call.ctx, targetId);
     await operatorLog(call.env).append({ operatorId, action: "suspend", targetId, at: call.ctx.now });
-    return json({ ok: true });
+    return json({ ok: true, ...(await memberIfNamedById(call, targetId)) });
   }),
 
   "/operator/resume": operator(async (call, operatorId) => {
@@ -181,7 +203,7 @@ const POST: Record<string, Handler> = {
     if (!targetId) return error(404, "not found");
     await call.passkeys.resume(targetId);
     await operatorLog(call.env).append({ operatorId, action: "resume", targetId, at: call.ctx.now });
-    return json({ ok: true });
+    return json({ ok: true, ...(await memberIfNamedById(call, targetId)) });
   }),
 
   "/auth/step-up/options": async ({ passkeys, ctx, request }) =>

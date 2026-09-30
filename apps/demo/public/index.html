@@ -145,10 +145,22 @@
             Member name
             <input name="memberName" required />
           </label>
-          <button type="submit" value="rebind">Create rebind link</button>
-          <button type="submit" value="suspend">Suspend</button>
-          <button type="submit" value="resume">Resume</button>
+          <button type="submit">Look up</button>
         </form>
+        <div id="operator-member" hidden>
+          <table>
+            <tbody id="operator-summary"></tbody>
+          </table>
+          <table>
+            <thead><tr><th>When</th><th>Action</th><th>Operator</th></tr></thead>
+            <tbody id="operator-entries"></tbody>
+          </table>
+        </div>
+        <div id="operator-actions">
+          <button type="button" value="rebind" disabled>Create rebind link</button>
+          <button type="button" value="suspend" disabled>Suspend</button>
+          <button type="button" value="resume" disabled>Resume</button>
+        </div>
         <p id="operator-result"></p>
       </section>
     </dialog>

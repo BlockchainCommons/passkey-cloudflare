@@ -33,6 +33,16 @@ export interface SessionSummary {
   current: boolean;
 }
 
+/** A record's state and counts, read without a session. */
+export interface RecordSummary {
+  createdAt: number;
+  suspendedAt: number | null;
+  passkeys: number;
+  sessions: number;
+  recoveryCodesLeft: number;
+  rebindLinkOutstanding: boolean;
+}
+
 export interface CredentialSummary {
   id: string;
   createdAt: number;
@@ -504,6 +514,25 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
         userAgent: row.user_agent,
         current: row.id === principal.sessionId,
       }));
+  }
+
+  /** The record's state and counts, with no session and no device detail. Null if there is no record. */
+  summary(now: number): RecordSummary | null {
+    const record = this.sql
+      .exec<{ created_at: number; suspended_at: number | null }>("SELECT created_at, suspended_at FROM record")
+      .toArray()[0];
+    if (!record) return null;
+    const count = (query: string, ...bindings: unknown[]) =>
+      this.sql.exec<{ n: number }>(query, ...bindings).one().n;
+    return {
+      createdAt: record.created_at,
+      suspendedAt: record.suspended_at,
+      passkeys: count("SELECT COUNT(*) AS n FROM credentials"),
+      sessions: count("SELECT COUNT(*) AS n FROM sessions WHERE expires_at > ?", now),
+      recoveryCodesLeft: count("SELECT COUNT(*) AS n FROM recovery_codes WHERE used_at IS NULL"),
+      rebindLinkOutstanding:
+        count("SELECT COUNT(*) AS n FROM rebind_tokens WHERE used_at IS NULL AND expires_at > ?", now) > 0,
+    };
   }
 
   /** Keep the cause of a refused ceremony that resolved to this record. */

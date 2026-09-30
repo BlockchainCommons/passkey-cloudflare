@@ -392,15 +392,76 @@ async function rotateCodes() {
 
 const OPERATOR_PATHS: Record<string, string> = { rebind: "/operator/rebind-links", suspend: "/operator/suspend", resume: "/operator/resume" };
 
-async function operatorAction(event: SubmitEvent) {
+interface MemberSummary {
+  createdAt: number;
+  suspendedAt: number | null;
+  passkeys: number;
+  sessions: number;
+  recoveryCodesLeft: number;
+  rebindLinkOutstanding: boolean;
+}
+
+interface OperatorLogEntry {
+  operatorId: string;
+  action: string;
+  at: number;
+}
+
+interface Member {
+  recordId: string;
+  summary: MemberSummary;
+  entries: OperatorLogEntry[];
+}
+
+/** The member the last lookup found, which the operator actions act on. */
+let shownMember: { memberName: string; recordId: string } | null = null;
+
+const operatorActions = () => document.querySelectorAll<HTMLButtonElement>("#operator-actions button");
+
+function showMember(member: Member) {
+  const { summary } = member;
+  $("operator-summary").replaceChildren(
+    row(["Record id", member.recordId]),
+    row(["Status", summary.suspendedAt === null ? "Active" : `Suspended since ${when(summary.suspendedAt)}`]),
+    row(["Created", when(summary.createdAt)]),
+    row(["Passkeys", String(summary.passkeys)]),
+    row(["Sessions", String(summary.sessions)]),
+    row(["Recovery codes left", String(summary.recoveryCodesLeft)]),
+    row(["Rebind link", summary.rebindLinkOutstanding ? "Outstanding" : "None"]),
+  );
+  $("operator-entries").replaceChildren(...member.entries.map((e) => row([when(e.at), e.action, e.operatorId])));
+  $("operator-member").hidden = false;
+}
+
+function clearMember() {
+  shownMember = null;
+  $("operator-member").hidden = true;
+  $("operator-result").textContent = "";
+  for (const action of operatorActions()) action.disabled = true;
+}
+
+async function lookUpMember(event: SubmitEvent) {
   event.preventDefault();
-  const action = (event.submitter as HTMLButtonElement).value;
-  const memberName = new FormData(event.target as HTMLFormElement).get("memberName");
+  const memberName = String(new FormData(event.target as HTMLFormElement).get("memberName"));
+  clearMember();
+  const response = await withStepUp(() => post("/operator/lookup", { memberName }));
+  if (response.status === 404) return ($("operator-result").textContent = "No such member");
+  if (!response.ok) return ($("operator-result").textContent = `Refused (${response.status}).`);
+  const member = (await response.json()) as Member;
+  shownMember = { memberName, recordId: member.recordId };
+  showMember(member);
+  for (const action of operatorActions()) action.disabled = false;
+}
+
+async function operatorAction(action: string) {
   const path = OPERATOR_PATHS[action];
   if (!path) throw new Error(`unknown operator action ${action}`);
-  const response = await withStepUp(() => post(path, { memberName }));
+  if (!shownMember) return;
+  const { memberName, recordId } = shownMember;
+  const response = await withStepUp(() => post(path, { recordId }));
   if (!response.ok) return ($("operator-result").textContent = `Refused (${response.status}).`);
-  const result = (await response.json()) as { link?: string };
+  const result = (await response.json()) as { link?: string; member: Member };
+  showMember(result.member);
   $("operator-result").textContent = result.link ? `Send this link to ${memberName}: ${result.link}` : "Done.";
 }
 
@@ -475,7 +536,9 @@ $("logout-elsewhere").addEventListener("click", guard(async () => {
   status(response.ok ? "Logged out everywhere else." : "Could not log out everywhere else.");
   await showSettings();
 }));
-$("operator-form").addEventListener("submit", guard((event: Event) => operatorAction(event as SubmitEvent)));
+$("operator-form").addEventListener("submit", guard((event: Event) => lookUpMember(event as SubmitEvent)));
+$("operator-form").addEventListener("input", clearMember);
+for (const action of operatorActions()) action.addEventListener("click", guard(() => operatorAction(action.value)));
 
 // A rebind link opens the sign-in pane at its passkey; anything else shows the app.
 if (location.pathname === "/rebind" && location.hash.length > 1) {

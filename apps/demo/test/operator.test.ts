@@ -1,5 +1,7 @@
+import { env, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import type { RevocationEvent } from "passkey-cloudflare";
+import { RECOVERY_CODE_COUNT, type RecordId, type RevocationEvent } from "passkey-cloudflare";
+import type { OperatorLog } from "../src/operator-log.ts";
 import { testApp, uniqueName, type Browser, type HarnessOptions } from "./harness.ts";
 
 const HOUR = 60 * 60 * 1000;
@@ -158,3 +160,116 @@ describe("operator log", () => {
     ]);
   });
 });
+
+describe("operator lookup", () => {
+  it("shows a member's state and counts, and no device detail", async () => {
+    const now = Date.now();
+    const { operator, personName, personId } = await deployment({ clock: () => now });
+
+    const response = await operator.post("/operator/lookup", { memberName: personName });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      recordId: personId,
+      summary: {
+        createdAt: now,
+        suspendedAt: null,
+        passkeys: 1,
+        sessions: 1,
+        recoveryCodesLeft: RECOVERY_CODE_COUNT,
+        rebindLinkOutstanding: false,
+      },
+      entries: [],
+    });
+  });
+
+  it("answers 404 for a name no member holds, or one that is not a valid member name, and logs nothing", async () => {
+    const { operator, operatorId } = await deployment();
+
+    for (const memberName of [uniqueName("nobody"), "not a member name!", 42]) {
+      const response = await operator.post("/operator/lookup", { memberName });
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({ error: "no such member" });
+    }
+    const { entries } = await operator.json(operator.get("/operator/log"));
+    expect(entries.filter((e: any) => e.operatorId === operatorId)).toEqual([]);
+  });
+
+  it("is refused, like the other operator routes, to a non-operator and to an operator who has not stepped up, and logs nothing", async () => {
+    let now = Date.now();
+    const { operator, operatorId, person, personName, personId } = await deployment({ clock: () => now });
+    const start = now;
+    await person.stepUp();
+    // Read through a lookup, whose entries for this member are uncapped. The shared
+    // recent list is capped, and other files' entries could push a lookup out of it.
+    const lookups = async () =>
+      (await operator.json(operator.post("/operator/lookup", { memberName: personName }))).entries.filter(
+        (e: any) => e.action === "lookup",
+      );
+
+    const byPerson = await person.post("/operator/lookup", { memberName: personName });
+    expect(byPerson.status).toBe(403);
+    expect(await byPerson.json()).toEqual({ error: "not an operator" });
+    expect(await lookups()).toEqual([]);
+
+    now += 11 * 60 * 1000;
+    const stale = await operator.post("/operator/lookup", { memberName: personName });
+    expect(stale.status).toBe(403);
+    expect(await stale.json()).toEqual({ error: "step-up-required" });
+    await operator.stepUp();
+    // Only the lookup that read the log after the non-operator's attempt.
+    expect(await lookups()).toEqual([{ operatorId, action: "lookup", targetId: personId, at: start }]);
+  });
+
+  it("logs each lookup once, and shows every earlier entry for that member, however old", async () => {
+    let now = Date.now();
+    const { operator, operatorId, personName, personId } = await deployment({ clock: () => now });
+    const first = now;
+    await operator.post("/operator/suspend", { memberName: personName });
+    await operator.post("/operator/lookup", { memberName: personName });
+    // Enough later entries for other members to push this member's out of the recent list.
+    await runInDurableObject(globalOperatorLog(), async (log: OperatorLog) => {
+      for (let i = 0; i < 200; i++) {
+        log.append({ operatorId: operatorId as RecordId, action: "suspend", targetId: crypto.randomUUID() as RecordId, at: first });
+      }
+    });
+    now += 1000;
+
+    const { entries } = await operator.json(operator.post("/operator/lookup", { memberName: personName }));
+
+    expect(entries).toEqual([
+      { operatorId, action: "suspend", targetId: personId, at: first },
+      { operatorId, action: "lookup", targetId: personId, at: first },
+    ]);
+    const recent = (await operator.json(operator.get("/operator/log"))).entries;
+    expect(recent.filter((e: any) => e.targetId === personId)).toEqual([
+      { operatorId, action: "lookup", targetId: personId, at: now },
+    ]);
+  });
+});
+
+describe("operator actions on a looked-up member", () => {
+  it("answer with the member's updated state and log one entry each", async () => {
+    const now = Date.now();
+    const { operator, operatorId, personId } = await deployment({ clock: () => now });
+
+    const linked = await operator.json(operator.post("/operator/rebind-links", { recordId: personId }));
+    expect(linked.link).toMatch(/\/rebind#/);
+    expect(linked.member).toMatchObject({ recordId: personId, summary: { rebindLinkOutstanding: true } });
+
+    const suspended = await operator.json(operator.post("/operator/suspend", { recordId: personId }));
+    expect(suspended.member).toMatchObject({ recordId: personId, summary: { suspendedAt: now, sessions: 0 } });
+
+    const resumed = await operator.json(operator.post("/operator/resume", { recordId: personId }));
+    expect(resumed.member.summary).toMatchObject({ suspendedAt: null });
+    expect(resumed.member.entries).toEqual([
+      { operatorId, action: "create-rebind-link", targetId: personId, at: now },
+      { operatorId, action: "suspend", targetId: personId, at: now },
+      { operatorId, action: "resume", targetId: personId, at: now },
+    ]);
+  });
+});
+
+function globalOperatorLog() {
+  return env.OPERATOR_LOG.get(env.OPERATOR_LOG.idFromName("global"));
+}

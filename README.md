@@ -6,7 +6,7 @@ The library answers one question: which principal is presenting. Each applicatio
 
 A demo app, a shared card canvas, is built alongside the library to show it in use.
 
-Status: early development. Passkey login works: registration, login, adding and revoking passkeys, recovery codes, step-up, sessions, and operator rebind and suspension. The canvas, agents and signed artifacts come later. The API is not stable yet.
+Status: early development. Passkey login works: registration, login, adding and revoking passkeys, recovery codes, step-up, sessions, and operator lookup, rebind and suspension. The canvas, agents and signed artifacts come later. The API is not stable yet.
 
 - Vocabulary: [`CONTEXT.md`](CONTEXT.md)
 - Architectural decisions: [`docs/adr/`](docs/adr/)
@@ -51,6 +51,8 @@ Every refused ceremony waits until the timing floor, `REFUSAL_FLOOR_MS`, has pas
 The library needs Workers Paid. On Workers Free, whose limit is 10 ms of CPU time per request, the first passkey verification on each new isolate can exceed that limit and be refused: see [`docs/workers-free.md`](docs/workers-free.md).
 
 Operators are listed by identity record id, separated by commas, in the `OPERATOR_RECORD_IDS` secret: `npx wrangler secret put OPERATOR_RECORD_IDS`. Locally, put it in `apps/demo/.dev.vars`.
+
+An operator can look up a member by member name and see the record's state and counts: when it was created, whether it is suspended, how many passkeys, live sessions and unused recovery codes it has, whether a rebind link is outstanding, and the operator log entries for that member. Each lookup is logged. It shows counts and state only, to keep small what an operator sees day to day; the device detail (passkey providers, last use, session browsers) still exists in storage. This is no privacy guarantee against an operator, who runs the deployment and can read its storage directly. A member's privacy from an operator rests on trusting the operator, not on the software.
 
 ## License
 

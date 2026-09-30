@@ -5,6 +5,7 @@ export {
   SESSION_LIFETIME_MS,
   type Principal,
   type RecordCause,
+  type RecordSummary,
   type SessionCause,
   type SessionSummary,
 } from "./identity/record.ts";
