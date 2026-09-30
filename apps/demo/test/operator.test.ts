@@ -223,14 +223,18 @@ describe("operator lookup", () => {
 
   it("logs each lookup once, and shows every earlier entry for that member, however old", async () => {
     let now = Date.now();
-    const { operator, operatorId, personName, personId } = await deployment({ clock: () => now });
+    const { app, operator, operatorId, personName, personId } = await deployment({ clock: () => now });
+    // Other tests read the shared recent list, which this flood would push their entries out of.
+    const ownLog = privateOperatorLog();
+    app.vars.OPERATOR_LOG = ownLog.namespace;
     const first = now;
     await operator.post("/operator/suspend", { memberName: personName });
     await operator.post("/operator/lookup", { memberName: personName });
     // Enough later entries for other members to push this member's out of the recent list.
-    await runInDurableObject(globalOperatorLog(), async (log: OperatorLog) => {
-      for (let i = 0; i < 200; i++) {
-        log.append({ operatorId: operatorId as RecordId, action: "suspend", targetId: crypto.randomUUID() as RecordId, at: first });
+    const floodTargets = Array.from({ length: 200 }, () => crypto.randomUUID() as RecordId);
+    await runInDurableObject(ownLog.stub, async (log: OperatorLog) => {
+      for (const targetId of floodTargets) {
+        log.append({ operatorId: operatorId as RecordId, action: "suspend", targetId, at: first });
       }
     });
     now += 1000;
@@ -245,6 +249,10 @@ describe("operator lookup", () => {
     expect(recent.filter((e: any) => e.targetId === personId)).toEqual([
       { operatorId, action: "lookup", targetId: personId, at: now },
     ]);
+    // None of the flood reaches the log every other test reads.
+    await runInDurableObject(sharedOperatorLog(), async (log: OperatorLog) => {
+      expect(floodTargets.flatMap((targetId) => log.listFor(targetId))).toEqual([]);
+    });
   });
 });
 
@@ -270,6 +278,20 @@ describe("operator actions on a looked-up member", () => {
   });
 });
 
-function globalOperatorLog() {
+function sharedOperatorLog() {
   return env.OPERATOR_LOG.get(env.OPERATOR_LOG.idFromName("global"));
+}
+
+/** An operator log namespace that resolves every name, "global" included, to one log no other test reads. */
+function privateOperatorLog() {
+  const real = env.OPERATOR_LOG;
+  const id = real.idFromName(crypto.randomUUID());
+  const namespace: Env["OPERATOR_LOG"] = new Proxy(real, {
+    get: (target, property) => {
+      if (property === "idFromName") return () => id;
+      const value = Reflect.get(target, property);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  return { namespace, stub: real.get(id) };
 }
