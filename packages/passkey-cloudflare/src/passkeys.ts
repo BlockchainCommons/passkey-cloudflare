@@ -629,6 +629,15 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
     },
 
     /**
+     * Let anyone register a retired member name again, on a new record; the
+     * removed record stays removed. Answers the removed record, or null when
+     * the name is not retired. Who may do this is the application's decision.
+     */
+    async allowRetiredMemberName(memberName: string): Promise<RecordId | null> {
+      return isValidMemberName(memberName) ? names().allowRetired(memberName) : null;
+    },
+
+    /**
      * Create a single-use, expiring rebind link value for a record. Who may do
      * this is the application's decision.
      */

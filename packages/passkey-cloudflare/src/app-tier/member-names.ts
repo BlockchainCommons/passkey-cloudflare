@@ -89,6 +89,18 @@ export class MemberNameRegistry<Env = unknown> extends DurableObject<Env> {
     );
   }
 
+  /**
+   * Let a retired name be registered again: it stops resolving to the removed
+   * record, whose history keeps `retired_at`. Answers that record, or null
+   * when the name is not retired, in which case nothing changes.
+   */
+  allowRetired(name: string): RecordId | null {
+    if (!this.isRetired(name)) return null;
+    const recordId = this.resolve(name)!;
+    this.sql.exec("DELETE FROM names WHERE key = ?", memberNameKey(name));
+    return recordId;
+  }
+
   resolve(name: string): RecordId | null {
     const row = this.sql
       .exec<{ record_id: RecordId }>("SELECT record_id FROM names WHERE key = ?", memberNameKey(name))

@@ -283,6 +283,107 @@ describe("removal", () => {
   });
 });
 
+describe("allowing a retired name", () => {
+  it("lets anyone register the name again, on a new record, and leaves the removed member removed", async () => {
+    const { app, operator, person, personName, personId } = await deployment();
+    await operator.post("/operator/remove", { recordId: personId });
+
+    expect((await operator.post("/operator/allow-name", { memberName: personName })).status).toBe(200);
+
+    const newcomer = app.browser();
+    const typedAnotherWay = personName.toUpperCase();
+    expect(await newcomer.json(newcomer.get(`/auth/member-name?name=${typedAnotherWay}`))).toEqual({ available: true });
+    const { recordId: newcomerId } = await newcomer.register(typedAnotherWay);
+    expect(newcomerId).not.toBe(personId);
+    expect(await newcomer.json(newcomer.get("/me"))).toMatchObject({ memberName: typedAnotherWay });
+    expect(await operator.json(operator.post("/operator/lookup", { memberName: personName }))).toMatchObject({
+      recordId: newcomerId,
+      retired: false,
+      summary: { removedAt: null },
+    });
+    await expectCeremonyRefused(await attemptLogin(person));
+  });
+
+  it("is logged against the removed record, and answers with that record as it now stands", async () => {
+    const now = Date.now();
+    const { operator, operatorId, personName, personId } = await deployment({ clock: () => now });
+    await operator.post("/operator/remove", { recordId: personId });
+
+    const response = await operator.post("/operator/allow-name", { memberName: personName });
+
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      member: {
+        recordId: personId,
+        retired: false,
+        summary: { removedAt: now },
+        entries: [
+          { operatorId, action: "remove", targetId: personId, at: now },
+          { operatorId, action: "allow-name", targetId: personId, at: now },
+        ],
+      },
+    });
+  });
+
+  it("is refused for a name a live member holds, and changes nothing", async () => {
+    const { app, operator, person, personName } = await deployment();
+
+    const refused = await operator.post("/operator/allow-name", { memberName: personName });
+
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toEqual({ error: "name not retired" });
+    const device = app.browser();
+    expect(await device.json(device.get(`/auth/member-name?name=${personName}`))).toEqual({ available: false });
+    expect((await person.get("/me")).status).toBe(200);
+    const member = await operator.json(operator.post("/operator/lookup", { memberName: personName }));
+    expect(member.entries.filter((e: any) => e.action === "allow-name")).toEqual([]);
+  });
+
+  it("answers 404 for a name nobody holds, or one that is not a valid member name", async () => {
+    const { operator } = await deployment();
+
+    for (const memberName of [uniqueName("nobody"), "", 42]) {
+      const refused = await operator.post("/operator/allow-name", { memberName });
+      expect(refused.status).toBe(404);
+    }
+  });
+
+  it("is refused, like the other operator routes, to a non-operator and to an operator who has not stepped up", async () => {
+    let now = Date.now();
+    const { app, operator, personName, personId } = await deployment({ clock: () => now });
+    await operator.post("/operator/remove", { recordId: personId });
+    const member = app.browser();
+    await member.register(uniqueName("member"));
+    await member.stepUp();
+
+    const byMember = await member.post("/operator/allow-name", { memberName: personName });
+    expect(byMember.status).toBe(403);
+    expect(await byMember.json()).toEqual({ error: "not an operator" });
+
+    now += 11 * 60 * 1000;
+    const stale = await operator.post("/operator/allow-name", { memberName: personName });
+    expect(stale.status).toBe(403);
+    expect(await stale.json()).toEqual({ error: "step-up-required" });
+
+    const device = app.browser();
+    expect(await device.json(device.get(`/auth/member-name?name=${personName}`))).toEqual({ available: false });
+  });
+
+  it("leaves the name with its new member when the removed record is removed again", async () => {
+    const { app, operator, personName, personId } = await deployment();
+    await operator.post("/operator/remove", { recordId: personId });
+    await operator.post("/operator/allow-name", { memberName: personName });
+    const { recordId: newcomerId } = await app.browser().register(personName);
+
+    await operator.post("/operator/remove", { recordId: personId });
+
+    expect(await operator.json(operator.post("/operator/lookup", { memberName: personName }))).toMatchObject({
+      recordId: newcomerId,
+      retired: false,
+    });
+  });
+});
+
 describe("operator targets", () => {
   it("can be named by record id, which must be a well-formed one", async () => {
     const { operator, person, personId } = await deployment();

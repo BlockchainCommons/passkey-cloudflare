@@ -398,7 +398,7 @@ const INFO = {
   recordId:
     "Your record id names your identity record and never changes, even if every passkey and code does. It isn't secret. To make yourself an operator on your own deployment, add it to the OPERATOR_RECORD_IDS secret.",
   operator:
-    "A rebind link lets the member add a new passkey. Send it yourself once you've confirmed who they are; it works once, within 24 hours, and leaves their old passkeys, sessions and codes in place. Suspend signs the member out everywhere and blocks sign-in, recovery and rebind links until you Resume. Remove does the same for good and retires their member name, so nobody can register it again; it can't be undone, and it refuses an operator. Every action here is logged.",
+    "A rebind link lets the member add a new passkey. Send it yourself once you've confirmed who they are; it works once, within 24 hours, and leaves their old passkeys, sessions and codes in place. Suspend signs the member out everywhere and blocks sign-in, recovery and rebind links until you Resume. Remove does the same for good and retires their member name, so nobody can register it again; it can't be undone, and it refuses an operator. Allow name again lets anyone register a retired name, on a new record; the removed member stays removed. Every action here is logged.",
 };
 
 /** Click an info button open and shut, checking its text and aria-expanded each time. */
@@ -609,4 +609,82 @@ test("an operator removes a member after confirming, and the name then looks up 
   await expect(page.locator("#operator-member")).toContainText(recordId);
   await expect(page.locator("#operator-entries")).toContainText("remove");
   for (const action of actions) await expect(action).toBeDisabled();
+});
+
+test("an operator allows a retired name after confirming, and only a retired name", async ({ page }) => {
+  await addAuthenticator(page);
+  await registerMember(page, `Allow${Date.now().toString(36)}`);
+  // As above, /me claims the operator role and the operator routes answer as the vitest suite shows they do.
+  await page.route("**/me", async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({ response, json: { ...(await response.json()), operator: true } });
+  });
+  const recordId = "0b5f3a1e-6c2d-4e8f-9a7b-1c2d3e4f5a6b";
+  const operatorId = "9f8e7d6c-5b4a-4321-8fed-cba987654321";
+  const created = Date.UTC(2026, 0, 2, 3, 4, 5);
+  const removedAt = created + 2000;
+  const summary = {
+    createdAt: created,
+    suspendedAt: null,
+    removedAt,
+    passkeys: 2,
+    sessions: 0,
+    recoveryCodesLeft: 7,
+    rebindLinkOutstanding: false,
+  };
+  const removal = { operatorId, action: "remove", targetId: recordId, at: removedAt };
+  const allowed = { operatorId, action: "allow-name", targetId: recordId, at: removedAt + 1000 };
+  await page.route("**/operator/lookup", async (route) => {
+    const { memberName } = route.request().postDataJSON();
+    if (memberName === "Bob") {
+      return route.fulfill({ json: { recordId: operatorId, retired: false, summary: { ...summary, removedAt: null }, entries: [] } });
+    }
+    await route.fulfill({ json: { recordId, retired: true, summary, entries: [removal] } });
+  });
+  const allows: unknown[] = [];
+  await page.route("**/operator/allow-name", async (route) => {
+    allows.push(route.request().postDataJSON());
+    await route.fulfill({
+      json: { ok: true, member: { recordId, retired: false, summary, entries: [removal, allowed] } },
+    });
+  });
+  await openSettings(page);
+
+  const name = page.getByRole("textbox", { name: "Member name" });
+  const lookUp = page.getByRole("button", { name: "Look up" });
+  const allow = page.locator("#operator").getByRole("button", { name: "Allow name again", exact: true });
+  const others = ["Create rebind link", "Suspend", "Resume", "Remove"].map((label) =>
+    page.locator("#operator").getByRole("button", { name: label, exact: true }),
+  );
+  await expect(allow).toBeDisabled();
+
+  // A live member's name is not retired, so it can't be allowed.
+  await name.fill("Bob");
+  await lookUp.click();
+  await expect(page.locator("#operator-member")).toContainText("Active");
+  await expect(allow).toBeDisabled();
+
+  await name.fill("Alice");
+  await lookUp.click();
+  await expect(page.locator("#operator-result")).toHaveText("Retired name");
+  await expect(allow).toBeEnabled();
+  for (const action of others) await expect(action).toBeDisabled();
+
+  // Declining the confirmation sends nothing.
+  page.once("dialog", (dialog) => void dialog.dismiss());
+  await allow.click();
+  expect(allows).toEqual([]);
+
+  page.once("dialog", (dialog) => {
+    expect(dialog.message()).toBe("Let anyone register Alice again? The removed member stays removed.");
+    void dialog.accept();
+  });
+  await allow.click();
+  await expect(page.locator("#operator-result")).toHaveText("Anyone can now register Alice.");
+  // The typed name is sent, since the name, not the removed record, is what is allowed.
+  expect(allows).toEqual([{ memberName: "Alice" }]);
+  await expect(page.locator("#operator-entries tr")).toHaveCount(2);
+  await expect(page.locator("#operator-entries")).toContainText("allow-name");
+  await expect(allow).toBeDisabled();
+  for (const action of others) await expect(action).toBeDisabled();
 });

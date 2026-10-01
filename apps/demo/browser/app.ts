@@ -395,6 +395,7 @@ const OPERATOR_PATHS: Record<string, string> = {
   suspend: "/operator/suspend",
   resume: "/operator/resume",
   remove: "/operator/remove",
+  "allow-name": "/operator/allow-name",
 };
 
 interface MemberSummary {
@@ -432,7 +433,10 @@ function memberStatus(summary: MemberSummary): string {
   return "Active";
 }
 
-/** Show a member, with the actions enabled unless the member was removed, which is final. */
+/**
+ * Show a member, with the actions enabled unless the member was removed, which
+ * is final. Allowing the name again is enabled only for a retired name.
+ */
 function showMember(member: Member) {
   const { summary } = member;
   $("operator-summary").replaceChildren(
@@ -446,7 +450,9 @@ function showMember(member: Member) {
   );
   $("operator-entries").replaceChildren(...member.entries.map((e) => row([when(e.at), e.action, e.operatorId])));
   $("operator-member").hidden = false;
-  for (const action of operatorActions()) action.disabled = summary.removedAt !== null;
+  for (const action of operatorActions()) {
+    action.disabled = action.value === "allow-name" ? !member.retired : summary.removedAt !== null;
+  }
 }
 
 function clearMember() {
@@ -475,7 +481,9 @@ async function operatorAction(action: string) {
   if (!shownMember) return;
   const { memberName, recordId } = shownMember;
   if (action === "remove" && !confirm(`Remove ${memberName}? This can't be undone, and their name will be retired.`)) return;
-  const response = await withStepUp(() => post(path, { recordId }));
+  if (action === "allow-name" && !confirm(`Let anyone register ${memberName} again? The removed member stays removed.`)) return;
+  // Allowing acts on the name, which no longer resolves to the removed record afterwards.
+  const response = await withStepUp(() => post(path, action === "allow-name" ? { memberName } : { recordId }));
   if (!response.ok && ((await response.clone().json()) as { error?: string }).error === "operator record") {
     return ($("operator-result").textContent = "Operators can't be removed. Take them off OPERATOR_RECORD_IDS first.");
   }
@@ -486,7 +494,9 @@ async function operatorAction(action: string) {
     ? `Send this link to ${memberName}: ${result.link}`
     : action === "remove"
       ? "Removed. Their name is retired."
-      : "Done.";
+      : action === "allow-name"
+        ? `Anyone can now register ${memberName}.`
+        : "Done.";
 }
 
 // --- wiring -----------------------------------------------------------------

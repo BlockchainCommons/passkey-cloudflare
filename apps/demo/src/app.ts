@@ -217,6 +217,14 @@ const POST: Record<string, Handler> = {
     return json({ ok: true, ...(await memberIfNamedById(call, targetId)) });
   }),
 
+  "/operator/allow-name": operator(async (call, operatorId) => {
+    if (!(await call.passkeys.resolveMemberName(call.body.memberName))) return error(404, "not found");
+    const targetId = await call.passkeys.allowRetiredMemberName(call.body.memberName);
+    if (!targetId) return error(409, "name not retired");
+    await operatorLog(call.env).append({ operatorId, action: "allow-name", targetId, at: call.ctx.now });
+    return json({ ok: true, member: { ...(await memberView(call, targetId)), retired: false } });
+  }),
+
   "/auth/step-up/options": async ({ passkeys, ctx, request }) =>
     json(await passkeys.stepUpOptions(ctx, sessionValueFrom(request))),
 
