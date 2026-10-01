@@ -118,20 +118,19 @@ function authed(handler: AuthedHandler): Handler {
 
 const POST: Record<string, Handler> = {
   "/auth/register/options": async ({ passkeys, ctx, body }) =>
-    optionsResponse(await passkeys.anonymousOptions(ctx, () => passkeys.registrationOptions(ctx, body.memberName))),
+    optionsResponse(await passkeys.registrationOptions(ctx, body.memberName)),
 
   "/auth/register/verify": async ({ passkeys, ctx, body }) => {
-    const outcome = await passkeys.ceremony(ctx, "register", () => passkeys.register(ctx, body.response));
+    const outcome = await passkeys.register(ctx, body.response);
     if (!outcome.ok) return outcome.response;
     const { recordId, session, ...codes } = outcome.value;
     return json({ recordId, ...withWords(codes) }, { headers: { "Set-Cookie": sessionCookie(session) } });
   },
 
-  "/auth/login/options": async ({ passkeys, ctx }) =>
-    optionsResponse(await passkeys.anonymousOptions(ctx, () => passkeys.loginOptions(ctx))),
+  "/auth/login/options": async ({ passkeys, ctx }) => optionsResponse(await passkeys.loginOptions(ctx)),
 
   "/auth/login/verify": async ({ passkeys, ctx, body }) => {
-    const outcome = await passkeys.ceremony(ctx, "login", () => passkeys.login(ctx, body.response));
+    const outcome = await passkeys.login(ctx, body.response);
     if (!outcome.ok) return outcome.response;
     const { recordId, session } = outcome.value;
     return json({ recordId }, { headers: { "Set-Cookie": sessionCookie(session) } });
@@ -143,7 +142,7 @@ const POST: Record<string, Handler> = {
   },
 
   "/auth/logout-everywhere": async ({ passkeys, request }) => {
-    if (!(await passkeys.logoutEverywhere(sessionValueFrom(request)))) return error(401, "not logged in");
+    await passkeys.logoutEverywhere(sessionValueFrom(request));
     return json({ ok: true }, { headers: { "Set-Cookie": clearedSessionCookie() } });
   },
 
@@ -153,22 +152,20 @@ const POST: Record<string, Handler> = {
   },
 
   "/auth/recover/options": async ({ passkeys, ctx, body }) =>
-    optionsResponse(await passkeys.anonymousOptions(ctx, () => passkeys.recoverOptions(ctx, body.memberName))),
+    optionsResponse(await passkeys.recoverOptions(ctx, body.memberName)),
 
   "/auth/recover": async ({ passkeys, ctx, body }) => {
-    const outcome = await passkeys.ceremony(ctx, "recover", () =>
-      passkeys.recover(ctx, body.memberName, body.code, body.response),
-    );
+    const outcome = await passkeys.recover(ctx, body.memberName, body.code, body.response);
     if (!outcome.ok) return outcome.response;
     const { recordId, session, codesLeft } = outcome.value;
     return json({ recordId, codesLeft }, { headers: { "Set-Cookie": sessionCookie(session) } });
   },
 
   "/auth/rebind/options": async ({ passkeys, ctx, body }) =>
-    optionsResponse(await passkeys.anonymousOptions(ctx, () => passkeys.rebindOptions(ctx, body.link))),
+    optionsResponse(await passkeys.rebindOptions(ctx, body.link)),
 
   "/auth/rebind/verify": async ({ passkeys, ctx, body }) => {
-    const outcome = await passkeys.ceremony(ctx, "rebind", () => passkeys.rebind(ctx, body.link, body.response));
+    const outcome = await passkeys.rebind(ctx, body.link, body.response);
     if (!outcome.ok) return outcome.response;
     const { recordId, session } = outcome.value;
     return json({ recordId }, { headers: { "Set-Cookie": sessionCookie(session) } });
@@ -229,9 +226,7 @@ const POST: Record<string, Handler> = {
     json(await passkeys.stepUpOptions(ctx, sessionValueFrom(request))),
 
   "/auth/step-up/verify": async ({ passkeys, ctx, request, body }) => {
-    const outcome = await passkeys.ceremony(ctx, "step-up", () =>
-      passkeys.stepUp(ctx, sessionValueFrom(request), body.response),
-    );
+    const outcome = await passkeys.stepUp(ctx, sessionValueFrom(request), body.response);
     return outcome.ok ? json({ ok: true }) : outcome.response;
   },
 
@@ -239,9 +234,7 @@ const POST: Record<string, Handler> = {
     json(await passkeys.enrolOptions(ctx, sessionValueFrom(request))),
 
   "/me/credentials/enrol/verify": async ({ passkeys, ctx, request, body }) => {
-    const outcome = await passkeys.ceremony(ctx, "enrol", () =>
-      passkeys.enrol(ctx, sessionValueFrom(request), body.response),
-    );
+    const outcome = await passkeys.enrol(ctx, sessionValueFrom(request), body.response);
     return outcome.ok ? json(outcome.value) : outcome.response;
   },
 
@@ -274,11 +267,8 @@ const GET: Record<string, Handler> = {
 
   "/operator/log": operator(async ({ env }) => json({ entries: await operatorLog(env).list() })),
 
-  "/me/sessions": async ({ passkeys, request }) => {
-    const sessions = await passkeys.sessions(sessionValueFrom(request));
-    if (!sessions) return error(401, "not logged in");
-    return json({ sessions });
-  },
+  "/me/sessions": async ({ passkeys, request }) =>
+    json({ sessions: await passkeys.sessions(sessionValueFrom(request)) }),
 };
 
 export function createApp(options: AppOptions = {}) {
