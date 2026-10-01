@@ -105,3 +105,7 @@ _Avoid_: audit log, history, event log
 **Ceremony failure log**:
 The append-only record of refused ceremonies and their causes, kept internally while the refusal seen from outside stays uniform.
 _Avoid_: error log, auth log
+
+**Uniform refusal**:
+The one response every ceremony that does not succeed ends in, sent no sooner than the refusal floor, whether the cause was a bad credential, a throttle or the server's own failure. Only the ceremony failure log tells the causes apart.
+_Avoid_: error, failure response
