@@ -31,7 +31,7 @@ _Avoid_: device, key (for passkeys)
 A single-use deferred credential, shown once, that rebinds a new passkey to an existing identity record.
 
 **Ceremony**:
-One WebAuthn exchange (registration, login, enrolment, step-up or recovery) proving control of a credential.
+One WebAuthn exchange (registration, login, enrolment, step-up, recovery or rebind) proving control of a credential.
 
 **Session**:
 A bearer token proving a principal for a bounded time.
