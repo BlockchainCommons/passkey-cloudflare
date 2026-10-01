@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { FAILURE_SCHEMA, insertFailure, type CeremonyFailure } from "../failures.ts";
+import { addColumnIfMissing } from "../sql.ts";
 import type { RecordId } from "./secrets.ts";
 import { FLAG_BACKED_UP, FLAG_BACKUP_ELIGIBLE, type VerifiedCredential } from "./webauthn.ts";
 
@@ -130,6 +131,7 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
     this.sql = ctx.storage.sql;
     this.sql.exec(SCHEMA);
     this.sql.exec(FAILURE_SCHEMA);
+    addColumnIfMissing(this.sql, "record", "removed_at", "INTEGER");
   }
 
   private recordRow(): RecordRow | undefined {
