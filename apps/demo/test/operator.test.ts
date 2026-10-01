@@ -15,8 +15,8 @@ async function deployment(options: HarnessOptions = {}) {
   await operator.stepUp();
   const person = app.browser();
   const personName = uniqueName("person");
-  const { recordId: personId } = await person.register(personName);
-  return { app, operator, operatorId, person, personName, personId };
+  const { recordId: personId, recoveryCodes } = await person.register(personName);
+  return { app, operator, operatorId, person, personName, personId, recoveryCodes };
 }
 
 async function rebind(device: Browser, link: string) {
@@ -132,6 +132,157 @@ describe("suspension of a principal with no live sessions", () => {
   });
 });
 
+/** Complete a login ceremony, answering with the raw response so a refusal can be read. */
+async function attemptLogin(device: Browser) {
+  const options = await device.json(device.post("/auth/login/options"));
+  return device.post("/auth/login/verify", { response: await device.authenticator.get(options) });
+}
+
+async function expectCeremonyRefused(response: Response) {
+  expect(response.status).toBe(400);
+  expect(await response.text()).toBe('{"error":"ceremony refused"}');
+}
+
+describe("removal", () => {
+  it("ends the member's sessions and fires the revocation hook in the same request, and refuses their logins", async () => {
+    const events: RevocationEvent[] = [];
+    const { operator, person, personId } = await deployment({ onRevoke: (event) => void events.push(event) });
+
+    expect((await operator.post("/operator/remove", { recordId: personId })).status).toBe(200);
+
+    expect(events).toEqual([{ reason: "removal", recordId: personId, sessionIds: [expect.any(String)] }]);
+    expect((await person.get("/me")).status).toBe(401);
+    await expectCeremonyRefused(await attemptLogin(person));
+  });
+
+  it("refuses recovery with an unused recovery code", async () => {
+    const { app, operator, personName, personId, recoveryCodes } = await deployment();
+    await operator.post("/operator/remove", { recordId: personId });
+
+    const device = app.browser();
+    const options = await device.json(device.post("/auth/recover/options", { memberName: personName }));
+    const response = await device.authenticator.create(options);
+
+    await expectCeremonyRefused(
+      await device.post("/auth/recover", { memberName: personName, code: recoveryCodes[0]!, response }),
+    );
+  });
+
+  it("refuses a rebind link created before the removal", async () => {
+    const { app, operator, personId } = await deployment();
+    const { link } = await operator.json(operator.post("/operator/rebind-links", { recordId: personId }));
+    await operator.post("/operator/remove", { recordId: personId });
+
+    await expectCeremonyRefused(await rebind(app.browser(), link));
+  });
+
+  it("refuses a step-up begun before the removal", async () => {
+    const { operator, person, personId } = await deployment();
+    const options = await person.json(person.post("/auth/step-up/options"));
+    await operator.post("/operator/remove", { recordId: personId });
+
+    const refused = await person.post("/auth/step-up/verify", { response: await person.authenticator.get(options) });
+
+    expect(refused.status).toBe(401);
+  });
+
+  it("refuses an enrolment begun on a session that predates the removal", async () => {
+    const { operator, person, personId } = await deployment();
+    await person.stepUp();
+    const options = await person.json(person.post("/me/credentials/enrol/options"));
+    await operator.post("/operator/remove", { recordId: personId });
+
+    const refused = await person.post("/me/credentials/enrol/verify", {
+      response: await person.authenticator.create(options),
+    });
+
+    expect(refused.status).toBe(401);
+  });
+
+  it("is final: Resume leaves the member refused", async () => {
+    const { operator, person, personId } = await deployment();
+    await operator.post("/operator/suspend", { recordId: personId });
+    await operator.post("/operator/remove", { recordId: personId });
+
+    expect((await operator.post("/operator/resume", { recordId: personId })).status).toBe(200);
+
+    await expectCeremonyRefused(await attemptLogin(person));
+  });
+
+  it("retires the member name: nobody can register it again", async () => {
+    const { app, operator, personName, personId } = await deployment();
+    await operator.post("/operator/remove", { recordId: personId });
+
+    const device = app.browser();
+    const typedAnotherWay = personName.toUpperCase();
+    expect(await device.json(device.get(`/auth/member-name?name=${typedAnotherWay}`))).toEqual({ available: false });
+    expect((await device.post("/auth/register/options", { memberName: typedAnotherWay })).status).toBe(409);
+  });
+
+  it("leaves a lookup of the name answering \"retired\" with the removed record, read-only", async () => {
+    const now = Date.now();
+    const { operator, operatorId, personName, personId } = await deployment({ clock: () => now });
+    await operator.post("/operator/remove", { recordId: personId });
+
+    const response = await operator.post("/operator/lookup", { memberName: personName });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      recordId: personId,
+      retired: true,
+      summary: { removedAt: now, sessions: 0, passkeys: 1 },
+      entries: [{ operatorId, action: "remove", targetId: personId, at: now }],
+    });
+  });
+
+  it("is refused, like the other operator routes, to a non-operator and to an operator who has not stepped up", async () => {
+    let now = Date.now();
+    const { app, operator, person } = await deployment({ clock: () => now });
+    await person.stepUp();
+    const target = app.browser();
+    const targetName = uniqueName("target");
+    const { recordId: targetId } = await target.register(targetName);
+
+    const byMember = await person.post("/operator/remove", { recordId: targetId });
+    expect(byMember.status).toBe(403);
+    expect(await byMember.json()).toEqual({ error: "not an operator" });
+
+    now += 11 * 60 * 1000;
+    const stale = await operator.post("/operator/remove", { recordId: targetId });
+    expect(stale.status).toBe(403);
+    expect(await stale.json()).toEqual({ error: "step-up-required" });
+
+    expect((await target.get("/me")).status).toBe(200);
+    await operator.stepUp();
+    const member = await operator.json(operator.post("/operator/lookup", { memberName: targetName }));
+    expect(member).toMatchObject({ retired: false, summary: { removedAt: null } });
+    expect(member.entries.filter((e: any) => e.action === "remove")).toEqual([]);
+  });
+
+  it("is refused for an operator's record, the operator's own included, and changes nothing", async () => {
+    const { app, operator, operatorId } = await deployment();
+    const other = app.browser();
+    const otherName = uniqueName("operator");
+    const { recordId: otherOperatorId } = await other.register(otherName);
+    app.vars.OPERATOR_RECORD_IDS = `${operatorId}, ${otherOperatorId}`;
+    const { memberName: ownName } = await operator.json(operator.get("/me"));
+
+    for (const [device, recordId, memberName] of [
+      [operator, operatorId, ownName],
+      [other, otherOperatorId, otherName],
+    ] as const) {
+      const refused = await operator.post("/operator/remove", { recordId });
+      expect(refused.status).toBe(409);
+      expect(await refused.json()).toEqual({ error: "operator record" });
+
+      expect((await device.get("/me")).status).toBe(200);
+      const member = await operator.json(operator.post("/operator/lookup", { memberName }));
+      expect(member).toMatchObject({ retired: false, summary: { removedAt: null, sessions: 1 } });
+      expect(member.entries.filter((e: any) => e.action === "remove")).toEqual([]);
+    }
+  });
+});
+
 describe("operator targets", () => {
   it("can be named by record id, which must be a well-formed one", async () => {
     const { operator, person, personId } = await deployment();
@@ -171,9 +322,11 @@ describe("operator lookup", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       recordId: personId,
+      retired: false,
       summary: {
         createdAt: now,
         suspendedAt: null,
+        removedAt: null,
         passkeys: 1,
         sessions: 1,
         recoveryCodesLeft: RECOVERY_CODE_COUNT,

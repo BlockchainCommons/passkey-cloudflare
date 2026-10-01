@@ -139,7 +139,7 @@
           <h3>Operator</h3>
           <button id="operator-info-toggle" class="info-toggle" type="button" aria-label="About the operator actions" aria-expanded="false" aria-controls="operator-info">&#9432;</button>
         </div>
-        <p id="operator-info" hidden>A rebind link lets the member add a new passkey. Send it yourself once you've confirmed who they are; it works once, within 24 hours, and leaves their old passkeys, sessions and codes in place. Suspend signs the member out everywhere and blocks sign-in, recovery and rebind links until you Resume, and every action here is logged.</p>
+        <p id="operator-info" hidden>A rebind link lets the member add a new passkey. Send it yourself once you've confirmed who they are; it works once, within 24 hours, and leaves their old passkeys, sessions and codes in place. Suspend signs the member out everywhere and blocks sign-in, recovery and rebind links until you Resume. Remove does the same for good and retires their member name, so nobody can register it again; it can't be undone, and it refuses an operator. Every action here is logged.</p>
         <form id="operator-form">
           <label>
             Member name
@@ -160,6 +160,7 @@
           <button type="button" value="rebind" disabled>Create rebind link</button>
           <button type="button" value="suspend" disabled>Suspend</button>
           <button type="button" value="resume" disabled>Resume</button>
+          <button type="button" value="remove" disabled>Remove</button>
         </div>
         <p id="operator-result"></p>
       </section>

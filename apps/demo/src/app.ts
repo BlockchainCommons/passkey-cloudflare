@@ -178,8 +178,9 @@ const POST: Record<string, Handler> = {
     const targetId = await call.passkeys.resolveMemberName(call.body.memberName);
     if (!targetId) return error(404, "no such member");
     const member = await memberView(call, targetId);
+    const retired = await call.passkeys.isRetiredMemberName(call.body.memberName);
     await operatorLog(call.env).append({ operatorId, action: "lookup", targetId, at: call.ctx.now });
-    return json(member);
+    return json({ ...member, retired });
   }),
 
   "/operator/rebind-links": operator(async (call, operatorId) => {
@@ -203,6 +204,16 @@ const POST: Record<string, Handler> = {
     if (!targetId) return error(404, "not found");
     await call.passkeys.resume(targetId);
     await operatorLog(call.env).append({ operatorId, action: "resume", targetId, at: call.ctx.now });
+    return json({ ok: true, ...(await memberIfNamedById(call, targetId)) });
+  }),
+
+  "/operator/remove": operator(async (call, operatorId) => {
+    const targetId = await targetRecordId(call);
+    if (!targetId) return error(404, "not found");
+    // An operator is taken off OPERATOR_RECORD_IDS before they can be removed.
+    if (operatorIds(call.env).has(targetId)) return error(409, "operator record");
+    await call.passkeys.remove(call.ctx, targetId);
+    await operatorLog(call.env).append({ operatorId, action: "remove", targetId, at: call.ctx.now });
     return json({ ok: true, ...(await memberIfNamedById(call, targetId)) });
   }),
 

@@ -4,8 +4,9 @@ import type { RecordId } from "./secrets.ts";
 import { FLAG_BACKED_UP, FLAG_BACKUP_ELIGIBLE, type VerifiedCredential } from "./webauthn.ts";
 
 // One Durable Object per identity record. It holds the record, its credentials,
-// sessions, recovery-code hashes, suspension state and failure rows. It sees
-// only ids and hashes: never a label, a member name, a session token or a code.
+// sessions, recovery-code hashes, suspension and removal state and failure
+// rows. It sees only ids and hashes: never a label, a member name, a session
+// token or a code.
 
 export const SESSION_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
 export const STEP_UP_WINDOW_MS = 10 * 60 * 1000;
@@ -37,6 +38,7 @@ export interface SessionSummary {
 export interface RecordSummary {
   createdAt: number;
   suspendedAt: number | null;
+  removedAt: number | null;
   passkeys: number;
   sessions: number;
   recoveryCodesLeft: number;
@@ -61,6 +63,7 @@ export type RecordCause =
   | "record-exists"
   | "unknown-record"
   | "suspended"
+  | "removed"
   | "unknown-credential"
   | "counter-regressed"
   | "wrong-session"
@@ -77,7 +80,8 @@ CREATE TABLE IF NOT EXISTS record (
   id TEXT PRIMARY KEY,
   kind TEXT NOT NULL CHECK (kind IN ('person', 'agent')),
   created_at INTEGER NOT NULL,
-  suspended_at INTEGER
+  suspended_at INTEGER,
+  removed_at INTEGER
 );
 CREATE TABLE IF NOT EXISTS credentials (
   id TEXT PRIMARY KEY,
@@ -116,6 +120,8 @@ CREATE TABLE IF NOT EXISTS rebind_tokens (
 );
 `;
 
+type RecordRow = { id: RecordId; kind: "person" | "agent"; suspended_at: number | null; removed_at: number | null };
+
 export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
   private readonly sql: SqlStorage;
 
@@ -126,10 +132,8 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
     this.sql.exec(FAILURE_SCHEMA);
   }
 
-  private recordRow(): { id: RecordId; kind: "person" | "agent"; suspended_at: number | null } | undefined {
-    return this.sql.exec<{ id: RecordId; kind: "person" | "agent"; suspended_at: number | null }>(
-      "SELECT id, kind, suspended_at FROM record",
-    ).toArray()[0];
+  private recordRow(): RecordRow | undefined {
+    return this.sql.exec<RecordRow>("SELECT id, kind, suspended_at, removed_at FROM record").toArray()[0];
   }
 
   private insertCredential(credential: VerifiedCredential, now: number): void {
@@ -233,9 +237,10 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
   }
 
   /** Why this record cannot take part in a ceremony now, or null if it can. */
-  private unavailableCause(): "unknown-record" | "suspended" | null {
+  private unavailableCause(): "unknown-record" | "removed" | "suspended" | null {
     const record = this.recordRow();
     if (!record) return "unknown-record";
+    if (record.removed_at !== null) return "removed";
     if (record.suspended_at !== null) return "suspended";
     return null;
   }
@@ -449,9 +454,23 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
 
   /** Suspend the principal: end all its sessions and refuse its logins. Returns the sessions ended. */
   suspend(now: number): RecordResult<{ sessionIds: string[] }> {
+    return this.markAndEndSessions("suspended_at", now);
+  }
+
+  /**
+   * Remove the principal, for good: end all its sessions and refuse every
+   * ceremony. Its credentials, codes and tokens stay, refused with it.
+   * Returns the sessions ended.
+   */
+  remove(now: number): RecordResult<{ sessionIds: string[] }> {
+    return this.markAndEndSessions("removed_at", now);
+  }
+
+  /** Set a state column, keeping an earlier time, and end every session, in one transaction. */
+  private markAndEndSessions(column: "suspended_at" | "removed_at", now: number): RecordResult<{ sessionIds: string[] }> {
     if (!this.recordRow()) return { ok: false, cause: "unknown-record" };
     return this.ctx.storage.transactionSync(() => {
-      this.sql.exec("UPDATE record SET suspended_at = COALESCE(suspended_at, ?)", now);
+      this.sql.exec(`UPDATE record SET ${column} = COALESCE(${column}, ?)`, now);
       const sessionIds = this.sql.exec<{ id: string }>("DELETE FROM sessions RETURNING id").toArray().map((r) => r.id);
       return { ok: true as const, sessionIds };
     });
@@ -519,7 +538,9 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
   /** The record's state and counts, with no session and no device detail. Null if there is no record. */
   summary(now: number): RecordSummary | null {
     const record = this.sql
-      .exec<{ created_at: number; suspended_at: number | null }>("SELECT created_at, suspended_at FROM record")
+      .exec<{ created_at: number; suspended_at: number | null; removed_at: number | null }>(
+        "SELECT created_at, suspended_at, removed_at FROM record",
+      )
       .toArray()[0];
     if (!record) return null;
     const count = (query: string, ...bindings: unknown[]) =>
@@ -527,6 +548,7 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
     return {
       createdAt: record.created_at,
       suspendedAt: record.suspended_at,
+      removedAt: record.removed_at,
       passkeys: count("SELECT COUNT(*) AS n FROM credentials"),
       sessions: count("SELECT COUNT(*) AS n FROM sessions WHERE expires_at > ?", now),
       recoveryCodesLeft: count("SELECT COUNT(*) AS n FROM recovery_codes WHERE used_at IS NULL"),
@@ -543,7 +565,7 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
   /** Validate a session token hash. Called on every authenticated request; nothing is cached. */
   authenticate(tokenHash: string, now: number): Principal | null {
     const record = this.recordRow();
-    if (!record || record.suspended_at !== null) return null;
+    if (!record || this.unavailableCause() !== null) return null;
     const session = this.sql
       .exec<{ id: string; expires_at: number }>(
         "SELECT id, expires_at FROM sessions WHERE token_hash = ?",

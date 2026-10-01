@@ -6,7 +6,7 @@ The library answers one question: which principal is presenting. Each applicatio
 
 A demo app, a shared card canvas, is built alongside the library to show it in use.
 
-Status: early development. Passkey login works: registration, login, adding and revoking passkeys, recovery codes, step-up, sessions, and operator lookup, rebind and suspension. The canvas, agents and signed artifacts come later. The API is not stable yet.
+Status: early development. Passkey login works: registration, login, adding and revoking passkeys, recovery codes, step-up, sessions, and operator lookup, rebind, suspension and removal. The canvas, agents and signed artifacts come later. The API is not stable yet.
 
 - Vocabulary: [`CONTEXT.md`](CONTEXT.md)
 - Architectural decisions: [`docs/adr/`](docs/adr/)

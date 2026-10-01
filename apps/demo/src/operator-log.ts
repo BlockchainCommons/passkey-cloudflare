@@ -7,7 +7,7 @@ import type { RecordId } from "passkey-cloudflare";
 
 export interface OperatorLogEntry {
   operatorId: RecordId;
-  action: "lookup" | "create-rebind-link" | "suspend" | "resume";
+  action: "lookup" | "create-rebind-link" | "suspend" | "resume" | "remove";
   targetId: RecordId;
   at: number;
 }

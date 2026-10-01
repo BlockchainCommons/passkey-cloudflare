@@ -27,6 +27,7 @@ const STATE_CHANGING_ROUTES = [
   "/operator/rebind-links",
   "/operator/suspend",
   "/operator/resume",
+  "/operator/remove",
 ];
 
 /**

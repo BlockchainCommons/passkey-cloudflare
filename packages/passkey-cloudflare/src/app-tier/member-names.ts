@@ -22,7 +22,8 @@ export class MemberNameRegistry<Env = unknown> extends DurableObject<Env> {
         record_id TEXT NOT NULL,
         name TEXT NOT NULL,
         claimed_at INTEGER NOT NULL,
-        released_at INTEGER
+        released_at INTEGER,
+        retired_at INTEGER
       );
     `);
   }
@@ -61,6 +62,31 @@ export class MemberNameRegistry<Env = unknown> extends DurableObject<Env> {
         name,
       );
     });
+  }
+
+  /**
+   * Retire the name a removed member held. It stays taken, still resolving to
+   * the removed record, so nobody can register it again.
+   */
+  retire(recordId: RecordId, now: number): void {
+    this.sql.exec(
+      "UPDATE name_history SET retired_at = ? WHERE record_id = ? AND released_at IS NULL AND retired_at IS NULL",
+      now,
+      recordId,
+    );
+  }
+
+  /** Whether this name, typed in any form, was retired with its member. */
+  isRetired(name: string): boolean {
+    return (
+      this.sql
+        .exec(
+          `SELECT 1 FROM names JOIN name_history USING (record_id, name)
+           WHERE names.key = ? AND name_history.retired_at IS NOT NULL`,
+          memberNameKey(name),
+        )
+        .toArray().length > 0
+    );
   }
 
   resolve(name: string): RecordId | null {

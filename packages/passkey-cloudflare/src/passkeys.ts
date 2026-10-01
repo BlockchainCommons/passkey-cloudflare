@@ -53,14 +53,14 @@ export interface PasskeyConfig {
   rateLimits?: Partial<RateLimits>;
   /**
    * Called within the same request whenever sessions end by logout, logout
-   * everywhere, logout everywhere else or suspension, so the application can
-   * close live connections.
+   * everywhere, logout everywhere else, suspension or removal, so the
+   * application can close live connections.
    */
   onRevoke?: (event: RevocationEvent) => void | Promise<void>;
 }
 
 export interface RevocationEvent {
-  reason: "logout" | "logout-everywhere" | "logout-elsewhere" | "suspension";
+  reason: "logout" | "logout-everywhere" | "logout-elsewhere" | "suspension" | "removal";
   recordId: RecordId;
   sessionIds: string[];
 }
@@ -623,6 +623,11 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       return isValidMemberName(memberName) ? names().resolve(memberName) : null;
     },
 
+    /** Whether a member name was retired when its member was removed. */
+    async isRetiredMemberName(memberName: string): Promise<boolean> {
+      return isValidMemberName(memberName) && names().isRetired(memberName);
+    },
+
     /**
      * Create a single-use, expiring rebind link value for a record. Who may do
      * this is the application's decision.
@@ -698,6 +703,19 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       await revoked({ reason: "suspension", recordId, sessionIds: done.sessionIds });
     },
 
+    /**
+     * Remove a principal, for good: its sessions end now, every ceremony is
+     * refused, and its member name is retired. Removing it again retires a
+     * name that a failed earlier removal left unretired.
+     */
+    async remove(ctx: RequestContext, recordId: RecordId): Promise<void> {
+      const done = await record(recordId).remove(ctx.now);
+      if (!done.ok) throw new PasskeyError("not-found");
+      await revoked({ reason: "removal", recordId, sessionIds: done.sessionIds });
+      await names().retire(recordId, ctx.now);
+    },
+
+    /** Lift a suspension. A removed principal stays removed. */
     async resume(recordId: RecordId): Promise<void> {
       const done = await record(recordId).resume();
       if (!done.ok) throw new PasskeyError("not-found");

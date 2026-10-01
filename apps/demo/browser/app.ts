@@ -390,11 +390,17 @@ async function rotateCodes() {
   await showCodes(await response.json());
 }
 
-const OPERATOR_PATHS: Record<string, string> = { rebind: "/operator/rebind-links", suspend: "/operator/suspend", resume: "/operator/resume" };
+const OPERATOR_PATHS: Record<string, string> = {
+  rebind: "/operator/rebind-links",
+  suspend: "/operator/suspend",
+  resume: "/operator/resume",
+  remove: "/operator/remove",
+};
 
 interface MemberSummary {
   createdAt: number;
   suspendedAt: number | null;
+  removedAt: number | null;
   passkeys: number;
   sessions: number;
   recoveryCodesLeft: number;
@@ -411,6 +417,8 @@ interface Member {
   recordId: string;
   summary: MemberSummary;
   entries: OperatorLogEntry[];
+  /** Set by a lookup: whether the name looked up was retired with its member. */
+  retired?: boolean;
 }
 
 /** The member the last lookup found, which the operator actions act on. */
@@ -418,11 +426,18 @@ let shownMember: { memberName: string; recordId: string } | null = null;
 
 const operatorActions = () => document.querySelectorAll<HTMLButtonElement>("#operator-actions button");
 
+function memberStatus(summary: MemberSummary): string {
+  if (summary.removedAt !== null) return `Removed since ${when(summary.removedAt)}`;
+  if (summary.suspendedAt !== null) return `Suspended since ${when(summary.suspendedAt)}`;
+  return "Active";
+}
+
+/** Show a member, with the actions enabled unless the member was removed, which is final. */
 function showMember(member: Member) {
   const { summary } = member;
   $("operator-summary").replaceChildren(
     row(["Record id", member.recordId]),
-    row(["Status", summary.suspendedAt === null ? "Active" : `Suspended since ${when(summary.suspendedAt)}`]),
+    row(["Status", memberStatus(summary)]),
     row(["Created", when(summary.createdAt)]),
     row(["Passkeys", String(summary.passkeys)]),
     row(["Sessions", String(summary.sessions)]),
@@ -431,6 +446,7 @@ function showMember(member: Member) {
   );
   $("operator-entries").replaceChildren(...member.entries.map((e) => row([when(e.at), e.action, e.operatorId])));
   $("operator-member").hidden = false;
+  for (const action of operatorActions()) action.disabled = summary.removedAt !== null;
 }
 
 function clearMember() {
@@ -450,7 +466,7 @@ async function lookUpMember(event: SubmitEvent) {
   const member = (await response.json()) as Member;
   shownMember = { memberName, recordId: member.recordId };
   showMember(member);
-  for (const action of operatorActions()) action.disabled = false;
+  if (member.retired) $("operator-result").textContent = "Retired name";
 }
 
 async function operatorAction(action: string) {
@@ -458,11 +474,19 @@ async function operatorAction(action: string) {
   if (!path) throw new Error(`unknown operator action ${action}`);
   if (!shownMember) return;
   const { memberName, recordId } = shownMember;
+  if (action === "remove" && !confirm(`Remove ${memberName}? This can't be undone, and their name will be retired.`)) return;
   const response = await withStepUp(() => post(path, { recordId }));
+  if (!response.ok && ((await response.clone().json()) as { error?: string }).error === "operator record") {
+    return ($("operator-result").textContent = "Operators can't be removed. Take them off OPERATOR_RECORD_IDS first.");
+  }
   if (!response.ok) return ($("operator-result").textContent = `Refused (${response.status}).`);
   const result = (await response.json()) as { link?: string; member: Member };
   showMember(result.member);
-  $("operator-result").textContent = result.link ? `Send this link to ${memberName}: ${result.link}` : "Done.";
+  $("operator-result").textContent = result.link
+    ? `Send this link to ${memberName}: ${result.link}`
+    : action === "remove"
+      ? "Removed. Their name is retired."
+      : "Done.";
 }
 
 // --- wiring -----------------------------------------------------------------

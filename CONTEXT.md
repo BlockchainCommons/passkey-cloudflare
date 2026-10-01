@@ -37,7 +37,7 @@ One WebAuthn exchange (registration, login, enrolment, step-up or recovery) prov
 A bearer token proving a principal for a bounded time.
 
 **Operator**:
-Whoever runs a deployment. Can look up a member's state and counts, rebind a new passkey to an identity record after verifying the person out of band, and suspend a principal, with every lookup and action logged. An application role, unknown to the identity layer.
+Whoever runs a deployment. Can look up a member's state and counts, rebind a new passkey to an identity record after verifying the person out of band, suspend a principal, and remove a member for good, retiring their member name, with every lookup and action logged. An operator cannot be removed while they are one. An application role, unknown to the identity layer.
 _Avoid_: admin, moderator, staff
 
 ## Delegation
