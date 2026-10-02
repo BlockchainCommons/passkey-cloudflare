@@ -40,6 +40,10 @@ A bearer token proving a principal for a bounded time.
 Whoever runs a deployment. Can look up a member's state and counts, rebind a new passkey to an identity record after verifying the person out of band, suspend a principal, and remove a member for good, retiring their member name, with every lookup and action logged. An operator cannot be removed while they are one. An application role, unknown to the identity layer.
 _Avoid_: admin, moderator, staff
 
+**Operator log**:
+The record of every lookup and action an operator asks for, written before it is carried out, so nothing is done without an entry. An entry says what was asked and passed the checks; a failure after it can leave the action undone.
+_Avoid_: audit log (when meaning a record of effects)
+
 ## Delegation
 
 **Agent**:
