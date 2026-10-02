@@ -1,6 +1,7 @@
 import { env, runInDurableObject } from "cloudflare:test";
 import { createPasskeys } from "passkey-cloudflare";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { overriding, rejecting } from "./failing-namespaces.ts";
 import { testApp, uniqueName, type Browser } from "./harness.ts";
 
 // Each ceremony method applies its own throttles, failure record and refusal
@@ -9,27 +10,6 @@ import { testApp, uniqueName, type Browser } from "./harness.ts";
 
 const REFUSAL = '{"error":"ceremony refused"}';
 const HOUR = 60 * 60 * 1000;
-
-/** A namespace whose objects reject every call to `method`, as an unreachable object would. */
-function rejecting<N extends object>(real: N, method: string): N {
-  const namespace = real as unknown as DurableObjectNamespace;
-  const failingStub = (id: DurableObjectId) =>
-    new Proxy(namespace.get(id), {
-      get: (target, property) =>
-        property === method
-          ? async () => {
-              throw new Error(`${method} failed`);
-            }
-          : Reflect.get(target, property),
-    });
-  return new Proxy(real, {
-    get: (target, property) => {
-      if (property === "get") return failingStub;
-      const value = Reflect.get(target, property);
-      return typeof value === "function" ? value.bind(target) : value;
-    },
-  });
-}
 
 /** Every failure recorded on one record, read from its own object. */
 function failuresOn(recordId: string) {
@@ -146,5 +126,57 @@ describe("the passkeys interface", () => {
 
     expect(Object.keys(passkeys)).not.toContain("ceremony");
     expect(Object.keys(passkeys)).not.toContain("anonymousOptions");
+  });
+});
+
+describe("a refused registration whose undo fails", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** A registration verified up to its response, ready to send. */
+  async function pendingRegistration() {
+    const app = testApp();
+    const browser = app.browser();
+    const name = uniqueName();
+    const options = await browser.json(browser.post("/auth/register/options", { memberName: name }));
+    const response = await browser.authenticator.create(options);
+    return { app, browser, name, response };
+  }
+
+  function loggedUndoFailure(errors: { mock: { calls: unknown[][] } }) {
+    return errors.mock.calls.some(([message]) => String(message).includes("undo step failed"));
+  }
+
+  it("when the label bind fails, keeps its cause, frees the member name and logs the failed undo", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { app, browser, name, response } = await pendingRegistration();
+    app.vars.CREDENTIAL_LABELS = rejecting(env.CREDENTIAL_LABELS, "bind");
+    app.vars.CREDENTIAL_INDEX = rejecting(env.CREDENTIAL_INDEX, "delete");
+
+    const refused = await browser.post("/auth/register/verify", { response });
+
+    expect(await refused.text()).toBe(REFUSAL);
+    expect(await globalFailuresFrom(browser)).toContainEqual({ ceremony: "register", cause: "label-unbound" });
+    expect(loggedUndoFailure(errors)).toBe(true);
+    app.vars = {};
+    await app.browser().register(name);
+  });
+
+  it("when the record refuses to commit, keeps its cause, frees the member name and logs the failed undo", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { app, browser, name, response } = await pendingRegistration();
+    app.vars.IDENTITY_RECORDS = overriding(env.IDENTITY_RECORDS, {
+      createPerson: async () => ({ ok: false, cause: "record-exists" }),
+    });
+    app.vars.CREDENTIAL_INDEX = rejecting(env.CREDENTIAL_INDEX, "delete");
+
+    const refused = await browser.post("/auth/register/verify", { response });
+
+    expect(await refused.text()).toBe(REFUSAL);
+    expect(await globalFailuresFrom(browser)).toContainEqual({ ceremony: "register", cause: "record-exists" });
+    expect(loggedUndoFailure(errors)).toBe(true);
+    app.vars = {};
+    await app.browser().register(name);
   });
 });

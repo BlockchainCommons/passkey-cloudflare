@@ -1,5 +1,6 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
+import { rejecting } from "./failing-namespaces.ts";
 import { testApp, uniqueName, type Browser, type TestApp } from "./harness.ts";
 import { savedLabel } from "./label-draws.ts";
 
@@ -11,25 +12,7 @@ import { savedLabel } from "./label-draws.ts";
 
 /** The labels namespace, with every bind failing as an unreachable object would. */
 function labelsThatRefuseToBind(): Env["CREDENTIAL_LABELS"] {
-  const real = env.CREDENTIAL_LABELS;
-  const failingStub = (id: DurableObjectId) => {
-    const stub = real.get(id);
-    return new Proxy(stub, {
-      get: (target, property) =>
-        property === "bind"
-          ? async () => {
-              throw new Error("label bind failed");
-            }
-          : Reflect.get(target, property),
-    });
-  };
-  return new Proxy(real, {
-    get: (target, property) => {
-      if (property === "get") return failingStub;
-      const value = Reflect.get(target, property);
-      return typeof value === "function" ? value.bind(target) : value;
-    },
-  });
+  return rejecting(env.CREDENTIAL_LABELS, "bind");
 }
 
 function breakLabelBinds(app: TestApp) {
