@@ -1,6 +1,6 @@
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/server";
 import type { CeremonyFailures } from "./app-tier/ceremony-failures.ts";
-import type { ChallengeStore } from "./app-tier/challenges.ts";
+import { CHALLENGE_LIFETIME_MS, type ChallengeStore } from "./app-tier/challenges.ts";
 import { providerName } from "./app-tier/aaguid-names.ts";
 import { parseLabel, randomLabel, type CredentialLabels } from "./app-tier/labels.ts";
 import type { MemberNameRegistry } from "./app-tier/member-names.ts";
@@ -211,8 +211,27 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
     return withinSourceLimit(ctx, "options", limits.optionsPerSource, issue);
   }
 
-  async function isMemberNameAvailable(name: string): Promise<boolean> {
-    return isValidMemberName(name) && (await names().isAvailable(name));
+  /**
+   * Free a member name left claimed by a registration that never completed:
+   * a claim whose record holds no person, older than a challenge's lifetime,
+   * so that no ceremony can still commit to it. Answers whether it was freed.
+   */
+  async function freeStaleClaim(name: string, now: number): Promise<boolean> {
+    const recordId = await names().claimBefore(name, now - CHALLENGE_LIFETIME_MS);
+    if (!recordId || (await record(recordId).summary(now)) !== null) return false;
+    await names().release(name, recordId, now);
+    return true;
+  }
+
+  async function isMemberNameAvailable(name: string, now: number): Promise<boolean> {
+    if (!isValidMemberName(name)) return false;
+    return (await names().isAvailable(name)) || (await freeStaleClaim(name, now));
+  }
+
+  /** Claim a member name for a new record, freeing a stale claim on it first if need be. */
+  async function claimMemberName(name: string, recordId: RecordId, now: number): Promise<boolean> {
+    if (await names().claim(name, recordId, now)) return true;
+    return (await freeStaleClaim(name, now)) && (await names().claim(name, recordId, now));
   }
 
   async function issueChallenge(purpose: Ceremony, payload: unknown, now: number) {
@@ -294,7 +313,9 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
      * Past the limit, the uniform refusal.
      */
     async checkMemberName(ctx: RequestContext, name: string): Promise<CeremonyOutcome<boolean>> {
-      return withinSourceLimit(ctx, "name-check", limits.nameCheckPerSource, () => isMemberNameAvailable(name));
+      return withinSourceLimit(ctx, "name-check", limits.nameCheckPerSource, () =>
+        isMemberNameAvailable(name, ctx.now),
+      );
     },
 
     async memberName(recordId: RecordId): Promise<string | null> {
@@ -304,7 +325,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
     /** Options for registering a member name, within the per-source limit. */
     async registrationOptions(ctx: RequestContext, typedName: string) {
       return anonymousOptions(ctx, async () => {
-        if (!(await isMemberNameAvailable(typedName))) throw new PasskeyError("member-name-unavailable");
+        if (!(await isMemberNameAvailable(typedName, ctx.now))) throw new PasskeyError("member-name-unavailable");
         const memberName = typedName.normalize("NFC");
         const label = randomLabel();
         const challenge = await issueChallenge("register", { memberName, label }, ctx.now);
@@ -322,7 +343,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
         );
         const credential = await verifyRegistration(response, { rp: config.rp, challenge });
         const recordId = newRecordId();
-        if (!(await names().claim(payload.memberName, recordId, ctx.now))) {
+        if (!(await claimMemberName(payload.memberName, recordId, ctx.now))) {
           throw new CeremonyRefusal("member-name-taken");
         }
         return bindNewCredential({

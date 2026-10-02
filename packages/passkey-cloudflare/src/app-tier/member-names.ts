@@ -52,6 +52,25 @@ export class MemberNameRegistry<Env = unknown> extends DurableObject<Env> {
     return true;
   }
 
+  /**
+   * The record holding this name by a claim made before `claimedBefore`, one
+   * neither released nor retired. Null if the name is free, retired, or was
+   * claimed since. Whether the claim's registration completed is the record's
+   * to say.
+   */
+  claimBefore(name: string, claimedBefore: number): RecordId | null {
+    const row = this.sql
+      .exec<{ record_id: RecordId }>(
+        `SELECT record_id FROM names JOIN name_history USING (record_id, name)
+         WHERE names.key = ? AND name_history.claimed_at < ?
+           AND name_history.released_at IS NULL AND name_history.retired_at IS NULL`,
+        memberNameKey(name),
+        claimedBefore,
+      )
+      .toArray()[0];
+    return row?.record_id ?? null;
+  }
+
   /** Undo a claim whose registration did not complete. */
   release(typed: string, recordId: RecordId, now: number): void {
     const name = typed.normalize("NFC");
