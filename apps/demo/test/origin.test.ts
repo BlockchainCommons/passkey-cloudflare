@@ -1,39 +1,21 @@
 import { describe, expect, it } from "vitest";
+import { GET_ROUTES, POST_ROUTES } from "../src/app.ts";
 import { ORIGIN, testApp, uniqueName, type Browser } from "./harness.ts";
 
 // Every state-changing request is checked against the site's origin, and only
-// POST changes state.
+// POST changes state. The routes come from the app's own tables, so a route
+// added later is covered here without editing this file.
 
-const READ_ROUTES = ["/auth/member-name?name=someone", "/me", "/me/credentials", "/me/sessions", "/operator/log"];
+/** Query strings that read routes need in order to answer. */
+const QUERIES: Record<string, string> = { "/auth/member-name": "?name=someone" };
 
-const STATE_CHANGING_ROUTES = [
-  "/auth/register/options",
-  "/auth/register/verify",
-  "/auth/login/options",
-  "/auth/login/verify",
-  "/auth/logout",
-  "/auth/logout-everywhere",
-  "/auth/logout-elsewhere",
-  "/auth/recover/options",
-  "/auth/recover",
-  "/auth/rebind/options",
-  "/auth/rebind/verify",
-  "/auth/step-up/options",
-  "/auth/step-up/verify",
-  "/me/credentials/enrol/options",
-  "/me/credentials/enrol/verify",
-  "/me/credentials/revoke",
-  "/me/recovery-codes/rotate",
-  "/operator/rebind-links",
-  "/operator/suspend",
-  "/operator/resume",
-  "/operator/remove",
-];
+const READ_ROUTES = GET_ROUTES.map((path) => path + (QUERIES[path] ?? ""));
 
 /**
- * A stepped-up operator with two passkeys, and a person, so that any route
- * that got past the origin check would have something to change: the
- * operator's session and passkeys, the person's standing, the operator log.
+ * A stepped-up operator with two passkeys, a person, and a removed member
+ * whose name is retired, so that any route that got past the origin check
+ * would have something to change: the operator's session and passkeys, the
+ * person's standing, the retired name, the operator log.
  */
 async function deployment() {
   const app = testApp();
@@ -45,9 +27,15 @@ async function deployment() {
   const person = app.browser();
   const personName = uniqueName("person");
   const { recordId: personId } = await person.register(personName);
+  const retiredName = uniqueName("retired");
+  const { recordId: retiredId } = await app.browser().register(retiredName);
+  expect((await operator.post("/operator/remove", { recordId: retiredId })).status).toBe(200);
   // Enough for any route to act on: whose passkey, whose record.
   const body = { label, memberName: personName, recordId: personId };
-  return { operator, operatorId, person, body };
+  // Routes that change something only for another target.
+  const targetedBodies: Record<string, unknown> = { "/operator/allow-name": { memberName: retiredName } };
+  const bodyFor = (path: string) => targetedBodies[path] ?? body;
+  return { operator, person, personName, retiredName, bodyFor };
 }
 
 /**
@@ -66,8 +54,14 @@ function send(browser: Browser, method: string, path: string, origin: string | n
   );
 }
 
-/** Nothing the routes could have changed has changed. */
-async function expectUnchanged({ operator, operatorId, person }: Awaited<ReturnType<typeof deployment>>) {
+/**
+ * Nothing the routes could have changed has changed. The operator log is read
+ * through each target's lookup, which is uncapped; a lookup's answer leaves out
+ * the entry that lookup appends. So it sees only entries that target the person
+ * or the retired member: a new route that acts on another record needs a body
+ * that targets one of them.
+ */
+async function expectUnchanged({ operator, person, personName, retiredName }: Awaited<ReturnType<typeof deployment>>) {
   expect((await operator.get("/me")).status).toBe(200);
   const { credentials } = await operator.json(operator.get("/me/credentials"));
   expect(credentials).toHaveLength(2);
@@ -75,8 +69,12 @@ async function expectUnchanged({ operator, operatorId, person }: Awaited<ReturnT
   expect(sessions).toHaveLength(1);
   expect((await person.get("/me")).status).toBe(200);
   expect((await person.json(person.get("/me/credentials"))).credentials).toHaveLength(1);
-  const { entries } = await operator.json(operator.get("/operator/log"));
-  expect(entries.filter((e: any) => e.operatorId === operatorId)).toEqual([]);
+  // Read whatever the lookup answers: once the name is allowed, it no longer finds the member.
+  const retired = await (await operator.post("/operator/lookup", { memberName: retiredName })).json<any>();
+  expect(retired).toMatchObject({ retired: true });
+  expect(retired.entries.map((e: any) => e.action)).toEqual(["remove"]);
+  const { entries } = await operator.json(operator.post("/operator/lookup", { memberName: personName }));
+  expect(entries).toEqual([]);
 }
 
 describe("a state-changing request", () => {
@@ -88,8 +86,8 @@ describe("a state-changing request", () => {
     it(`${name} is refused on every route, before anything changes`, async () => {
       const setup = await deployment();
 
-      for (const path of STATE_CHANGING_ROUTES) {
-        const response = await send(setup.operator, "POST", path, origin, setup.body);
+      for (const path of POST_ROUTES) {
+        const response = await send(setup.operator, "POST", path, origin, setup.bodyFor(path));
         expect({ path, status: response.status, body: await response.text() }).toEqual({
           path,
           status: 403,
@@ -111,7 +109,7 @@ describe("a GET or HEAD", () => {
         const response = await send(setup.operator, method, path, ORIGIN);
         expect({ method, path, status: response.status }).toEqual({ method, path, status: 200 });
       }
-      for (const path of STATE_CHANGING_ROUTES) {
+      for (const path of POST_ROUTES) {
         const response = await send(setup.operator, method, path, ORIGIN);
         expect({ method, path, status: response.status }).toEqual({ method, path, status: 404 });
       }

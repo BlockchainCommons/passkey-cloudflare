@@ -271,6 +271,12 @@ const GET: Record<string, Handler> = {
     json({ sessions: await passkeys.sessions(sessionValueFrom(request)) }),
 };
 
+/** The paths the app answers a POST on, each a state-changing route. */
+export const POST_ROUTES: readonly string[] = Object.keys(POST);
+
+/** The paths the app answers a GET or HEAD on, each a read route. */
+export const GET_ROUTES: readonly string[] = Object.keys(GET);
+
 export function createApp(options: AppOptions = {}) {
   return {
     async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
