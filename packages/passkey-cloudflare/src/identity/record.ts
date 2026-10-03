@@ -404,10 +404,33 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
   }
 
   /**
-   * Recover with a recovery code: check the throttle and the code, mark the
-   * code used, bind the new credential and mint a session, in one transaction.
-   * Every attempt counts against the throttle, whatever its outcome. Returns
-   * how many unused codes are left, counted in the same transaction.
+   * Check a recovery attempt before the ceremony binds anything: apply the
+   * throttle, count the attempt, and check that the code is one of the
+   * record's unused codes, without using it. Every attempt counts against the
+   * throttle, whatever its outcome.
+   */
+  checkRecoveryAttempt(input: { codeHash: string; now: number }): RecordResult {
+    const refused = this.unavailableCause();
+    if (refused) return { ok: false, cause: refused };
+    const recent = this.sql
+      .exec<{ n: number }>("SELECT COUNT(*) AS n FROM recovery_attempts WHERE at > ?", input.now - HOUR_MS)
+      .one().n;
+    if (recent >= RECOVERY_ATTEMPTS_PER_HOUR) return { ok: false, cause: "recovery-throttled" };
+    this.sql.exec("DELETE FROM recovery_attempts WHERE at <= ?", input.now - HOUR_MS);
+    this.sql.exec("INSERT INTO recovery_attempts (at) VALUES (?)", input.now);
+    const unused = this.sql
+      .exec("SELECT 1 FROM recovery_codes WHERE code_hash = ? AND used_at IS NULL", input.codeHash)
+      .toArray();
+    if (unused.length === 0) return { ok: false, cause: "wrong-recovery-code" };
+    return { ok: true };
+  }
+
+  /**
+   * Recover with a recovery code that `checkRecoveryAttempt` accepted: mark
+   * the code used, bind the new credential and mint a session, in one
+   * transaction. The attempt was counted by the check, so it is not counted
+   * again. A code used by a concurrent recovery since the check is refused.
+   * Returns how many unused codes are left, counted in the same transaction.
    */
   recover(input: {
     codeHash: string;
@@ -417,12 +440,6 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
   }): RecordResult<{ codesLeft: number }> {
     const refused = this.unavailableCause();
     if (refused) return { ok: false, cause: refused };
-    const recent = this.sql
-      .exec<{ n: number }>("SELECT COUNT(*) AS n FROM recovery_attempts WHERE at > ?", input.now - HOUR_MS)
-      .one().n;
-    if (recent >= RECOVERY_ATTEMPTS_PER_HOUR) return { ok: false, cause: "recovery-throttled" };
-    this.sql.exec("DELETE FROM recovery_attempts WHERE at <= ?", input.now - HOUR_MS);
-    this.sql.exec("INSERT INTO recovery_attempts (at) VALUES (?)", input.now);
     return this.ctx.storage.transactionSync((): RecordResult<{ codesLeft: number }> => {
       const used = this.sql
         .exec("UPDATE recovery_codes SET used_at = ? WHERE code_hash = ? AND used_at IS NULL RETURNING 1", input.now, input.codeHash)

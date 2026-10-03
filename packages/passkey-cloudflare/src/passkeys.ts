@@ -637,6 +637,12 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
         if (!recordId || recordId !== payload.recordId) throw new CeremonyRefusal("unknown-member-name");
         trail.recordId = recordId;
         if (typeof code !== "string") throw new CeremonyRefusal("wrong-recovery-code");
+        const codeHash = await hashRecoveryCode(code);
+        // Checked before the passkey is verified or bound, so that a throttled
+        // or wrong-code attempt writes nothing but its count: binding first
+        // would burn a label on the record for every refused attempt.
+        const checked = await record(recordId).checkRecoveryAttempt({ codeHash, now: ctx.now });
+        if (!checked.ok) throw new CeremonyRefusal(checked.cause);
         const credential = await verifyRegistration(response, { rp: config.rp, challenge });
         return bindNewCredential({
           recordId,
@@ -646,7 +652,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
           commit: async () => {
             const session = await newSession(recordId, ctx);
             const done = await record(recordId).recover({
-              codeHash: await hashRecoveryCode(code),
+              codeHash,
               credential,
               session: session.row,
               now: ctx.now,

@@ -3,8 +3,9 @@ import type { CredentialLabels } from "passkey-cloudflare";
 import { formatRecoveryCodes } from "passkey-cloudflare/browser";
 import { decodeTypedBytewords, encodeBytewords } from "passkey-cloudflare/gordian";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { counting, overriding } from "./failing-namespaces.ts";
 import { testApp, uniqueName, type Browser } from "./harness.ts";
-import { PINNED_LABEL, PINNED_LABEL_BYTES, pinLabelDraws } from "./label-draws.ts";
+import { PINNED_LABEL, PINNED_LABEL_BYTES, pinLabelDraws, savedLabel } from "./label-draws.ts";
 
 const HOUR = 60 * 60 * 1000;
 // Well-formed recovery codes that are never issued.
@@ -17,6 +18,23 @@ async function labelRows(recordId: string): Promise<number> {
   return runInDurableObject(labelsOf(recordId), (_instance, state) =>
     state.storage.sql.exec<{ n: number }>("SELECT count(*) AS n FROM labels").one().n,
   );
+}
+
+const recordOf = (recordId: string) => env.IDENTITY_RECORDS.get(env.IDENTITY_RECORDS.idFromName(recordId));
+
+/** Every failure cause recorded on one record, read from its own object. */
+function failureCausesOn(recordId: string) {
+  return runInDurableObject(recordOf(recordId), (_instance, state) =>
+    state.storage.sql
+      .exec<{ cause: string }>("SELECT cause FROM failures")
+      .toArray()
+      .map((r) => r.cause),
+  );
+}
+
+/** The record a credential id is indexed to, or null. */
+function indexedRecord(credentialId: string) {
+  return env.CREDENTIAL_INDEX.get(env.CREDENTIAL_INDEX.idFromName("global")).get(credentialId);
 }
 
 afterEach(() => {
@@ -173,6 +191,19 @@ describe("recovery", () => {
     expect((await recover(app.browser(), name, recoveryCodes[0]!)).status).toBe(200);
   });
 
+  it("counts a successful recovery once against the record's attempts", async () => {
+    const app = testApp();
+    const name = uniqueName();
+    const { recoveryCodes } = await app.browser().register(name);
+    expect((await recover(app.browser(), name, recoveryCodes[0]!)).status).toBe(200);
+    for (let i = 0; i < 3; i++) {
+      expect((await recover(app.browser(), name, OTHER_WRONG_CODE)).status).toBe(400);
+    }
+
+    expect((await recover(app.browser(), name, recoveryCodes[1]!)).status).toBe(200);
+    expect((await recover(app.browser(), name, recoveryCodes[2]!)).status).toBe(400);
+  });
+
   it("finds a name typed without its accents or capitals", async () => {
     const app = testApp();
     const suffix = uniqueName("");
@@ -236,5 +267,84 @@ describe("recovery", () => {
     const recovered = await device.post("/auth/recover", { memberName: name, code: recoveryCodes[0]!, response });
     expect(recovered.status).toBe(200);
     expect((await recovered.json<any>()).recordId).toBe(recordId);
+  });
+});
+
+describe("a refused recovery attempt", () => {
+  it("with a wrong code, writes no index entry, label or session", async () => {
+    const app = testApp();
+    const name = uniqueName();
+    const { recordId } = await app.browser().register(name);
+    const labelsBefore = await labelRows(recordId);
+    const indexCalls = counting(env.CREDENTIAL_INDEX);
+    app.vars.CREDENTIAL_INDEX = indexCalls.namespace;
+    const attacker = app.browser();
+
+    const refused = await recover(attacker, name, WRONG_CODE);
+
+    expect(refused.status).toBe(400);
+    expect(await failureCausesOn(recordId)).toContain("wrong-recovery-code");
+    expect(attacker.session).toBeUndefined();
+    expect(await labelRows(recordId)).toBe(labelsBefore);
+    expect(indexCalls.calls).not.toContain("put");
+    expect(await indexedRecord(attacker.authenticator.credentials[0]!.id)).toBeNull();
+  });
+
+  it("once the record is throttled, binds no label even for a right code", async () => {
+    const app = testApp();
+    const name = uniqueName();
+    const { recordId, recoveryCodes } = await app.browser().register(name);
+    for (let i = 0; i < 5; i++) {
+      expect((await recover(app.browser(), name, WRONG_CODE)).status).toBe(400);
+    }
+    const labelsBefore = await labelRows(recordId);
+    const device = app.browser();
+
+    const refused = await recover(device, name, recoveryCodes[0]!);
+
+    expect(refused.status).toBe(400);
+    expect(await failureCausesOn(recordId)).toContain("recovery-throttled");
+    expect(await indexedRecord(device.authenticator.credentials[0]!.id)).toBeNull();
+    expect(await labelRows(recordId)).toBe(labelsBefore);
+  });
+
+  it("racing another recovery with the same code, loses with its passkey neither indexed nor listed", async () => {
+    const app = testApp();
+    const name = uniqueName();
+    const { recordId, recoveryCodes } = await app.browser().register(name);
+    const code = recoveryCodes[0]!;
+    // Hold the first commit until a second recovery with the same code has
+    // finished, so that both pass the code check before either commits.
+    let reachedCommit!: () => void;
+    const firstAtCommit = new Promise<void>((resolve) => (reachedCommit = resolve));
+    let releaseCommit!: () => void;
+    const secondDone = new Promise<void>((resolve) => (releaseCommit = resolve));
+    let recoverCalls = 0;
+    app.vars.IDENTITY_RECORDS = overriding(env.IDENTITY_RECORDS, {
+      recover: async (input) => {
+        if (recoverCalls++ === 0) {
+          reachedCommit();
+          await secondDone;
+        }
+        return recordOf(recordId).recover(input);
+      },
+    });
+    const first = app.browser();
+    const second = app.browser();
+
+    const firstAttempt = recover(first, name, code);
+    await firstAtCommit;
+    const won = await recover(second, name, code);
+    releaseCommit();
+    const lost = await firstAttempt;
+
+    expect(won.status).toBe(200);
+    expect(lost.status).toBe(400);
+    expect(await failureCausesOn(recordId)).toContain("wrong-recovery-code");
+    expect(first.session).toBeUndefined();
+    expect(await indexedRecord(first.authenticator.credentials[0]!.id)).toBeNull();
+    const { credentials } = await second.json(second.get("/me/credentials"));
+    expect(credentials).toHaveLength(2);
+    expect(credentials.map((c: any) => c.label)).not.toContain(savedLabel(first.authenticator.credentials[0]!));
   });
 });
