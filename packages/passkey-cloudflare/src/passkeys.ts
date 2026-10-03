@@ -269,20 +269,32 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
     return { recordId, credentialId, ...verified };
   }
 
+  // A session-gated method whose first object call is the identity record
+  // passes the session's token hash to it, and the record applies the gate and
+  // acts in that one call. Only a method that must call another object before
+  // the record checks the gate first, with `liveSession` or `steppedUpSession`.
+
+  /** The presented session's record and token hash, unchecked. */
+  async function presentedSession(sessionValue: string | null | undefined) {
+    const parsed = await parseRecordToken(sessionValue);
+    if (!parsed) throw new PasskeyError("not-logged-in");
+    return parsed;
+  }
+
   /** The presented session, which must be live. */
   async function liveSession(sessionValue: string | null | undefined, now: number) {
-    const parsed = await parseRecordToken(sessionValue);
-    const principal = parsed ? await record(parsed.recordId).authenticate(parsed.tokenHash, now) : null;
-    if (!parsed || !principal) throw new PasskeyError("not-logged-in");
+    const parsed = await presentedSession(sessionValue);
+    const principal = await record(parsed.recordId).authenticate(parsed.tokenHash, now);
+    if (!principal) throw new PasskeyError("not-logged-in");
     return { ...parsed, sessionId: principal.sessionId };
   }
 
   /** The presented session, which must be live and recently stepped up. */
   async function steppedUpSession(sessionValue: string | null | undefined, now: number) {
-    const session = await liveSession(sessionValue, now);
-    const check = await record(session.recordId).checkStepUp(session.tokenHash, now);
+    const parsed = await presentedSession(sessionValue);
+    const check = await record(parsed.recordId).checkStepUp(parsed.tokenHash, now);
     if (!check.ok) throw new PasskeyError(check.cause);
-    return session;
+    return { ...parsed, sessionId: check.sessionId };
   }
 
   /** Turn a record's refusal into the right kind of error. */
@@ -435,20 +447,21 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
     },
 
     async stepUpOptions(ctx: RequestContext, sessionValue: string | null | undefined) {
-      const session = await liveSession(sessionValue, ctx.now);
-      const ids = await record(session.recordId).credentialIds(session.tokenHash, ctx.now);
-      if (!ids) throw new PasskeyError("not-logged-in");
+      const presented = await presentedSession(sessionValue);
+      const found = await record(presented.recordId).credentialIds(presented.tokenHash, ctx.now, "live");
+      if (!found.ok) throw new PasskeyError(found.cause);
       const challenge = await issueChallenge(
         "step-up",
-        { recordId: session.recordId, sessionId: session.sessionId },
+        { recordId: presented.recordId, sessionId: found.sessionId },
         ctx.now,
       );
-      return requestOptions({ rp: config.rp, challenge, allowCredentialIds: ids });
+      return requestOptions({ rp: config.rp, challenge, allowCredentialIds: found.ids });
     },
 
     /** Prove control of one of the record's passkeys again, on this session. */
     async stepUp(ctx: RequestContext, sessionValue: string | null | undefined, response: AuthenticationResponseJSON) {
       return runCeremony(ctx, "step-up", async (trail) => {
+        // Gated here, before the challenge is consumed.
         const session = await liveSession(sessionValue, ctx.now);
         trail.recordId = session.recordId;
         const { challenge, payload } = await consumeChallenge<{ recordId: RecordId; sessionId: string }>(
@@ -472,28 +485,31 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
     },
 
     async enrolOptions(ctx: RequestContext, sessionValue: string | null | undefined) {
-      const session = await steppedUpSession(sessionValue, ctx.now);
-      const [label, memberName, ids] = await Promise.all([
-        labels(session.recordId).mint(ctx.now),
-        names().nameOf(session.recordId),
-        record(session.recordId).credentialIds(session.tokenHash, ctx.now),
+      const presented = await presentedSession(sessionValue);
+      // The record gates first, so that a refused session mints no label.
+      const found = await record(presented.recordId).credentialIds(presented.tokenHash, ctx.now, "stepped-up");
+      if (!found.ok) throw new PasskeyError(found.cause);
+      const [label, memberName] = await Promise.all([
+        labels(presented.recordId).mint(ctx.now),
+        names().nameOf(presented.recordId),
       ]);
       const challenge = await issueChallenge(
         "enrol",
-        { recordId: session.recordId, sessionId: session.sessionId, label },
+        { recordId: presented.recordId, sessionId: found.sessionId, label },
         ctx.now,
       );
       return creationOptions({
         rp: config.rp,
         challenge,
-        userName: passkeyName(memberName ?? session.recordId, label),
-        excludeCredentialIds: ids ?? [],
+        userName: passkeyName(memberName ?? presented.recordId, label),
+        excludeCredentialIds: found.ids,
       });
     },
 
     /** Add a passkey to the stepped-up session's record. Returns its label. */
     async enrol(ctx: RequestContext, sessionValue: string | null | undefined, response: RegistrationResponseJSON) {
       return runCeremony(ctx, "enrol", async (trail) => {
+        // Gated here, before the challenge is consumed and the credential index written.
         const session = await liveSession(sessionValue, ctx.now);
         trail.recordId = session.recordId;
         const { challenge, payload } = await consumeChallenge<{ recordId: RecordId; sessionId: string; label: string }>(
@@ -524,10 +540,11 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
 
     /** The record's passkeys. One with no label is given one here. */
     async credentials(ctx: RequestContext, sessionValue: string | null | undefined): Promise<CredentialListing[]> {
-      const session = await liveSession(sessionValue, ctx.now);
-      const rows = await record(session.recordId).listCredentials(session.tokenHash, ctx.now);
-      if (!rows) throw new PasskeyError("not-logged-in");
-      const byCredential = await labels(session.recordId).labelEach(
+      const presented = await presentedSession(sessionValue);
+      const listed = await record(presented.recordId).listCredentials(presented.tokenHash, ctx.now);
+      if (!listed.ok) throw new PasskeyError(listed.cause);
+      const rows = listed.credentials;
+      const byCredential = await labels(presented.recordId).labelEach(
         rows.map((row) => row.id),
         ctx.now,
       );
@@ -553,6 +570,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       typed: string,
     ): Promise<RevokedPasskey> {
       const label = typeof typed === "string" ? parseLabel(typed) : null;
+      // Gated here, before the label is resolved.
       const session = await steppedUpSession(sessionValue, ctx.now);
       const credentialId = label === null ? null : await labels(session.recordId).resolve(label);
       if (label === null || !credentialId) throw new PasskeyError("not-found");
@@ -573,10 +591,10 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
 
     /** Replace every recovery code. Returns the new codes, shown once, and when they were issued. */
     async rotateRecoveryCodes(ctx: RequestContext, sessionValue: string | null | undefined) {
-      const session = await steppedUpSession(sessionValue, ctx.now);
+      const presented = await presentedSession(sessionValue);
       const recovery = await mintRecoveryCodes();
-      const done = await record(session.recordId).rotateRecoveryCodes({
-        tokenHash: session.tokenHash,
+      const done = await record(presented.recordId).rotateRecoveryCodes({
+        tokenHash: presented.tokenHash,
         codeHashes: recovery.hashes,
         now: ctx.now,
       });

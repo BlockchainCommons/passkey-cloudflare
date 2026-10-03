@@ -58,6 +58,9 @@ export interface CredentialSummary {
 /** Why a session may not perform an action. */
 export type SessionCause = "not-logged-in" | "step-up-required";
 
+/** What a session-gated action needs of the presented session. */
+export type SessionNeed = "live" | "stepped-up";
+
 /** Why the record refused an operation. */
 export type RecordCause =
   | SessionCause
@@ -273,35 +276,55 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
     return row?.id ?? null;
   }
 
-  /** The presented session, if it is live and completed a step-up within the window. */
-  private steppedUpSession(tokenHash: string, now: number): Principal | null {
-    const principal = this.authenticate(tokenHash, now);
-    if (!principal) return null;
-    const row = this.sql
-      .exec<{ step_up_at: number | null }>("SELECT step_up_at FROM sessions WHERE id = ?", principal.sessionId)
-      .one();
-    if (row.step_up_at === null || now - row.step_up_at > STEP_UP_WINDOW_MS) return null;
-    return principal;
+  /**
+   * The session gate, and the one place its rules live. The presented session
+   * passes as "live" if the record can take part in a ceremony and the session
+   * has not expired, and as "stepped-up" if it is live and completed a step-up
+   * within the window. Every session-gated method applies it before acting.
+   */
+  private gate(
+    tokenHash: string,
+    now: number,
+    need: SessionNeed,
+  ): RecordResult<{ principal: Principal }, SessionCause> {
+    const record = this.recordRow();
+    if (!record || this.unavailableCause() !== null) return { ok: false, cause: "not-logged-in" };
+    const session = this.sql
+      .exec<{ id: string; expires_at: number; step_up_at: number | null }>(
+        "SELECT id, expires_at, step_up_at FROM sessions WHERE token_hash = ?",
+        tokenHash,
+      )
+      .toArray()[0];
+    if (!session || session.expires_at <= now) return { ok: false, cause: "not-logged-in" };
+    if (need === "stepped-up" && (session.step_up_at === null || now - session.step_up_at > STEP_UP_WINDOW_MS)) {
+      return { ok: false, cause: "step-up-required" };
+    }
+    return { ok: true, principal: { recordId: record.id, kind: record.kind, sessionId: session.id } };
   }
 
-  /** Why an action needing a fresh step-up cannot proceed, or null if it can. */
-  private stepUpRefusal(tokenHash: string, now: number): SessionCause | null {
-    if (!this.authenticate(tokenHash, now)) return "not-logged-in";
-    if (!this.steppedUpSession(tokenHash, now)) return "step-up-required";
-    return null;
-  }
-
-  /** Whether the presented session may perform step-up-gated actions now. */
+  /**
+   * Whether the presented session may perform step-up-gated actions now. For
+   * a caller that must check the gate before calling another object.
+   */
   checkStepUp(tokenHash: string, now: number): RecordResult<{ sessionId: string }, SessionCause> {
-    const cause = this.stepUpRefusal(tokenHash, now);
-    if (cause) return { ok: false, cause };
-    return { ok: true, sessionId: this.authenticate(tokenHash, now)!.sessionId };
+    const gate = this.gate(tokenHash, now, "stepped-up");
+    if (!gate.ok) return gate;
+    return { ok: true, sessionId: gate.principal.sessionId };
   }
 
-  /** The ids of this record's credentials, for a live session's step-up. */
-  credentialIds(tokenHash: string, now: number): string[] | null {
-    if (!this.authenticate(tokenHash, now)) return null;
-    return this.sql.exec<{ id: string }>("SELECT id FROM credentials ORDER BY created_at").toArray().map((r) => r.id);
+  /** The ids of this record's credentials, for a session that passes the gate. */
+  credentialIds(
+    tokenHash: string,
+    now: number,
+    need: SessionNeed,
+  ): RecordResult<{ sessionId: string; ids: string[] }, SessionCause> {
+    const gate = this.gate(tokenHash, now, need);
+    if (!gate.ok) return gate;
+    const ids = this.sql
+      .exec<{ id: string }>("SELECT id FROM credentials ORDER BY created_at")
+      .toArray()
+      .map((r) => r.id);
+    return { ok: true, sessionId: gate.principal.sessionId, ids };
   }
 
   /** Complete a step-up on the session that asked for it. */
@@ -313,30 +336,30 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
     flags: number;
     now: number;
   }): RecordResult {
-    const principal = this.authenticate(input.tokenHash, input.now);
-    if (!principal || principal.sessionId !== input.sessionId) return { ok: false, cause: "wrong-session" };
+    const gate = this.gate(input.tokenHash, input.now, "live");
+    if (!gate.ok || gate.principal.sessionId !== input.sessionId) return { ok: false, cause: "wrong-session" };
     return this.ctx.storage.transactionSync((): RecordResult => {
       const cause = this.acceptAssertion(input.credentialId, input.signCount, input.flags, input.now);
       if (cause) return { ok: false, cause };
-      this.sql.exec("UPDATE sessions SET step_up_at = ? WHERE id = ?", input.now, principal.sessionId);
+      this.sql.exec("UPDATE sessions SET step_up_at = ? WHERE id = ?", input.now, gate.principal.sessionId);
       return { ok: true };
     });
   }
 
   /** Add a credential for a stepped-up session. */
   addCredential(input: { tokenHash: string; sessionId: string; credential: VerifiedCredential; now: number }): RecordResult {
-    const cause = this.stepUpRefusal(input.tokenHash, input.now);
-    if (cause) return { ok: false, cause };
-    if (this.authenticate(input.tokenHash, input.now)!.sessionId !== input.sessionId) {
-      return { ok: false, cause: "wrong-session" };
-    }
+    const gate = this.gate(input.tokenHash, input.now, "stepped-up");
+    if (!gate.ok) return gate;
+    if (gate.principal.sessionId !== input.sessionId) return { ok: false, cause: "wrong-session" };
     this.insertCredential(input.credential, input.now);
     return { ok: true };
   }
 
-  listCredentials(tokenHash: string, now: number): CredentialSummary[] | null {
-    if (!this.authenticate(tokenHash, now)) return null;
-    return this.sql
+  /** This record's credentials, for a live session. */
+  listCredentials(tokenHash: string, now: number): RecordResult<{ credentials: CredentialSummary[] }, SessionCause> {
+    const gate = this.gate(tokenHash, now, "live");
+    if (!gate.ok) return gate;
+    const credentials = this.sql
       .exec<{
         id: string;
         created_at: number;
@@ -354,6 +377,7 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
         backupEligible: (row.registration_flags & FLAG_BACKUP_ELIGIBLE) !== 0,
         backedUp: ((row.last_flags ?? row.registration_flags) & FLAG_BACKED_UP) !== 0,
       }));
+    return { ok: true, credentials };
   }
 
   /**
@@ -365,8 +389,8 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
     credentialId: string;
     now: number;
   }): RecordResult<{ aaguid: string }, SessionCause | "not-found" | "last-credential"> {
-    const cause = this.stepUpRefusal(input.tokenHash, input.now);
-    if (cause) return { ok: false, cause };
+    const gate = this.gate(input.tokenHash, input.now, "stepped-up");
+    if (!gate.ok) return gate;
     return this.ctx.storage.transactionSync((): RecordResult<{ aaguid: string }, "not-found" | "last-credential"> => {
       const [row] = this.sql
         .exec<{ aaguid: string }>("SELECT aaguid FROM credentials WHERE id = ?", input.credentialId)
@@ -490,8 +514,8 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
     codeHashes: string[];
     now: number;
   }): RecordResult<{}, SessionCause> {
-    const cause = this.stepUpRefusal(input.tokenHash, input.now);
-    if (cause) return { ok: false, cause };
+    const gate = this.gate(input.tokenHash, input.now, "stepped-up");
+    if (!gate.ok) return gate;
     this.ctx.storage.transactionSync(() => {
       this.sql.exec("DELETE FROM recovery_codes");
       for (const hash of input.codeHashes) {
@@ -509,10 +533,10 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
 
   /** End every session of this record but the presented one, which must be stepped up. Returns the ids ended. */
   revokeOtherSessions(tokenHash: string, now: number): RecordResult<{ sessionIds: string[] }, SessionCause> {
-    const check = this.checkStepUp(tokenHash, now);
-    if (!check.ok) return check;
+    const gate = this.gate(tokenHash, now, "stepped-up");
+    if (!gate.ok) return gate;
     const sessionIds = this.sql
-      .exec<{ id: string }>("DELETE FROM sessions WHERE id != ? RETURNING id", check.sessionId)
+      .exec<{ id: string }>("DELETE FROM sessions WHERE id != ? RETURNING id", gate.principal.sessionId)
       .toArray()
       .map((r) => r.id);
     return { ok: true, sessionIds };
@@ -566,15 +590,7 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
 
   /** Validate a session token hash. Called on every authenticated request; nothing is cached. */
   authenticate(tokenHash: string, now: number): Principal | null {
-    const record = this.recordRow();
-    if (!record || this.unavailableCause() !== null) return null;
-    const session = this.sql
-      .exec<{ id: string; expires_at: number }>(
-        "SELECT id, expires_at FROM sessions WHERE token_hash = ?",
-        tokenHash,
-      )
-      .toArray()[0];
-    if (!session || session.expires_at <= now) return null;
-    return { recordId: record.id, kind: record.kind, sessionId: session.id };
+    const gate = this.gate(tokenHash, now, "live");
+    return gate.ok ? gate.principal : null;
   }
 }
