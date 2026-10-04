@@ -103,7 +103,7 @@ describe("a ceremony whose label bind fails is refused", () => {
     await operator.stepUp();
     const name = uniqueName("person");
     const { recordId } = await app.browser().register(name);
-    const { link } = await operator.json(operator.post("/operator/rebind-links", { memberName: name }));
+    const { link } = await operator.json(operator.post("/operator/rebind-links", { recordId }));
     const fragment = new URL(link).hash.slice(1);
     const rebindOnto = async (browser: Browser) => {
       const options = await browser.json(browser.post("/auth/rebind/options", { link: fragment }));

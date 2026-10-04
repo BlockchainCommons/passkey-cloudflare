@@ -59,7 +59,7 @@ describe("invariants", () => {
     const name = uniqueName();
     const secrets: string[] = [operator.session!.split(".")[1]!];
 
-    const { recoveryCodes } = await person.register(name);
+    const { recordId, recoveryCodes } = await person.register(name);
     secrets.push(person.session!.split(".")[1]!, ...recoveryCodes, ...recoveryCodes.map(codeSecretHex));
     await person.login();
     secrets.push(person.session!.split(".")[1]!);
@@ -69,7 +69,7 @@ describe("invariants", () => {
     const newDevice = app.browser();
     await recoverWith(newDevice, name, rotated.recoveryCodes[0]);
     secrets.push(newDevice.session!.split(".")[1]!);
-    const { link } = await operator.json(operator.post("/operator/rebind-links", { memberName: name }));
+    const { link } = await operator.json(operator.post("/operator/rebind-links", { recordId }));
     secrets.push(link.split("#")[1].split(".")[1]);
     const challenge = (await person.json(person.post("/auth/login/options"))).challenge;
     secrets.push(challenge);
@@ -92,12 +92,12 @@ describe("invariants", () => {
       const operator = await operatorFor(app);
       const browser = app.browser();
       const name = uniqueName();
-      const { recoveryCodes } = await browser.register(name);
+      const { recordId, recoveryCodes } = await browser.register(name);
       await browser.login();
       await browser.stepUp();
       await browser.enrol();
       await browser.json(browser.post("/me/recovery-codes/rotate"));
-      await operator.json(operator.post("/operator/rebind-links", { memberName: name }));
+      await operator.json(operator.post("/operator/rebind-links", { recordId }));
       expect((await recoverWith(app.browser(), name, recoveryCodes[0]!)).status).toBe(400);
     } finally {
       Math.random = original;
@@ -113,7 +113,9 @@ describe("invariants", () => {
     // A proof used once cannot be used again to mint another session.
     const registerOptions = await person.json(person.post("/auth/register/options", { memberName: name }));
     const registration = await person.authenticator.create(registerOptions);
-    const { recoveryCodes } = await person.json(person.post("/auth/register/verify", { response: registration }));
+    const { recordId, recoveryCodes } = await person.json(
+      person.post("/auth/register/verify", { response: registration }),
+    );
     const loginOptions = await person.json(person.post("/auth/login/options"));
     const assertion = await person.authenticator.get(loginOptions);
     await person.post("/auth/login/verify", { response: assertion });
@@ -121,7 +123,7 @@ describe("invariants", () => {
     const recoverOptions = await recoverDevice.json(recoverDevice.post("/auth/recover/options", { memberName: name }));
     const recovery = { memberName: name, code: recoveryCodes[0], response: await recoverDevice.authenticator.create(recoverOptions) };
     await recoverDevice.post("/auth/recover", recovery);
-    const { link } = await operator.json(operator.post("/operator/rebind-links", { memberName: name }));
+    const { link } = await operator.json(operator.post("/operator/rebind-links", { recordId }));
     const fragment = link.split("#")[1];
     const rebindDevice = app.browser();
     const rebindOptions = await rebindDevice.json(rebindDevice.post("/auth/rebind/options", { link: fragment }));
@@ -150,7 +152,7 @@ describe("invariants", () => {
     const operator = await operatorFor(app);
     const phone = app.browser();
     const name = uniqueName();
-    await phone.register(name);
+    const { recordId } = await phone.register(name);
     const laptop = app.browser();
     laptop.authenticator.credentials.push(...phone.authenticator.credentials);
     for (let i = 0; i < 3; i++) expect((await phone.get("/me")).status).toBe(200);
@@ -161,7 +163,7 @@ describe("invariants", () => {
 
     await phone.login();
     expect((await phone.get("/me")).status).toBe(200);
-    await operator.post("/operator/suspend", { memberName: name });
+    await operator.post("/operator/suspend", { recordId });
     expect((await phone.get("/me")).status).toBe(401);
   });
 
@@ -209,7 +211,7 @@ describe("invariants", () => {
     const operator = await operatorFor(app);
     const arms = await refusalArms({
       browser: () => app.browser(),
-      suspend: async (memberName) => void (await operator.json(operator.post("/operator/suspend", { memberName }))),
+      suspend: async (recordId) => void (await operator.json(operator.post("/operator/suspend", { recordId }))),
     });
 
     const seen: { arm: string; status: number; body: string; headers: string; ms: number }[] = [];

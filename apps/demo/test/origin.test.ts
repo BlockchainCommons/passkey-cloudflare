@@ -56,10 +56,10 @@ function send(browser: Browser, method: string, path: string, origin: string | n
 
 /**
  * Nothing the routes could have changed has changed. The operator log is read
- * through each target's lookup, which is uncapped; a lookup's answer leaves out
- * the entry that lookup appends. So it sees only entries that target the person
- * or the retired member: a new route that acts on another record needs a body
- * that targets one of them.
+ * through each target's lookup, which is uncapped; a lookup logs itself before
+ * it reads, so its answer ends with its own entry. So it sees only entries that
+ * target the person or the retired member: a new route that acts on another
+ * record needs a body that targets one of them.
  */
 async function expectUnchanged({ operator, person, personName, retiredName }: Awaited<ReturnType<typeof deployment>>) {
   expect((await operator.get("/me")).status).toBe(200);
@@ -72,9 +72,9 @@ async function expectUnchanged({ operator, person, personName, retiredName }: Aw
   // Read whatever the lookup answers: once the name is allowed, it no longer finds the member.
   const retired = await (await operator.post("/operator/lookup", { memberName: retiredName })).json<any>();
   expect(retired).toMatchObject({ retired: true });
-  expect(retired.entries.map((e: any) => e.action)).toEqual(["remove"]);
+  expect(retired.entries.map((e: any) => e.action)).toEqual(["remove", "lookup"]);
   const { entries } = await operator.json(operator.post("/operator/lookup", { memberName: personName }));
-  expect(entries).toEqual([]);
+  expect(entries.map((e: any) => e.action)).toEqual(["lookup"]);
 }
 
 describe("a state-changing request", () => {

@@ -69,7 +69,7 @@ function shuffle<T>(items: T[]): T[] {
 const operator = await becomeOperator();
 const arms = await refusalArms({
   browser,
-  suspend: async (memberName) => void (await operator.json(operator.post("/operator/suspend", { memberName }))),
+  suspend: async (recordId) => void (await operator.json(operator.post("/operator/suspend", { recordId }))),
 });
 
 const samples: Record<string, number[]> = { [BASELINE]: [] };

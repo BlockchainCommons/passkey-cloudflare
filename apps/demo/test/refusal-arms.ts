@@ -10,8 +10,8 @@ export type Arm = () => Promise<{ path: string; body: unknown }>;
 export interface ArmSetup {
   /** A new browser against the target. */
   browser(): Browser;
-  /** Suspend the person holding a member name, as an operator would. */
-  suspend(memberName: string): Promise<void>;
+  /** Suspend the principal with this record id, as an operator would. */
+  suspend(recordId: string): Promise<void>;
 }
 
 /**
@@ -24,10 +24,9 @@ export async function refusalArms(setup: ArmSetup): Promise<Record<string, Arm>>
   const person = setup.browser();
   await person.register(name);
   await person.login();
-  const suspendedName = uniqueName();
   const suspended = setup.browser();
-  await suspended.register(suspendedName);
-  await setup.suspend(suspendedName);
+  const { recordId: suspendedId } = await suspended.register(uniqueName());
+  await setup.suspend(suspendedId);
   const stranger = setup.browser();
   await stranger.authenticator.create(
     await stranger.json(stranger.post("/auth/register/options", { memberName: uniqueName() })),

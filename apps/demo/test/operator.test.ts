@@ -2,7 +2,8 @@ import { env, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { RECOVERY_CODE_COUNT, type RecordId, type RevocationEvent } from "passkey-cloudflare";
 import { operatorLog, type OperatorLog } from "../src/operator-log.ts";
-import { testApp, uniqueName, type Browser, type HarnessOptions } from "./harness.ts";
+import { rejecting } from "./failing-namespaces.ts";
+import { testApp, uniqueName, type Browser, type HarnessOptions, type TestApp } from "./harness.ts";
 
 const HOUR = 60 * 60 * 1000;
 
@@ -40,7 +41,7 @@ describe("operator rebind", () => {
   it("binds a new passkey to a person who lost everything, through a link", async () => {
     const { app, operator, personName, personId } = await deployment();
 
-    const { link } = await operator.json(operator.post("/operator/rebind-links", { memberName: personName }));
+    const { link } = await operator.json(operator.post("/operator/rebind-links", { recordId: personId }));
     const newDevice = app.browser();
     const rebound = await rebind(newDevice, link);
 
@@ -52,8 +53,8 @@ describe("operator rebind", () => {
   });
 
   it("links work once", async () => {
-    const { app, operator, personName } = await deployment();
-    const { link } = await operator.json(operator.post("/operator/rebind-links", { memberName: personName }));
+    const { app, operator, personId } = await deployment();
+    const { link } = await operator.json(operator.post("/operator/rebind-links", { recordId: personId }));
     await rebind(app.browser(), link);
 
     // Refused before any passkey ceremony starts.
@@ -62,8 +63,8 @@ describe("operator rebind", () => {
 
   it("links expire after a day", async () => {
     let now = Date.now();
-    const { app, operator, personName } = await deployment({ clock: () => now });
-    const { link } = await operator.json(operator.post("/operator/rebind-links", { memberName: personName }));
+    const { app, operator, personId } = await deployment({ clock: () => now });
+    const { link } = await operator.json(operator.post("/operator/rebind-links", { recordId: personId }));
 
     now += 24 * HOUR + 1;
 
@@ -81,18 +82,18 @@ describe("operator rebind", () => {
   });
 
   it("only an operator can create links", async () => {
-    const { person, personName } = await deployment();
+    const { person, personId } = await deployment();
     await person.stepUp();
 
-    expect((await person.post("/operator/rebind-links", { memberName: personName })).status).toBe(403);
+    expect((await person.post("/operator/rebind-links", { recordId: personId })).status).toBe(403);
   });
 
   it("an operator must have stepped up", async () => {
     let now = Date.now();
-    const { operator, personName } = await deployment({ clock: () => now });
+    const { operator, personId } = await deployment({ clock: () => now });
     now += 11 * 60 * 1000;
 
-    expect((await operator.post("/operator/rebind-links", { memberName: personName })).status).toBe(403);
+    expect((await operator.post("/operator/rebind-links", { recordId: personId })).status).toBe(403);
   });
 });
 
@@ -103,7 +104,7 @@ describe("suspension", () => {
       onRevoke: (event) => void events.push(event),
     });
 
-    expect((await operator.post("/operator/suspend", { memberName: personName })).status).toBe(200);
+    expect((await operator.post("/operator/suspend", { recordId: personId })).status).toBe(200);
 
     expect(events).toEqual([{ reason: "suspension", recordId: personId, sessionIds: [expect.any(String)] }]);
     expect((await person.get("/me")).status).toBe(401);
@@ -112,7 +113,7 @@ describe("suspension", () => {
     expect(refused.status).toBe(400);
     expect(await refused.text()).toBe('{"error":"ceremony refused"}');
 
-    expect((await operator.post("/operator/resume", { memberName: personName })).status).toBe(200);
+    expect((await operator.post("/operator/resume", { recordId: personId })).status).toBe(200);
     expect((await person.login()).recordId).toBe(personId);
   });
 });
@@ -126,7 +127,7 @@ describe("suspension of a principal with no live sessions", () => {
     await person.post("/auth/logout");
     events.length = 0;
 
-    await operator.post("/operator/suspend", { memberName: personName });
+    await operator.post("/operator/suspend", { recordId: personId });
 
     expect(events).toEqual([{ reason: "suspension", recordId: personId, sessionIds: [] }]);
   });
@@ -231,7 +232,10 @@ describe("removal", () => {
       recordId: personId,
       retired: true,
       summary: { removedAt: now, sessions: 0, passkeys: 1 },
-      entries: [{ operatorId, action: "remove", targetId: personId, at: now }],
+      entries: [
+        { operatorId, action: "remove", targetId: personId, at: now },
+        { operatorId, action: "lookup", targetId: personId, at: now },
+      ],
     });
   });
 
@@ -375,7 +379,10 @@ describe("allowing a retired name", () => {
     await operator.post("/operator/allow-name", { memberName: personName });
     const { recordId: newcomerId } = await app.browser().register(personName);
 
-    await operator.post("/operator/remove", { recordId: personId });
+    const again = await operator.json(operator.post("/operator/remove", { recordId: personId }));
+
+    // The removed record no longer holds a name, so there is none to allow.
+    expect(again.member).toMatchObject({ recordId: personId, retired: false });
 
     expect(await operator.json(operator.post("/operator/lookup", { memberName: personName }))).toMatchObject({
       recordId: newcomerId,
@@ -392,6 +399,25 @@ describe("operator targets", () => {
     expect((await operator.post("/operator/suspend", { recordId: personId })).status).toBe(200);
     expect((await person.get("/me")).status).toBe(401);
   });
+
+  it("are named only by record id for every action but lookup and allow-name, and a refusal logs nothing", async () => {
+    const { operator, operatorId, person, personName, personId } = await deployment();
+    await operator.post("/operator/rebind-links", { recordId: personId });
+
+    for (const path of ["/operator/rebind-links", "/operator/suspend", "/operator/resume", "/operator/remove"]) {
+      const refused = await operator.post(path, { memberName: personName });
+      expect(refused.status).toBe(404);
+      expect(await refused.json()).toEqual({ error: "not found" });
+    }
+    expect((await operator.post("/operator/suspend", { recordId: crypto.randomUUID() })).status).toBe(404);
+
+    expect((await person.get("/me")).status).toBe(200);
+    const member = await operator.json(operator.post("/operator/lookup", { memberName: personName }));
+    expect(member.summary).toMatchObject({ suspendedAt: null, removedAt: null, rebindLinkOutstanding: true });
+    expect(member.entries.filter((e: any) => e.action !== "lookup")).toEqual([
+      expect.objectContaining({ operatorId, action: "create-rebind-link" }),
+    ]);
+  });
 });
 
 describe("operator log", () => {
@@ -399,9 +425,9 @@ describe("operator log", () => {
     let now = Date.now();
     const { operator, operatorId, personName, personId } = await deployment({ clock: () => now });
 
-    await operator.post("/operator/rebind-links", { memberName: personName });
-    await operator.post("/operator/suspend", { memberName: personName });
-    await operator.post("/operator/resume", { memberName: personName });
+    await operator.post("/operator/rebind-links", { recordId: personId });
+    await operator.post("/operator/suspend", { recordId: personId });
+    await operator.post("/operator/resume", { recordId: personId });
 
     const { entries } = await operator.json(operator.get("/operator/log"));
     // The log is shared by every operator in the deployment.
@@ -416,7 +442,7 @@ describe("operator log", () => {
 describe("operator lookup", () => {
   it("shows a member's state and counts, and no device detail", async () => {
     const now = Date.now();
-    const { operator, personName, personId } = await deployment({ clock: () => now });
+    const { operator, operatorId, personName, personId } = await deployment({ clock: () => now });
 
     const response = await operator.post("/operator/lookup", { memberName: personName });
 
@@ -433,7 +459,8 @@ describe("operator lookup", () => {
         recoveryCodesLeft: RECOVERY_CODE_COUNT,
         rebindLinkOutstanding: false,
       },
-      entries: [],
+      // A lookup is logged before it reads, so it shows its own entry.
+      entries: [{ operatorId, action: "lookup", targetId: personId, at: now }],
     });
   });
 
@@ -456,6 +483,7 @@ describe("operator lookup", () => {
     await person.stepUp();
     // Read through a lookup, whose entries for this member are uncapped. The shared
     // recent list is capped, and other files' entries could push a lookup out of it.
+    // Each read logs itself first, so it shows its own entry last.
     const lookups = async () =>
       (await operator.json(operator.post("/operator/lookup", { memberName: personName }))).entries.filter(
         (e: any) => e.action === "lookup",
@@ -464,22 +492,25 @@ describe("operator lookup", () => {
     const byPerson = await person.post("/operator/lookup", { memberName: personName });
     expect(byPerson.status).toBe(403);
     expect(await byPerson.json()).toEqual({ error: "not an operator" });
-    expect(await lookups()).toEqual([]);
+    expect(await lookups()).toEqual([{ operatorId, action: "lookup", targetId: personId, at: start }]);
 
     now += 11 * 60 * 1000;
     const stale = await operator.post("/operator/lookup", { memberName: personName });
     expect(stale.status).toBe(403);
     expect(await stale.json()).toEqual({ error: "step-up-required" });
     await operator.stepUp();
-    // Only the lookup that read the log after the non-operator's attempt.
-    expect(await lookups()).toEqual([{ operatorId, action: "lookup", targetId: personId, at: start }]);
+    // Only the two reads.
+    expect(await lookups()).toEqual([
+      { operatorId, action: "lookup", targetId: personId, at: start },
+      { operatorId, action: "lookup", targetId: personId, at: now },
+    ]);
   });
 
   it("logs each lookup once, and shows every earlier entry for that member, however old", async () => {
     let now = Date.now();
     const { app, operator, operatorId, personName, personId } = await deployment({ clock: () => now });
     const first = now;
-    await operator.post("/operator/suspend", { memberName: personName });
+    await operator.post("/operator/suspend", { recordId: personId });
     await operator.post("/operator/lookup", { memberName: personName });
     // Enough later entries for other members to push this member's out of the recent list.
     const floodTargets = Array.from({ length: 200 }, () => crypto.randomUUID() as RecordId);
@@ -495,6 +526,7 @@ describe("operator lookup", () => {
     expect(entries).toEqual([
       { operatorId, action: "suspend", targetId: personId, at: first },
       { operatorId, action: "lookup", targetId: personId, at: first },
+      { operatorId, action: "lookup", targetId: personId, at: now },
     ]);
     const recent = (await operator.json(operator.get("/operator/log"))).entries;
     expect(recent.filter((e: any) => e.targetId === personId)).toEqual([
@@ -522,5 +554,61 @@ describe("operator actions on a looked-up member", () => {
       { operatorId, action: "suspend", targetId: personId, at: now },
       { operatorId, action: "resume", targetId: personId, at: now },
     ]);
+
+    const removed = await operator.json(operator.post("/operator/remove", { recordId: personId }));
+    // Removing retires the name, which the operator can then allow again.
+    expect(removed.member).toMatchObject({ recordId: personId, retired: true, summary: { removedAt: now } });
+    expect(removed.member.entries.at(-1)).toEqual({ operatorId, action: "remove", targetId: personId, at: now });
+  });
+});
+
+describe("an operator action whose log entry cannot be written", () => {
+  /** Whether the request was refused: answered with an error, or failed outright. */
+  async function refused(request: Promise<Response>): Promise<boolean> {
+    return request.then(
+      (response) => !response.ok,
+      () => true,
+    );
+  }
+
+  function breakLogAppends(app: TestApp) {
+    app.vars.OPERATOR_LOG = rejecting(env.OPERATOR_LOG, "append");
+  }
+
+  function restoreLogAppends(app: TestApp) {
+    delete app.vars.OPERATOR_LOG;
+  }
+
+  it("is refused for suspend and remove, leaving the member as they were", async () => {
+    const { app, operator, person, personName, personId } = await deployment();
+    breakLogAppends(app);
+
+    expect(await refused(operator.post("/operator/suspend", { recordId: personId }))).toBe(true);
+    expect(await refused(operator.post("/operator/remove", { recordId: personId }))).toBe(true);
+
+    restoreLogAppends(app);
+    expect((await person.get("/me")).status).toBe(200);
+    const member = await operator.json(operator.post("/operator/lookup", { memberName: personName }));
+    expect(member).toMatchObject({
+      recordId: personId,
+      retired: false,
+      summary: { suspendedAt: null, removedAt: null },
+    });
+    expect(member.entries.filter((e: any) => e.action !== "lookup")).toEqual([]);
+  });
+
+  it("is refused for allow-name, leaving the name retired", async () => {
+    const { app, operator, personName, personId } = await deployment();
+    await operator.post("/operator/remove", { recordId: personId });
+    breakLogAppends(app);
+
+    expect(await refused(operator.post("/operator/allow-name", { memberName: personName }))).toBe(true);
+
+    restoreLogAppends(app);
+    const device = app.browser();
+    expect(await device.json(device.get(`/auth/member-name?name=${personName}`))).toEqual({ available: false });
+    const member = await operator.json(operator.post("/operator/lookup", { memberName: personName }));
+    expect(member).toMatchObject({ recordId: personId, retired: true });
+    expect(member.entries.map((e: any) => e.action)).toEqual(["remove", "lookup"]);
   });
 });
