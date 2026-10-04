@@ -1,6 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
-import { randomBytes } from "../encoding.ts";
 import { bytewordsIdentifier, bytewordToken } from "../gordian/bytewords.ts";
+import { LABEL_BYTES, labelDraws } from "./label-draws.ts";
 
 // A per-record namespace of credential labels. A label is minted when a
 // ceremony starts, bound to a credential before the record commits it, and
@@ -12,8 +12,6 @@ import { bytewordsIdentifier, bytewordToken } from "../gordian/bytewords.ts";
 // wherever it is shown or typed, and this module's methods take and return
 // that spelling. It names a passkey; it is not a Bytewords encoding.
 
-const LABEL_BYTES = 3;
-
 /** Draws before minting gives up. At half full, all of them are taken about once in 10^19 mints. */
 const MINT_TRIES = 64;
 
@@ -22,7 +20,7 @@ const MINT_TRIES = 64;
  * turns out to be taken when it is bound refuses the ceremony.
  */
 export function randomLabel(): string {
-  return bytesToLabel(randomBytes(LABEL_BYTES));
+  return bytesToLabel(labelDraws.draw());
 }
 
 /**
@@ -77,7 +75,7 @@ export class CredentialLabels<Env = unknown> extends DurableObject<Env> {
    */
   mint(now: number): string {
     for (let tries = 0; tries < MINT_TRIES; tries++) {
-      const bytes = randomBytes(LABEL_BYTES);
+      const bytes = labelDraws.draw();
       const taken = this.sql.exec("SELECT 1 FROM labels WHERE label = ?", bytes).toArray().length > 0;
       if (!taken) {
         this.sql.exec("INSERT INTO labels (label, minted_at) VALUES (?, ?)", bytes, now);
