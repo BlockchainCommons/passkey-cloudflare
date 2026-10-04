@@ -243,7 +243,7 @@ describe("recovery", () => {
     const app = testApp();
     const name = uniqueName();
     const { recordId, recoveryCodes } = await app.browser().register(name);
-    const labelDraws = pinLabelDraws();
+    const countLabelDraws = pinLabelDraws();
     const device = app.browser();
     const options = await device.json(device.post("/auth/recover/options", { memberName: name }));
     expect(/\((.+)\)$/.exec(options.user.name)![1]).toBe(PINNED_LABEL);
@@ -255,11 +255,11 @@ describe("recovery", () => {
       );
     });
 
-    const drawsBefore = labelDraws();
+    const drawsBefore = countLabelDraws();
     await runInDurableObject(labelsOf(recordId), (instance) => {
       expect(() => (instance as CredentialLabels).mint(Date.now())).toThrow(/label/);
     });
-    const tries = labelDraws() - drawsBefore;
+    const tries = countLabelDraws() - drawsBefore;
     expect(tries).toBeGreaterThan(1);
     expect(tries).toBeLessThanOrEqual(1000);
 
