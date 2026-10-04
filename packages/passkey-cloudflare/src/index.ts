@@ -30,13 +30,15 @@ export type { CeremonyFailure } from "./failures.ts";
 export { REFUSAL_BODY, REFUSAL_STATUS, type Ceremony } from "./refusal.ts";
 export { SESSION_COOKIE, clearedSessionCookie, sessionCookie, sessionValueFrom } from "./http.ts";
 
+// The Durable Objects an application binds
+export { PASSKEY_DURABLE_OBJECTS, type PasskeyBindings } from "./durable-objects.ts";
+
 // Ceremonies
 export {
   createPasskeys,
   PasskeyError,
   type CeremonyOutcome,
   type CredentialListing,
-  type PasskeyBindings,
   type PasskeyConfig,
   type PasskeyErrorCode,
   type Passkeys,

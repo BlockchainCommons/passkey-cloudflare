@@ -1,15 +1,13 @@
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/server";
-import type { CeremonyFailures } from "./app-tier/ceremony-failures.ts";
-import { CHALLENGE_LIFETIME_MS, type ChallengeStore } from "./app-tier/challenges.ts";
+import { CHALLENGE_LIFETIME_MS } from "./app-tier/challenges.ts";
 import { providerName } from "./app-tier/aaguid-names.ts";
-import { parseLabel, randomLabel, type CredentialLabels } from "./app-tier/labels.ts";
-import type { MemberNameRegistry } from "./app-tier/member-names.ts";
+import { parseLabel, randomLabel } from "./app-tier/labels.ts";
 import { isValidMemberName, memberNameKey } from "./member-name-rules.ts";
-import { DEFAULT_RATE_LIMITS, type Limit, type RateLimiter, type RateLimits } from "./app-tier/rate-limit.ts";
+import { DEFAULT_RATE_LIMITS, type Limit, type RateLimits } from "./app-tier/rate-limit.ts";
 import { credentialBinding } from "./credential-binding.ts";
+import type { PasskeyBindings } from "./durable-objects.ts";
 import { sha256Hex, toBase64Url } from "./encoding.ts";
-import type { CredentialIndex } from "./identity/credential-index.ts";
-import type { IdentityRecord, Principal, RecordSummary, SessionCause, SessionSummary } from "./identity/record.ts";
+import type { Principal, RecordSummary, SessionCause, SessionSummary } from "./identity/record.ts";
 import {
   hashRecoveryCode,
   mintRebindToken,
@@ -33,16 +31,6 @@ import { CeremonyRefusal, uniformRefusal, type Ceremony } from "./refusal.ts";
 // The ceremonies, composed from the identity layer (records, credential index,
 // verification) and the application-tier building blocks (challenges, member
 // names, labels, uniform refusal). This is the module an application calls.
-
-export interface PasskeyBindings {
-  IDENTITY_RECORDS: DurableObjectNamespace<IdentityRecord>;
-  CREDENTIAL_INDEX: DurableObjectNamespace<CredentialIndex>;
-  CHALLENGES: DurableObjectNamespace<ChallengeStore>;
-  MEMBER_NAMES: DurableObjectNamespace<MemberNameRegistry>;
-  CREDENTIAL_LABELS: DurableObjectNamespace<CredentialLabels>;
-  RATE_LIMITS: DurableObjectNamespace<RateLimiter>;
-  CEREMONY_FAILURES: DurableObjectNamespace<CeremonyFailures>;
-}
 
 export interface PasskeyConfig {
   rp: RelyingParty;

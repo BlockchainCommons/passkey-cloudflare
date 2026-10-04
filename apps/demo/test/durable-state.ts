@@ -1,21 +1,17 @@
 import { env, listDurableObjectIds, runInDurableObject } from "cloudflare:test";
+import { PASSKEY_DURABLE_OBJECTS } from "passkey-cloudflare";
+import { OperatorLog } from "../src/operator-log.ts";
 
 // Reads every row of every table in every Durable Object of the given
 // namespaces. Only the invariant tests use this: their promises are about what
 // is at rest, so what is at rest is what they must look at.
 
-const ALL_NAMESPACES = [
-  "IDENTITY_RECORDS",
-  "CREDENTIAL_INDEX",
-  "CHALLENGES",
-  "MEMBER_NAMES",
-  "CREDENTIAL_LABELS",
-  "RATE_LIMITS",
-  "CEREMONY_FAILURES",
-  "OPERATOR_LOG",
-] as const;
+/** Every Durable Object the demo runs: the library's, from its one list, and the demo's own. */
+export const DEMO_DURABLE_OBJECTS = { ...PASSKEY_DURABLE_OBJECTS, OPERATOR_LOG: OperatorLog };
 
-export type NamespaceName = (typeof ALL_NAMESPACES)[number];
+export type NamespaceName = keyof typeof DEMO_DURABLE_OBJECTS;
+
+const ALL_NAMESPACES = Object.keys(DEMO_DURABLE_OBJECTS) as NamespaceName[];
 
 export function hex(bytes: Uint8Array): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
