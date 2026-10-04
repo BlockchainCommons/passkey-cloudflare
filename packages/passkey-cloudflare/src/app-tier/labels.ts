@@ -1,6 +1,8 @@
 import { DurableObject } from "cloudflare:workers";
 import { bytewordsIdentifier, bytewordToken } from "../gordian/bytewords.ts";
 import { LABEL_BYTES, labelDraws } from "./label-draws.ts";
+import type { RecordId } from "../identity/secrets.ts";
+import { prefixedInstance } from "../storage-prefix.ts";
 
 // A per-record namespace of credential labels. A label is minted when a
 // ceremony starts, bound to a credential before the record commits it, and
@@ -145,4 +147,9 @@ export class CredentialLabels<Env = unknown> extends DurableObject<Env> {
     }
     return out;
   }
+}
+
+/** A record's credential labels, under `storagePrefix`. */
+export function credentialLabels(binding: DurableObjectNamespace<CredentialLabels>, storagePrefix?: string) {
+  return (recordId: RecordId) => prefixedInstance(binding, storagePrefix, recordId);
 }

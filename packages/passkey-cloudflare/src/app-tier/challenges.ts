@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import type { Ceremony } from "../refusal.ts";
+import { prefixedInstance } from "../storage-prefix.ts";
 
 // Purpose-tagged, single-use challenges. Only the SHA-256 hash of a challenge
 // is stored. Consuming a challenge removes it whatever the outcome, and a
@@ -56,4 +57,12 @@ export class ChallengeStore<Env = unknown> extends DurableObject<Env> {
     const remaining = this.sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM challenges").one().n;
     if (remaining > 0) await this.ctx.storage.setAlarm(Date.now() + CHALLENGE_LIFETIME_MS);
   }
+}
+
+/**
+ * The challenge store that holds a challenge, by its hash, under `storagePrefix`.
+ * Challenges are spread over sixteen objects by the first hex digit of their hash.
+ */
+export function challengeStores(binding: DurableObjectNamespace<ChallengeStore>, storagePrefix?: string) {
+  return (hash: string) => prefixedInstance(binding, storagePrefix, `challenges-${hash[0]}`);
 }

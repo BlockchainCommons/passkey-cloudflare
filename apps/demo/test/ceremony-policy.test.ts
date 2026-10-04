@@ -1,5 +1,5 @@
 import { env, runInDurableObject } from "cloudflare:test";
-import { createPasskeys } from "passkey-cloudflare";
+import { ceremonyFailures, createPasskeys, identityRecords, type RecordId } from "passkey-cloudflare";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { overriding, rejecting } from "./failing-namespaces.ts";
 import { testApp, uniqueName, type Browser } from "./harness.ts";
@@ -11,10 +11,12 @@ import { testApp, uniqueName, type Browser } from "./harness.ts";
 const REFUSAL = '{"error":"ceremony refused"}';
 const HOUR = 60 * 60 * 1000;
 
-/** Every failure recorded on one record, read from its own object. */
-function failuresOn(recordId: string) {
-  return runInDurableObject(env.IDENTITY_RECORDS.get(env.IDENTITY_RECORDS.idFromName(recordId)), (_instance, state) =>
-    state.storage.sql.exec<{ ceremony: string; cause: string }>("SELECT ceremony, cause FROM failures").toArray(),
+/** Every failure recorded on one record, read from its own object in the storage of the app with this prefix. */
+function failuresOn(storagePrefix: string, recordId: string) {
+  return runInDurableObject(
+    identityRecords(env.IDENTITY_RECORDS, storagePrefix)(recordId as RecordId),
+    (_instance, state) =>
+      state.storage.sql.exec<{ ceremony: string; cause: string }>("SELECT ceremony, cause FROM failures").toArray(),
   );
 }
 
@@ -23,10 +25,10 @@ async function sourceHash(ip: string): Promise<string> {
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-/** The failures recorded globally from one source address. */
-async function globalFailuresFrom(browser: Browser) {
+/** The failures recorded globally from one source address, in the storage of the app with this prefix. */
+async function globalFailuresFrom(storagePrefix: string, browser: Browser) {
   const hash = await sourceHash(browser.ip);
-  return runInDurableObject(env.CEREMONY_FAILURES.get(env.CEREMONY_FAILURES.idFromName("global")), (_instance, state) =>
+  return runInDurableObject(ceremonyFailures(env.CEREMONY_FAILURES, storagePrefix)(), (_instance, state) =>
     state.storage.sql
       .exec<{ ceremony: string; cause: string }>("SELECT ceremony, cause FROM failures WHERE source_hash = ?", hash)
       .toArray(),
@@ -51,7 +53,10 @@ describe("a server failure inside a ceremony", () => {
     expect(refused.status).toBe(400);
     expect(await refused.text()).toBe(REFUSAL);
     expect(browser.session).toBeUndefined();
-    expect(await failuresOn(recordId)).toContainEqual({ ceremony: "login", cause: "internal-error" });
+    expect(await failuresOn(app.storagePrefix, recordId)).toContainEqual({
+      ceremony: "login",
+      cause: "internal-error",
+    });
   });
 
   it("is refused no sooner than the refusal floor", async () => {
@@ -82,7 +87,10 @@ describe("a server failure inside a ceremony", () => {
 
     expect(refused.status).toBe(400);
     expect(await refused.text()).toBe(REFUSAL);
-    expect(await globalFailuresFrom(browser)).toContainEqual({ ceremony: "register", cause: "internal-error" });
+    expect(await globalFailuresFrom(app.storagePrefix, browser)).toContainEqual({
+      ceremony: "register",
+      cause: "internal-error",
+    });
   });
 });
 
@@ -157,7 +165,10 @@ describe("a refused registration whose undo fails", () => {
     const refused = await browser.post("/auth/register/verify", { response });
 
     expect(await refused.text()).toBe(REFUSAL);
-    expect(await globalFailuresFrom(browser)).toContainEqual({ ceremony: "register", cause: "label-unbound" });
+    expect(await globalFailuresFrom(app.storagePrefix, browser)).toContainEqual({
+      ceremony: "register",
+      cause: "label-unbound",
+    });
     expect(loggedUndoFailure(errors)).toBe(true);
     app.vars = {};
     await app.browser().register(name);
@@ -174,7 +185,10 @@ describe("a refused registration whose undo fails", () => {
     const refused = await browser.post("/auth/register/verify", { response });
 
     expect(await refused.text()).toBe(REFUSAL);
-    expect(await globalFailuresFrom(browser)).toContainEqual({ ceremony: "register", cause: "record-exists" });
+    expect(await globalFailuresFrom(app.storagePrefix, browser)).toContainEqual({
+      ceremony: "register",
+      cause: "record-exists",
+    });
     expect(loggedUndoFailure(errors)).toBe(true);
     app.vars = {};
     await app.browser().register(name);

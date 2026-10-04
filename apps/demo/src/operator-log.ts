@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import type { RecordId } from "passkey-cloudflare";
+import { prefixedInstance, type RecordId } from "passkey-cloudflare";
 
 // Every operator action, with the operator's record id, the action, the target
 // and the time. The operator role belongs to this application, not to the
@@ -66,4 +66,9 @@ type Row = {
 
 function toEntry(row: Row): OperatorLogEntry {
   return { operatorId: row.operator_id, action: row.action, targetId: row.target_id, at: row.at };
+}
+
+/** The one operator log, under `storagePrefix`, the same prefix the app gives the library. */
+export function operatorLog(binding: DurableObjectNamespace<OperatorLog>, storagePrefix?: string) {
+  return () => prefixedInstance(binding, storagePrefix, "global");
 }

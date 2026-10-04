@@ -1,5 +1,5 @@
 import { env, runInDurableObject } from "cloudflare:test";
-import { CHALLENGE_LIFETIME_MS as CHALLENGE_LIFETIME, memberNameKey } from "passkey-cloudflare";
+import { CHALLENGE_LIFETIME_MS as CHALLENGE_LIFETIME, memberNameKey, memberNameRegistry } from "passkey-cloudflare";
 import { describe, expect, it } from "vitest";
 import { testApp, uniqueName, type Browser } from "./harness.ts";
 
@@ -10,11 +10,12 @@ import { testApp, uniqueName, type Browser } from "./harness.ts";
 
 const MINUTE = 60 * 1000;
 
-const memberNames = () => env.MEMBER_NAMES.get(env.MEMBER_NAMES.idFromName("global"));
+/** The member-name registry, in the storage of the app with this prefix. */
+const registry = (storagePrefix: string) => memberNameRegistry(env.MEMBER_NAMES, storagePrefix)();
 
 /** Leave `name` claimed by a new record that holds no person, claimed `age` ago. */
-async function claimWithoutPerson(name: string, age: number) {
-  await runInDurableObject(memberNames(), (_instance, state) => {
+async function claimWithoutPerson(storagePrefix: string, name: string, age: number) {
+  await runInDurableObject(registry(storagePrefix), (_instance, state) => {
     const recordId = crypto.randomUUID();
     state.storage.sql.exec(
       "INSERT INTO names (key, name, record_id) VALUES (?, ?, ?)",
@@ -32,8 +33,8 @@ async function claimWithoutPerson(name: string, age: number) {
 }
 
 /** Move back when a registered member's name was claimed. */
-async function ageClaim(name: string, age: number) {
-  await runInDurableObject(memberNames(), (_instance, state) => {
+async function ageClaim(storagePrefix: string, name: string, age: number) {
+  await runInDurableObject(registry(storagePrefix), (_instance, state) => {
     state.storage.sql.exec("UPDATE name_history SET claimed_at = ? WHERE name = ?", Date.now() - age, name);
   });
 }
@@ -45,9 +46,10 @@ async function available(browser: Browser, name: string): Promise<boolean> {
 
 describe("a member name claimed by a registration that never completed", () => {
   it("is freed once the claim is older than a challenge's lifetime", async () => {
-    const browser = testApp().browser();
+    const app = testApp();
+    const browser = app.browser();
     const name = uniqueName();
-    await claimWithoutPerson(name, CHALLENGE_LIFETIME + MINUTE);
+    await claimWithoutPerson(app.storagePrefix, name, CHALLENGE_LIFETIME + MINUTE);
 
     expect(await available(browser, name)).toBe(true);
     await browser.register(name);
@@ -55,20 +57,22 @@ describe("a member name claimed by a registration that never completed", () => {
   });
 
   it("is freed when registration claims it", async () => {
-    const browser = testApp().browser();
+    const app = testApp();
+    const browser = app.browser();
     const name = uniqueName();
     const options = await browser.json(browser.post("/auth/register/options", { memberName: name }));
     const response = await browser.authenticator.create(options);
-    await claimWithoutPerson(name, CHALLENGE_LIFETIME + MINUTE);
+    await claimWithoutPerson(app.storagePrefix, name, CHALLENGE_LIFETIME + MINUTE);
 
     expect((await browser.post("/auth/register/verify", { response })).status).toBe(200);
     expect(await browser.json(browser.get("/me"))).toMatchObject({ memberName: name });
   });
 
   it("is not freed while a ceremony could still commit to it", async () => {
-    const browser = testApp().browser();
+    const app = testApp();
+    const browser = app.browser();
     const name = uniqueName();
-    await claimWithoutPerson(name, CHALLENGE_LIFETIME - MINUTE);
+    await claimWithoutPerson(app.storagePrefix, name, CHALLENGE_LIFETIME - MINUTE);
 
     expect(await available(browser, name)).toBe(false);
     expect((await browser.post("/auth/register/options", { memberName: name })).status).toBe(409);
@@ -80,7 +84,7 @@ describe("a member name whose record holds a person", () => {
     const app = testApp();
     const name = uniqueName();
     await app.browser().register(name);
-    await ageClaim(name, CHALLENGE_LIFETIME + MINUTE);
+    await ageClaim(app.storagePrefix, name, CHALLENGE_LIFETIME + MINUTE);
     const browser = app.browser();
 
     expect(await available(browser, name)).toBe(false);

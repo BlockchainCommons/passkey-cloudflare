@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import type { RecordId } from "./secrets.ts";
+import { prefixedInstance } from "../storage-prefix.ts";
 
 // The one global lookup on the login path: credential id to record id. A
 // Durable Object rather than KV, because KV is eventually consistent.
@@ -35,4 +36,9 @@ export class CredentialIndex<Env = unknown> extends DurableObject<Env> {
   delete(credentialId: string): void {
     this.sql.exec("DELETE FROM credentials WHERE credential_id = ?", credentialId);
   }
+}
+
+/** The one credential index, under `storagePrefix`. */
+export function credentialIndex(binding: DurableObjectNamespace<CredentialIndex>, storagePrefix?: string) {
+  return () => prefixedInstance(binding, storagePrefix, "global");
 }

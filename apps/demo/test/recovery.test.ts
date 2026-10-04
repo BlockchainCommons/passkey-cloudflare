@@ -1,5 +1,11 @@
 import { env, runInDurableObject } from "cloudflare:test";
-import type { CredentialLabels } from "passkey-cloudflare";
+import {
+  credentialIndex,
+  credentialLabels,
+  identityRecords,
+  type CredentialLabels,
+  type RecordId,
+} from "passkey-cloudflare";
 import { formatRecoveryCodes } from "passkey-cloudflare/browser";
 import { decodeTypedBytewords, encodeBytewords } from "passkey-cloudflare/gordian";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -12,19 +18,24 @@ const HOUR = 60 * 60 * 1000;
 const WRONG_CODE = "ur:seed/oyadgdinaauyatsojkdmflfdfrfxtpbkvyfrzmcwntvdta";
 const OTHER_WRONG_CODE = "tuna next jazz obey acid good iron aqua ugly aunt solo junk drum fuel fund fair flux trip back very fair zoom skew exam eyes epic";
 
-const labelsOf = (recordId: string) => env.CREDENTIAL_LABELS.get(env.CREDENTIAL_LABELS.idFromName(recordId));
+/** A record's labels, in the storage of the app with this prefix. */
+const labelsOf = (storagePrefix: string, recordId: string) =>
+  credentialLabels(env.CREDENTIAL_LABELS, storagePrefix)(recordId as RecordId);
 
-async function labelRows(recordId: string): Promise<number> {
-  return runInDurableObject(labelsOf(recordId), (_instance, state) =>
-    state.storage.sql.exec<{ n: number }>("SELECT count(*) AS n FROM labels").one().n,
+async function labelRows(storagePrefix: string, recordId: string): Promise<number> {
+  return runInDurableObject(
+    labelsOf(storagePrefix, recordId),
+    (_instance, state) => state.storage.sql.exec<{ n: number }>("SELECT count(*) AS n FROM labels").one().n,
   );
 }
 
-const recordOf = (recordId: string) => env.IDENTITY_RECORDS.get(env.IDENTITY_RECORDS.idFromName(recordId));
+/** A record's own object, in the storage of the app with this prefix. */
+const recordOf = (storagePrefix: string, recordId: string) =>
+  identityRecords(env.IDENTITY_RECORDS, storagePrefix)(recordId as RecordId);
 
 /** Every failure cause recorded on one record, read from its own object. */
-function failureCausesOn(recordId: string) {
-  return runInDurableObject(recordOf(recordId), (_instance, state) =>
+function failureCausesOn(storagePrefix: string, recordId: string) {
+  return runInDurableObject(recordOf(storagePrefix, recordId), (_instance, state) =>
     state.storage.sql
       .exec<{ cause: string }>("SELECT cause FROM failures")
       .toArray()
@@ -33,8 +44,8 @@ function failureCausesOn(recordId: string) {
 }
 
 /** The record a credential id is indexed to, or null. */
-function indexedRecord(credentialId: string) {
-  return env.CREDENTIAL_INDEX.get(env.CREDENTIAL_INDEX.idFromName("global")).get(credentialId);
+function indexedRecord(storagePrefix: string, credentialId: string) {
+  return credentialIndex(env.CREDENTIAL_INDEX, storagePrefix)().get(credentialId);
 }
 
 afterEach(() => {
@@ -229,14 +240,14 @@ describe("recovery", () => {
     const app = testApp();
     const name = uniqueName();
     const { recordId } = await app.browser().register(name);
-    const before = await labelRows(recordId);
+    const before = await labelRows(app.storagePrefix, recordId);
 
     for (let i = 0; i < 5; i++) {
       const device = app.browser();
       expect((await device.post("/auth/recover/options", { memberName: name })).status).toBe(200);
     }
 
-    expect(await labelRows(recordId)).toBe(before);
+    expect(await labelRows(app.storagePrefix, recordId)).toBe(before);
   });
 
   it("completes on a record whose label namespace is full, where minting gives up", async () => {
@@ -247,7 +258,7 @@ describe("recovery", () => {
     const device = app.browser();
     const options = await device.json(device.post("/auth/recover/options", { memberName: name }));
     expect(/\((.+)\)$/.exec(options.user.name)![1]).toBe(PINNED_LABEL);
-    await runInDurableObject(labelsOf(recordId), (_instance, state) => {
+    await runInDurableObject(labelsOf(app.storagePrefix, recordId), (_instance, state) => {
       state.storage.sql.exec(
         "INSERT OR IGNORE INTO labels (label, minted_at) VALUES (?, ?)",
         PINNED_LABEL_BYTES,
@@ -256,7 +267,7 @@ describe("recovery", () => {
     });
 
     const drawsBefore = countLabelDraws();
-    await runInDurableObject(labelsOf(recordId), (instance) => {
+    await runInDurableObject(labelsOf(app.storagePrefix, recordId), (instance) => {
       expect(() => (instance as CredentialLabels).mint(Date.now())).toThrow(/label/);
     });
     const tries = countLabelDraws() - drawsBefore;
@@ -275,7 +286,7 @@ describe("a refused recovery attempt", () => {
     const app = testApp();
     const name = uniqueName();
     const { recordId } = await app.browser().register(name);
-    const labelsBefore = await labelRows(recordId);
+    const labelsBefore = await labelRows(app.storagePrefix, recordId);
     const indexCalls = counting(env.CREDENTIAL_INDEX);
     app.vars.CREDENTIAL_INDEX = indexCalls.namespace;
     const attacker = app.browser();
@@ -283,11 +294,11 @@ describe("a refused recovery attempt", () => {
     const refused = await recover(attacker, name, WRONG_CODE);
 
     expect(refused.status).toBe(400);
-    expect(await failureCausesOn(recordId)).toContain("wrong-recovery-code");
+    expect(await failureCausesOn(app.storagePrefix, recordId)).toContain("wrong-recovery-code");
     expect(attacker.session).toBeUndefined();
-    expect(await labelRows(recordId)).toBe(labelsBefore);
+    expect(await labelRows(app.storagePrefix, recordId)).toBe(labelsBefore);
     expect(indexCalls.calls).not.toContain("put");
-    expect(await indexedRecord(attacker.authenticator.credentials[0]!.id)).toBeNull();
+    expect(await indexedRecord(app.storagePrefix, attacker.authenticator.credentials[0]!.id)).toBeNull();
   });
 
   it("once the record is throttled, binds no label even for a right code", async () => {
@@ -297,15 +308,15 @@ describe("a refused recovery attempt", () => {
     for (let i = 0; i < 5; i++) {
       expect((await recover(app.browser(), name, WRONG_CODE)).status).toBe(400);
     }
-    const labelsBefore = await labelRows(recordId);
+    const labelsBefore = await labelRows(app.storagePrefix, recordId);
     const device = app.browser();
 
     const refused = await recover(device, name, recoveryCodes[0]!);
 
     expect(refused.status).toBe(400);
-    expect(await failureCausesOn(recordId)).toContain("recovery-throttled");
-    expect(await indexedRecord(device.authenticator.credentials[0]!.id)).toBeNull();
-    expect(await labelRows(recordId)).toBe(labelsBefore);
+    expect(await failureCausesOn(app.storagePrefix, recordId)).toContain("recovery-throttled");
+    expect(await indexedRecord(app.storagePrefix, device.authenticator.credentials[0]!.id)).toBeNull();
+    expect(await labelRows(app.storagePrefix, recordId)).toBe(labelsBefore);
   });
 
   it("racing another recovery with the same code, loses with its passkey neither indexed nor listed", async () => {
@@ -326,7 +337,7 @@ describe("a refused recovery attempt", () => {
           reachedCommit();
           await secondDone;
         }
-        return recordOf(recordId).recover(input);
+        return recordOf(app.storagePrefix, recordId).recover(input);
       },
     });
     const first = app.browser();
@@ -340,9 +351,9 @@ describe("a refused recovery attempt", () => {
 
     expect(won.status).toBe(200);
     expect(lost.status).toBe(400);
-    expect(await failureCausesOn(recordId)).toContain("wrong-recovery-code");
+    expect(await failureCausesOn(app.storagePrefix, recordId)).toContain("wrong-recovery-code");
     expect(first.session).toBeUndefined();
-    expect(await indexedRecord(first.authenticator.credentials[0]!.id)).toBeNull();
+    expect(await indexedRecord(app.storagePrefix, first.authenticator.credentials[0]!.id)).toBeNull();
     const { credentials } = await second.json(second.get("/me/credentials"));
     expect(credentials).toHaveLength(2);
     expect(credentials.map((c: any) => c.label)).not.toContain(savedLabel(first.authenticator.credentials[0]!));

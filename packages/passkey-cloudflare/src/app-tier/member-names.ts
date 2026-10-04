@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import type { RecordId } from "../identity/secrets.ts";
 import { memberNameKey } from "../member-name-rules.ts";
 import { addColumnIfMissing } from "../sql.ts";
+import { prefixedInstance } from "../storage-prefix.ts";
 
 // Unique member names, each resolving to a record id, with history kept.
 // Uniqueness ignores case and accents; the name is shown as the person typed
@@ -135,4 +136,9 @@ export class MemberNameRegistry<Env = unknown> extends DurableObject<Env> {
       .toArray()[0];
     return row?.name ?? null;
   }
+}
+
+/** The one member-name registry, under `storagePrefix`. */
+export function memberNameRegistry(binding: DurableObjectNamespace<MemberNameRegistry>, storagePrefix?: string) {
+  return () => prefixedInstance(binding, storagePrefix, "global");
 }

@@ -1,4 +1,5 @@
 import { env, runInDurableObject } from "cloudflare:test";
+import { credentialLabels, type RecordId } from "passkey-cloudflare";
 import { seedWords } from "passkey-cloudflare/gordian";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { testApp, uniqueName } from "./harness.ts";
@@ -7,11 +8,13 @@ import { PINNED_LABEL, PINNED_LABEL_BYTES, pinLabelDraws, savedLabel } from "./l
 const MINUTE = 60 * 1000;
 const APPLE_PASSWORDS = "fbfc3007-154e-4ecc-8c0b-6e020557d7bd";
 
-const labelsOf = (recordId: string) => env.CREDENTIAL_LABELS.get(env.CREDENTIAL_LABELS.idFromName(recordId));
+/** A record's labels, in the storage of the app with this prefix. */
+const labelsOf = (storagePrefix: string, recordId: string) =>
+  credentialLabels(env.CREDENTIAL_LABELS, storagePrefix)(recordId as RecordId);
 
 /** Leave a record's credentials with no label bound to any of them. */
-async function dropLabelBindings(recordId: string) {
-  await runInDurableObject(labelsOf(recordId), (_instance, state) => {
+async function dropLabelBindings(storagePrefix: string, recordId: string) {
+  await runInDurableObject(labelsOf(storagePrefix, recordId), (_instance, state) => {
     state.storage.sql.exec("UPDATE labels SET credential_id = NULL");
   });
 }
@@ -160,12 +163,13 @@ describe("passkeys", () => {
   });
 
   it("left without a label are given one when listed, and that label revokes them", async () => {
-    const browser = testApp().browser();
+    const app = testApp();
+    const browser = app.browser();
     const { recordId } = await browser.register(uniqueName());
     await browser.stepUp();
     const { label: enrolledLabel } = await browser.enrol();
     const [, second] = browser.authenticator.credentials;
-    await dropLabelBindings(recordId);
+    await dropLabelBindings(app.storagePrefix, recordId);
 
     const { credentials } = await browser.json(browser.get("/me/credentials"));
     const repaired = credentials.map((c: any) => c.label);
@@ -176,7 +180,7 @@ describe("passkeys", () => {
     expect(repaired).not.toContain(enrolledLabel);
     const again = await browser.json(browser.get("/me/credentials"));
     expect(again.credentials.map((c: any) => c.label)).toEqual(repaired);
-    await labelsOf(recordId).bind(enrolledLabel!, second!.id, Date.now());
+    await labelsOf(app.storagePrefix, recordId).bind(enrolledLabel!, second!.id, Date.now());
     const afterLateBind = await browser.json(browser.get("/me/credentials"));
     expect(afterLateBind.credentials.map((c: any) => c.label)).toEqual(repaired);
 
@@ -212,11 +216,12 @@ describe("passkeys", () => {
   });
 
   it("stores a label as its three bytes, and spells it as words only when shown", async () => {
-    const browser = testApp().browser();
+    const app = testApp();
+    const browser = app.browser();
     pinLabelDraws(1);
     const { recordId } = await browser.register(uniqueName());
 
-    const rows = await runInDurableObject(labelsOf(recordId), (_instance, state) =>
+    const rows = await runInDurableObject(labelsOf(app.storagePrefix, recordId), (_instance, state) =>
       state.storage.sql
         .exec<{ kind: string; hex: string }>("SELECT typeof(label) AS kind, hex(label) AS hex FROM labels")
         .toArray(),
@@ -280,7 +285,8 @@ describe("passkeys", () => {
   });
 
   it("never resolve a revoked passkey's label, even when its row names a passkey still in use", async () => {
-    const browser = testApp().browser();
+    const app = testApp();
+    const browser = app.browser();
     const { recordId } = await browser.register(uniqueName());
     await browser.stepUp();
     pinLabelDraws(1);
@@ -294,7 +300,7 @@ describe("passkeys", () => {
 
     // A corrupted or migrated row: the retired label now names the pinned passkey. Its own
     // row lets go of it first, since a credential holds at most one row.
-    await runInDurableObject(labelsOf(recordId), (_instance, state) => {
+    await runInDurableObject(labelsOf(app.storagePrefix, recordId), (_instance, state) => {
       const sql = state.storage.sql;
       const retired = sql.exec<{ label: ArrayBuffer }>("SELECT label FROM labels WHERE retired_at IS NOT NULL").toArray();
       expect(retired).toHaveLength(1);

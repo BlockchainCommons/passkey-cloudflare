@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { prefixedInstance } from "../storage-prefix.ts";
 
 // Sliding-window rate limits, one Durable Object per bucket.
 
@@ -51,4 +52,9 @@ export class RateLimiter<Env = unknown> extends DurableObject<Env> {
     this.sql.exec("INSERT INTO hits (at) VALUES (?)", now);
     return true;
   }
+}
+
+/** The rate limiter for a bucket, under `storagePrefix`. */
+export function rateLimiters(binding: DurableObjectNamespace<RateLimiter>, storagePrefix?: string) {
+  return (bucket: string) => prefixedInstance(binding, storagePrefix, bucket);
 }

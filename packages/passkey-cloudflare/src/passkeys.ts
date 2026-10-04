@@ -1,13 +1,22 @@
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/server";
-import { CHALLENGE_LIFETIME_MS } from "./app-tier/challenges.ts";
+import { ceremonyFailures } from "./app-tier/ceremony-failures.ts";
+import { CHALLENGE_LIFETIME_MS, challengeStores } from "./app-tier/challenges.ts";
 import { providerName } from "./app-tier/aaguid-names.ts";
-import { parseLabel, randomLabel } from "./app-tier/labels.ts";
+import { credentialLabels, parseLabel, randomLabel } from "./app-tier/labels.ts";
+import { memberNameRegistry } from "./app-tier/member-names.ts";
 import { isValidMemberName, memberNameKey } from "./member-name-rules.ts";
-import { DEFAULT_RATE_LIMITS, type Limit, type RateLimits } from "./app-tier/rate-limit.ts";
+import { DEFAULT_RATE_LIMITS, rateLimiters, type Limit, type RateLimits } from "./app-tier/rate-limit.ts";
 import { credentialBinding } from "./credential-binding.ts";
 import type { PasskeyBindings } from "./durable-objects.ts";
 import { sha256Hex, toBase64Url } from "./encoding.ts";
-import type { Principal, RecordSummary, SessionCause, SessionSummary } from "./identity/record.ts";
+import { credentialIndex } from "./identity/credential-index.ts";
+import {
+  identityRecords,
+  type Principal,
+  type RecordSummary,
+  type SessionCause,
+  type SessionSummary,
+} from "./identity/record.ts";
 import {
   hashRecoveryCode,
   mintRebindToken,
@@ -46,6 +55,13 @@ export interface PasskeyConfig {
    * application can close live connections.
    */
   onRevoke?: (event: RevocationEvent) => void | Promise<void>;
+  /**
+   * A prefix on the name of every Durable Object instance the stores address,
+   * so applications with different prefixes share no storage. Empty or absent,
+   * every instance keeps its unprefixed name. Set it in code only, never from a
+   * var or secret, so a deploy setting cannot point the app at other storage.
+   */
+  storagePrefix?: string;
 }
 
 export interface RevocationEvent {
@@ -117,22 +133,18 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
     await config.onRevoke?.(event);
   };
 
-  const record = (recordId: RecordId) =>
-    bindings.IDENTITY_RECORDS.get(bindings.IDENTITY_RECORDS.idFromName(recordId));
-  const index = () => bindings.CREDENTIAL_INDEX.get(bindings.CREDENTIAL_INDEX.idFromName("global"));
-  const names = () => bindings.MEMBER_NAMES.get(bindings.MEMBER_NAMES.idFromName("global"));
-  const labels = (recordId: RecordId) =>
-    bindings.CREDENTIAL_LABELS.get(bindings.CREDENTIAL_LABELS.idFromName(recordId));
-  // Challenges are spread over sixteen objects by the first hex digit of their hash.
-  const challenges = (hash: string) =>
-    bindings.CHALLENGES.get(bindings.CHALLENGES.idFromName(`challenges-${hash[0]}`));
-  const failures = () => bindings.CEREMONY_FAILURES.get(bindings.CEREMONY_FAILURES.idFromName("global"));
+  const record = identityRecords(bindings.IDENTITY_RECORDS, config.storagePrefix);
+  const index = credentialIndex(bindings.CREDENTIAL_INDEX, config.storagePrefix);
+  const names = memberNameRegistry(bindings.MEMBER_NAMES, config.storagePrefix);
+  const labels = credentialLabels(bindings.CREDENTIAL_LABELS, config.storagePrefix);
+  const challenges = challengeStores(bindings.CHALLENGES, config.storagePrefix);
+  const failures = ceremonyFailures(bindings.CEREMONY_FAILURES, config.storagePrefix);
+  const limiter = rateLimiters(bindings.RATE_LIMITS, config.storagePrefix);
   const bindNewCredential = credentialBinding({ index, labels });
 
   /** Count a hit against a rate-limit bucket; refuse the ceremony if it is full. */
   async function throttle(bucket: string, limit: Limit, now: number) {
-    const limiter = bindings.RATE_LIMITS.get(bindings.RATE_LIMITS.idFromName(bucket));
-    if (!(await limiter.hit(limit, now))) throw new CeremonyRefusal("rate-limited");
+    if (!(await limiter(bucket).hit(limit, now))) throw new CeremonyRefusal("rate-limited");
   }
 
   /** Run `run` within a per-source limit. Past the limit, the uniform refusal. */

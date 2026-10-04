@@ -15,6 +15,7 @@ import {
   type RevocationEvent,
 } from "passkey-cloudflare";
 import { seedWords } from "passkey-cloudflare/gordian";
+import { operatorLog, type OperatorLog } from "./operator-log.ts";
 
 export interface AppOptions {
   /** Source of the current time, for tests. Defaults to `Date.now`. */
@@ -23,6 +24,11 @@ export interface AppOptions {
   rateLimits?: Partial<RateLimits>;
   /** Called when sessions end. The demo has no live connections yet, so by default it does nothing. */
   onRevoke?: (event: RevocationEvent) => void | Promise<void>;
+  /**
+   * The storage prefix the app and the library address their Durable Objects
+   * under, for tests. Absent in production; never read from a var or secret.
+   */
+  storagePrefix?: string;
 }
 
 interface Call {
@@ -31,6 +37,8 @@ interface Call {
   passkeys: Passkeys;
   ctx: RequestContext;
   body: any;
+  /** The operator log, under the app's storage prefix. */
+  log: () => DurableObjectStub<OperatorLog>;
 }
 
 type Handler = (call: Call) => Promise<Response>;
@@ -69,10 +77,6 @@ function operatorIds(env: Env): Set<string> {
   );
 }
 
-function operatorLog(env: Env) {
-  return env.OPERATOR_LOG.get(env.OPERATOR_LOG.idFromName("global"));
-}
-
 /** A handler for an operator who has stepped up. The operator role is this app's, not the library's. */
 function operator(handler: (call: Call, operatorId: RecordId) => Promise<Response>): Handler {
   return async (call) => {
@@ -95,7 +99,7 @@ async function memberView(call: Call, recordId: RecordId) {
   return {
     recordId,
     summary: await call.passkeys.recordSummary(recordId),
-    entries: await operatorLog(call.env).listFor(recordId),
+    entries: await call.log().listFor(recordId),
   };
 }
 
@@ -176,7 +180,7 @@ const POST: Record<string, Handler> = {
     if (!targetId) return error(404, "no such member");
     const member = await memberView(call, targetId);
     const retired = await call.passkeys.isRetiredMemberName(call.body.memberName);
-    await operatorLog(call.env).append({ operatorId, action: "lookup", targetId, at: call.ctx.now });
+    await call.log().append({ operatorId, action: "lookup", targetId, at: call.ctx.now });
     return json({ ...member, retired });
   }),
 
@@ -184,7 +188,7 @@ const POST: Record<string, Handler> = {
     const targetId = await targetRecordId(call);
     if (!targetId) return error(404, "not found");
     const link = await call.passkeys.createRebindLink(call.ctx, targetId);
-    await operatorLog(call.env).append({ operatorId, action: "create-rebind-link", targetId, at: call.ctx.now });
+    await call.log().append({ operatorId, action: "create-rebind-link", targetId, at: call.ctx.now });
     return json({ link: `${call.env.ORIGIN}/rebind#${link}`, ...(await memberIfNamedById(call, targetId)) });
   }),
 
@@ -192,7 +196,7 @@ const POST: Record<string, Handler> = {
     const targetId = await targetRecordId(call);
     if (!targetId) return error(404, "not found");
     await call.passkeys.suspend(call.ctx, targetId);
-    await operatorLog(call.env).append({ operatorId, action: "suspend", targetId, at: call.ctx.now });
+    await call.log().append({ operatorId, action: "suspend", targetId, at: call.ctx.now });
     return json({ ok: true, ...(await memberIfNamedById(call, targetId)) });
   }),
 
@@ -200,7 +204,7 @@ const POST: Record<string, Handler> = {
     const targetId = await targetRecordId(call);
     if (!targetId) return error(404, "not found");
     await call.passkeys.resume(targetId);
-    await operatorLog(call.env).append({ operatorId, action: "resume", targetId, at: call.ctx.now });
+    await call.log().append({ operatorId, action: "resume", targetId, at: call.ctx.now });
     return json({ ok: true, ...(await memberIfNamedById(call, targetId)) });
   }),
 
@@ -210,7 +214,7 @@ const POST: Record<string, Handler> = {
     // An operator is taken off OPERATOR_RECORD_IDS before they can be removed.
     if (operatorIds(call.env).has(targetId)) return error(409, "operator record");
     await call.passkeys.remove(call.ctx, targetId);
-    await operatorLog(call.env).append({ operatorId, action: "remove", targetId, at: call.ctx.now });
+    await call.log().append({ operatorId, action: "remove", targetId, at: call.ctx.now });
     return json({ ok: true, ...(await memberIfNamedById(call, targetId)) });
   }),
 
@@ -218,7 +222,7 @@ const POST: Record<string, Handler> = {
     if (!(await call.passkeys.resolveMemberName(call.body.memberName))) return error(404, "not found");
     const targetId = await call.passkeys.allowRetiredMemberName(call.body.memberName);
     if (!targetId) return error(409, "name not retired");
-    await operatorLog(call.env).append({ operatorId, action: "allow-name", targetId, at: call.ctx.now });
+    await call.log().append({ operatorId, action: "allow-name", targetId, at: call.ctx.now });
     return json({ ok: true, member: { ...(await memberView(call, targetId)), retired: false } });
   }),
 
@@ -265,7 +269,7 @@ const GET: Record<string, Handler> = {
   "/me/credentials": async ({ passkeys, ctx, request }) =>
     json({ credentials: await passkeys.credentials(ctx, sessionValueFrom(request)) }),
 
-  "/operator/log": operator(async ({ env }) => json({ entries: await operatorLog(env).list() })),
+  "/operator/log": operator(async ({ log }) => json({ entries: await log().list() })),
 
   "/me/sessions": async ({ passkeys, request }) =>
     json({ sessions: await passkeys.sessions(sessionValueFrom(request)) }),
@@ -286,10 +290,11 @@ export function createApp(options: AppOptions = {}) {
         clock: options.clock,
         onRevoke: options.onRevoke,
         rateLimits: options.rateLimits,
+        storagePrefix: options.storagePrefix,
       });
       const ctx = passkeys.context(request);
       try {
-        return await route(request, env, passkeys, ctx);
+        return await route(request, env, passkeys, ctx, operatorLog(env.OPERATOR_LOG, options.storagePrefix));
       } catch (e) {
         if (e instanceof PasskeyError) return error(STATUS[e.code], e.code);
         throw e;
@@ -298,7 +303,13 @@ export function createApp(options: AppOptions = {}) {
   };
 }
 
-async function route(request: Request, env: Env, passkeys: Passkeys, ctx: RequestContext): Promise<Response> {
+async function route(
+  request: Request,
+  env: Env,
+  passkeys: Passkeys,
+  ctx: RequestContext,
+  log: Call["log"],
+): Promise<Response> {
   const url = new URL(request.url);
 
   if (request.method === "POST") {
@@ -313,12 +324,12 @@ async function route(request: Request, env: Env, passkeys: Passkeys, ctx: Reques
       return error(400, "malformed JSON");
     }
     if (typeof body !== "object" || body === null) return error(400, "malformed JSON");
-    return handler({ request, env, passkeys, ctx, body });
+    return handler({ request, env, passkeys, ctx, body, log });
   }
   if (request.method === "GET" || request.method === "HEAD") {
     const handler = GET[url.pathname];
     if (!handler) return error(404, "not found");
-    return handler({ request, env, passkeys, ctx, body: {} });
+    return handler({ request, env, passkeys, ctx, body: {}, log });
   }
   return error(405, "method not allowed");
 }

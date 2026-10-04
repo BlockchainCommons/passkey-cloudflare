@@ -3,6 +3,7 @@ import { FAILURE_SCHEMA, insertFailure, type CeremonyFailure } from "../failures
 import { addColumnIfMissing } from "../sql.ts";
 import type { RecordId } from "./secrets.ts";
 import { FLAG_BACKED_UP, FLAG_BACKUP_ELIGIBLE, type VerifiedCredential } from "./webauthn.ts";
+import { prefixedInstance } from "../storage-prefix.ts";
 
 // One Durable Object per identity record. It holds the record, its credentials,
 // sessions, recovery-code hashes, suspension and removal state and failure
@@ -610,4 +611,9 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
     const gate = this.gate(tokenHash, now, "live");
     return gate.ok ? gate.principal : null;
   }
+}
+
+/** The identity record object for a record id, under `storagePrefix`. */
+export function identityRecords(binding: DurableObjectNamespace<IdentityRecord>, storagePrefix?: string) {
+  return (recordId: RecordId) => prefixedInstance(binding, storagePrefix, recordId);
 }
