@@ -1,7 +1,8 @@
-import { env, runInDurableObject } from "cloudflare:test";
-import { ceremonyFailures, createPasskeys, identityRecords, type RecordId } from "passkey-cloudflare";
+import { env } from "cloudflare:test";
+import { createPasskeys } from "passkey-cloudflare";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { overriding, rejecting } from "./failing-namespaces.ts";
+import { failuresOn, globalFailuresFrom } from "./failure-log.ts";
 import { testApp, uniqueName, type Browser } from "./harness.ts";
 
 // Each ceremony method applies its own throttles, failure record and refusal
@@ -10,30 +11,6 @@ import { testApp, uniqueName, type Browser } from "./harness.ts";
 
 const REFUSAL = '{"error":"ceremony refused"}';
 const HOUR = 60 * 60 * 1000;
-
-/** Every failure recorded on one record, read from its own object in the storage of the app with this prefix. */
-function failuresOn(storagePrefix: string, recordId: string) {
-  return runInDurableObject(
-    identityRecords(env.IDENTITY_RECORDS, storagePrefix)(recordId as RecordId),
-    (_instance, state) =>
-      state.storage.sql.exec<{ ceremony: string; cause: string }>("SELECT ceremony, cause FROM failures").toArray(),
-  );
-}
-
-async function sourceHash(ip: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`source:${ip}`));
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-/** The failures recorded globally from one source address, in the storage of the app with this prefix. */
-async function globalFailuresFrom(storagePrefix: string, browser: Browser) {
-  const hash = await sourceHash(browser.ip);
-  return runInDurableObject(ceremonyFailures(env.CEREMONY_FAILURES, storagePrefix)(), (_instance, state) =>
-    state.storage.sql
-      .exec<{ ceremony: string; cause: string }>("SELECT ceremony, cause FROM failures WHERE source_hash = ?", hash)
-      .toArray(),
-  );
-}
 
 async function loginAttempt(browser: Browser) {
   const options = await browser.json(browser.post("/auth/login/options"));

@@ -88,15 +88,37 @@ export async function requestOptions(input: {
   });
 }
 
+function decodeClientData(clientDataJSON: string) {
+  return JSON.parse(new TextDecoder().decode(fromBase64Url(clientDataJSON)));
+}
+
 /** Read the challenge a client claims to answer, without trusting anything else in it. */
 export function claimedChallenge(response: unknown): string {
   try {
     const clientDataJSON = (response as { response: { clientDataJSON: string } }).response.clientDataJSON;
-    const clientData = JSON.parse(new TextDecoder().decode(fromBase64Url(clientDataJSON)));
+    const clientData = decodeClientData(clientDataJSON);
     if (typeof clientData.challenge !== "string" || clientData.challenge.length === 0) throw new Error();
     return clientData.challenge;
   } catch {
     throw new CeremonyRefusal("malformed-response");
+  }
+}
+
+/**
+ * Refuse a ceremony the browser ran in a frame: crossOrigin true, or any
+ * topOrigin. The library expects no framed ceremony, and `@simplewebauthn/server`
+ * reads neither field at registration and accepts crossOrigin true without a
+ * topOrigin at assertion. Client data that does not parse is left to it.
+ */
+function refuseFramed(clientDataJSON: string): void {
+  let clientData: { crossOrigin?: unknown; topOrigin?: unknown };
+  try {
+    clientData = decodeClientData(clientDataJSON);
+  } catch {
+    return;
+  }
+  if (clientData?.crossOrigin === true || clientData?.topOrigin !== undefined) {
+    throw new CeremonyRefusal("cross-origin");
   }
 }
 
@@ -116,6 +138,7 @@ export async function verifyRegistration(
   response: RegistrationResponseJSON,
   expected: { rp: RelyingParty; challenge: string },
 ): Promise<VerifiedCredential> {
+  refuseFramed(response.response.clientDataJSON);
   let verification;
   try {
     verification = await verifyRegistrationResponse({
@@ -156,6 +179,7 @@ export async function verifyAssertion(
     credential: { id: string; publicKey: Uint8Array<ArrayBuffer>; signCount: number; enforceCounter: boolean };
   },
 ): Promise<{ signCount: number; flags: number }> {
+  refuseFramed(response.response.clientDataJSON);
   let verification;
   try {
     verification = await verifyAuthenticationResponse({

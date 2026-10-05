@@ -37,6 +37,10 @@ export interface Tamper {
   signCount?: number;
   /** Clear the user-present flag. */
   userAbsent?: boolean;
+  /** The client data's `crossOrigin`, as a browser sets it for a ceremony in a cross-origin frame. Default false. */
+  crossOrigin?: boolean;
+  /** A `topOrigin` in the client data, which a browser adds for a ceremony in a frame. Default absent. */
+  topOrigin?: string;
 }
 
 export interface StoredCredential {
@@ -103,7 +107,8 @@ export class SoftwareAuthenticator {
         type: tamper.type ?? type,
         challenge: tamper.challenge ?? challenge,
         origin: tamper.origin ?? this.origin,
-        crossOrigin: false,
+        crossOrigin: tamper.crossOrigin ?? false,
+        ...(tamper.topOrigin === undefined ? {} : { topOrigin: tamper.topOrigin }),
       }),
     );
   }

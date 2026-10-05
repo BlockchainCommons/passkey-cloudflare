@@ -54,6 +54,7 @@ export async function refusalArms(setup: ArmSetup): Promise<Record<string, Arm>>
   return {
     "unknown challenge": loginAttempt(person, { challenge: "dW5rbm93bi1jaGFsbGVuZ2UtdW5rbm93bi1jaGFsbGVuZ2U" }),
     "wrong origin": loginAttempt(person, { origin: "https://evil.example" }),
+    "cross origin": loginAttempt(person, { crossOrigin: true }),
     "wrong RP ID": loginAttempt(person, { rpId: "evil.example" }),
     "bad signature": loginAttempt(person, { badSignature: true }),
     "regressed sign count": loginAttempt(person, { signCount: 1 }),
