@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { RECOVERY_CODE_COUNT, type RecordId, type RevocationEvent } from "passkey-cloudflare";
 import { operatorLog, type OperatorLog } from "../src/operator-log.ts";
 import { rejecting } from "./failing-namespaces.ts";
-import { testApp, uniqueName, type Browser, type HarnessOptions, type TestApp } from "./harness.ts";
+import { refusal, testApp, uniqueName, type Browser, type HarnessOptions, type TestApp } from "./harness.ts";
 
 const HOUR = 60 * 60 * 1000;
 
@@ -20,12 +20,11 @@ async function deployment(options: HarnessOptions = {}) {
   return { app, operator, operatorId, person, personName, personId, recoveryCodes };
 }
 
-async function rebind(device: Browser, link: string) {
-  const fragment = new URL(link).hash.slice(1);
-  const optionsResponse = await device.post("/auth/rebind/options", { link: fragment });
-  if (!optionsResponse.ok) return optionsResponse;
-  const response = await device.authenticator.create(await optionsResponse.json());
-  return device.post("/auth/rebind/verify", { link: fragment, response });
+/** The status a rebind link's options are refused with, before any passkey ceremony starts. */
+async function linkRefusal(device: Browser, link: string): Promise<number> {
+  const rebound = await device.rebind(link);
+  if (rebound.result !== "invalid-link") throw new Error(`expected an invalid link, got ${rebound.result}`);
+  return rebound.response.status;
 }
 
 describe("operator role", () => {
@@ -43,10 +42,10 @@ describe("operator rebind", () => {
 
     const { link } = await operator.json(operator.post("/operator/rebind-links", { recordId: personId }));
     const newDevice = app.browser();
-    const rebound = await rebind(newDevice, link);
+    const rebound = await newDevice.rebind(link);
 
     expect(link).toMatch(/^https:\/\/passkeydemo\.shallweplay\.com\/rebind#/);
-    expect(rebound.status).toBe(200);
+    expect(rebound.result).toBe("ok");
     expect(await newDevice.json(newDevice.get("/me"))).toMatchObject({ recordId: personId });
     newDevice.session = undefined;
     expect((await newDevice.login()).recordId).toBe(personId);
@@ -55,10 +54,10 @@ describe("operator rebind", () => {
   it("links work once", async () => {
     const { app, operator, personId } = await deployment();
     const { link } = await operator.json(operator.post("/operator/rebind-links", { recordId: personId }));
-    await rebind(app.browser(), link);
+    await app.browser().rebind(link);
 
     // Refused before any passkey ceremony starts.
-    expect((await rebind(app.browser(), link)).status).toBe(404);
+    expect(await linkRefusal(app.browser(), link)).toBe(404);
   });
 
   it("links expire after a day", async () => {
@@ -68,7 +67,7 @@ describe("operator rebind", () => {
 
     now += 24 * HOUR + 1;
 
-    expect((await rebind(app.browser(), link)).status).toBe(404);
+    expect(await linkRefusal(app.browser(), link)).toBe(404);
   });
 
   it("options are refused for a link whose token is wrong, revealing nothing", async () => {
@@ -160,13 +159,7 @@ describe("removal", () => {
     const { app, operator, personName, personId, recoveryCodes } = await deployment();
     await operator.post("/operator/remove", { recordId: personId });
 
-    const device = app.browser();
-    const options = await device.json(device.post("/auth/recover/options", { memberName: personName }));
-    const response = await device.authenticator.create(options);
-
-    await expectCeremonyRefused(
-      await device.post("/auth/recover", { memberName: personName, code: recoveryCodes[0]!, response }),
-    );
+    await expectCeremonyRefused(refusal(await app.browser().recover(personName, recoveryCodes[0]!)));
   });
 
   it("refuses a rebind link created before the removal", async () => {
@@ -174,7 +167,7 @@ describe("removal", () => {
     const { link } = await operator.json(operator.post("/operator/rebind-links", { recordId: personId }));
     await operator.post("/operator/remove", { recordId: personId });
 
-    await expectCeremonyRefused(await rebind(app.browser(), link));
+    await expectCeremonyRefused(refusal(await app.browser().rebind(link)));
   });
 
   it("refuses a step-up begun before the removal", async () => {

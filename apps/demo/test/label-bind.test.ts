@@ -1,7 +1,7 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { rejecting } from "./failing-namespaces.ts";
-import { testApp, uniqueName, type Browser, type TestApp } from "./harness.ts";
+import { refusal, testApp, uniqueName, type Browser, type TestApp } from "./harness.ts";
 import { savedLabel } from "./label-draws.ts";
 
 // A label is bound before the record commits the ceremony's credential, so
@@ -26,12 +26,6 @@ function restoreLabelBinds(app: TestApp) {
 async function listedLabels(browser: Browser): Promise<string[]> {
   const { credentials } = await browser.json(browser.get("/me/credentials"));
   return credentials.map((c: any) => c.label);
-}
-
-async function recoverOnto(browser: Browser, memberName: string, code: string) {
-  const options = await browser.json(browser.post("/auth/recover/options", { memberName }));
-  const response = await browser.authenticator.create(options);
-  return browser.post("/auth/recover", { memberName, code, response });
 }
 
 describe("a ceremony whose label bind fails is refused", () => {
@@ -80,12 +74,12 @@ describe("a ceremony whose label bind fails is refused", () => {
     const newDevice = app.browser();
     breakLabelBinds(app);
 
-    const refused = await recoverOnto(newDevice, name, recoveryCodes[0]!);
+    const refused = refusal(await newDevice.recover(name, recoveryCodes[0]!));
 
     expect(refused.status).toBe(400);
     restoreLabelBinds(app);
     const retry = app.browser();
-    expect((await recoverOnto(retry, name, recoveryCodes[0]!)).status).toBe(200);
+    expect((await retry.recover(name, recoveryCodes[0]!)).result).toBe("ok");
     expect(await retry.json(retry.get("/me"))).toMatchObject({ recordId });
     const labels = await listedLabels(retry);
     expect(labels).toHaveLength(2);
@@ -104,20 +98,14 @@ describe("a ceremony whose label bind fails is refused", () => {
     const name = uniqueName("person");
     const { recordId } = await app.browser().register(name);
     const { link } = await operator.json(operator.post("/operator/rebind-links", { recordId }));
-    const fragment = new URL(link).hash.slice(1);
-    const rebindOnto = async (browser: Browser) => {
-      const options = await browser.json(browser.post("/auth/rebind/options", { link: fragment }));
-      const response = await browser.authenticator.create(options);
-      return browser.post("/auth/rebind/verify", { link: fragment, response });
-    };
     breakLabelBinds(app);
 
-    const refused = await rebindOnto(app.browser());
+    const refused = refusal(await app.browser().rebind(link));
 
     expect(refused.status).toBe(400);
     restoreLabelBinds(app);
     const retry = app.browser();
-    expect((await rebindOnto(retry)).status).toBe(200);
+    expect((await retry.rebind(link)).result).toBe("ok");
     expect(await retry.json(retry.get("/me"))).toMatchObject({ recordId });
     const labels = await listedLabels(retry);
     expect(labels).toHaveLength(2);

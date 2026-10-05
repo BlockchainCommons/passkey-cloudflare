@@ -1,15 +1,14 @@
 import { DurableObject } from "cloudflare:workers";
 import { prefixedInstance, type RecordId } from "passkey-cloudflare";
+import type { OperatorLogEntry as OperatorLogEntryJSON } from "./responses.ts";
 
 // Every operator action, with the operator's record id, the action, the target
 // and the time. The operator role belongs to this application, not to the
 // identity layer, and so does this log.
 
-export interface OperatorLogEntry {
+export interface OperatorLogEntry extends OperatorLogEntryJSON {
   operatorId: RecordId;
-  action: "lookup" | "create-rebind-link" | "suspend" | "resume" | "remove" | "allow-name";
   targetId: RecordId;
-  at: number;
 }
 
 export class OperatorLog extends DurableObject {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Tamper } from "passkey-cloudflare/testing";
-import { testApp, uniqueName, type Browser } from "./harness.ts";
+import { refusal, testApp, uniqueName, type Browser } from "./harness.ts";
 
 const REFUSAL = '{"error":"ceremony refused"}';
 const HOUR = 60 * 60 * 1000;
@@ -90,30 +90,22 @@ describe("rate limits", () => {
     const name = uniqueName();
     const { recoveryCodes } = await app.browser().register(name);
     const attacker = app.browser();
-    const recover = async (device: Browser, code: string) => {
-      const options = await device.json(device.post("/auth/recover/options", { memberName: name }));
-      return device.post("/auth/recover", { memberName: name, code, response: await device.authenticator.create(options) });
-    };
 
-    await recover(attacker, "cccc-cccc-cccc-cccc-cccc-cccc");
-    await recover(attacker, "cccc-cccc-cccc-cccc-cccc-cccc");
+    await attacker.recover(name, "cccc-cccc-cccc-cccc-cccc-cccc");
+    await attacker.recover(name, "cccc-cccc-cccc-cccc-cccc-cccc");
 
-    expect((await recover(attacker, recoveryCodes[0]!)).status).toBe(400);
-    expect((await recover(app.browser(), recoveryCodes[0]!)).status).toBe(200);
+    expect(refusal(await attacker.recover(name, recoveryCodes[0]!)).status).toBe(400);
+    expect((await app.browser().recover(name, recoveryCodes[0]!)).result).toBe("ok");
   });
 
   it("refuse recovery globally past the global limit", async () => {
     const app = testApp({ rateLimits: { recoverGlobal: { limit: 1, windowMs: HOUR } } });
     const name = uniqueName();
     const { recoveryCodes } = await app.browser().register(name);
-    const recover = async (device: Browser, code: string) => {
-      const options = await device.json(device.post("/auth/recover/options", { memberName: name }));
-      return device.post("/auth/recover", { memberName: name, code, response: await device.authenticator.create(options) });
-    };
     // The global bucket is shared with every other test's recoveries, which can only make it stricter.
-    await recover(app.browser(), "dddd-dddd-dddd-dddd-dddd-dddd");
+    await app.browser().recover(name, "dddd-dddd-dddd-dddd-dddd-dddd");
 
-    expect((await recover(app.browser(), recoveryCodes[0]!)).status).toBe(400);
+    expect(refusal(await app.browser().recover(name, recoveryCodes[0]!)).status).toBe(400);
   });
 
   it("refuse anonymous ceremony options from one source address past its limit", async () => {

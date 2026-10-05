@@ -1,4 +1,5 @@
-import { uniqueName, type Browser } from "./browser.ts";
+import type { Tamper } from "passkey-cloudflare/testing";
+import { prepared, uniqueName, type Browser } from "./browser.ts";
 
 // Every way a ceremony can be refused, each prepared as a request that the
 // server must refuse. The invariant test uses them to check that refusals look
@@ -32,20 +33,14 @@ export async function refusalArms(setup: ArmSetup): Promise<Record<string, Arm>>
     await stranger.json(stranger.post("/auth/register/options", { memberName: uniqueName() })),
   );
 
-  const loginAttempt = (browser: Browser, tamper = {}): Arm => async () => {
-    const options = await browser.json(browser.post("/auth/login/options"));
-    return { path: "/auth/login/verify", body: { response: await browser.authenticator.get(options, tamper) } };
+  const loginAttempt = (browser: Browser, tamper: Tamper = {}): Arm => async () => {
+    return prepared(await browser.client({ tamper }).loginRequest());
   };
   // A well-formed recovery code that is never issued: the example secret in
   // the test vectors, as its seed UR.
   const WRONG_CODE = "ur:seed/oyadgdinaauyatsojkdmflfdfrfxtpbkvyfrzmcwntvdta";
   const recoverAttempt = (memberName: string): Arm => async () => {
-    const device = setup.browser();
-    const options = await device.json(device.post("/auth/recover/options", { memberName }));
-    return {
-      path: "/auth/recover",
-      body: { memberName, code: WRONG_CODE, response: await device.authenticator.create(options) },
-    };
+    return prepared(await setup.browser().ceremonies.recoverRequest(memberName, WRONG_CODE));
   };
   const crossPurpose: Arm = async () => {
     const options = await person.json(person.post("/auth/register/options", { memberName: uniqueName() }));

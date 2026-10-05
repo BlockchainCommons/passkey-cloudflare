@@ -1,6 +1,10 @@
 import { isRecordId, PasskeyError, sessionValueFrom, type RecordId } from "passkey-cloudflare";
 import { error, json, type Call, type Handler } from "./http.ts";
 import type { OperatorLogEntry } from "./operator-log.ts";
+import type { MemberView, OperatorActed } from "./responses.ts";
+
+/** An operator action's answer, as the routes send it. */
+type Acted = OperatorActed & { ok: true };
 
 // Every operator request, end to end: the operator role, step-up, the target,
 // the action's checks, the log entry, then the action. The entry is written
@@ -31,7 +35,7 @@ export function operatorRolesFromSecret({ env }: Call): OperatorRoles {
 }
 
 /** What an operator sees of a member: the record's state and counts, and the operator log entries that target it. */
-async function memberView(call: Call, recordId: RecordId) {
+async function memberView(call: Call, recordId: RecordId): Promise<MemberView> {
   return {
     recordId,
     summary: await call.passkeys.recordSummary(recordId),
@@ -96,7 +100,7 @@ function operatorRoute(roles: OperatorRolesFor, logged: OperatorLogEntry["action
 
 /** Answer an action with the member as it now stands, and anything else the action gives back. */
 async function withMember(call: Call, targetId: RecordId, extra: Record<string, unknown> = {}) {
-  return json({ ok: true, ...extra, member: await memberView(call, targetId) });
+  return json({ ok: true, ...extra, member: await memberView(call, targetId) } satisfies Acted);
 }
 
 /** The operator routes, each answering a POST, given who holds the operator role. */
@@ -110,7 +114,7 @@ export function operatorRoutes(roles: OperatorRolesFor): Record<string, Handler>
         json({
           ...(await memberView(call, targetId)),
           retired: await call.passkeys.isRetiredMemberName(call.body.memberName),
-        }),
+        } satisfies MemberView),
     }),
 
     "/operator/rebind-links": route("create-rebind-link", {
@@ -147,7 +151,7 @@ export function operatorRoutes(roles: OperatorRolesFor): Record<string, Handler>
         // Removal retires the name the record holds, unless it was allowed again before.
         const memberName = await call.passkeys.memberName(targetId);
         const retired = memberName !== null && (await call.passkeys.isRetiredMemberName(memberName));
-        return json({ ok: true, member: { ...(await memberView(call, targetId)), retired } });
+        return json({ ok: true, member: { ...(await memberView(call, targetId)), retired } } satisfies Acted);
       },
     }),
 
@@ -159,7 +163,7 @@ export function operatorRoutes(roles: OperatorRolesFor): Record<string, Handler>
       act: async (call, targetId) => {
         // The name can stop being retired between the check and here; the entry then stands for an undone action.
         if (!(await call.passkeys.allowRetiredMemberName(call.body.memberName))) return error(409, "name not retired");
-        return json({ ok: true, member: { ...(await memberView(call, targetId)), retired: false } });
+        return json({ ok: true, member: { ...(await memberView(call, targetId)), retired: false } } satisfies Acted);
       },
     }),
   };

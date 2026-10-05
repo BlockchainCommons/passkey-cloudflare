@@ -15,6 +15,7 @@ import {
 import { seedWords } from "passkey-cloudflare/gordian";
 import { error, json, type Call, type Handler } from "./http.ts";
 import { operatorLog } from "./operator-log.ts";
+import type { IssuedCodes, Me, PasskeyListing, Recovered, Registered, Revoked, SessionListing } from "./responses.ts";
 import { operatorLogRoute, operatorRolesFromSecret, operatorRoutes, type OperatorRolesFor } from "./operator.ts";
 
 export interface AppOptions {
@@ -39,7 +40,7 @@ export interface AppOptions {
 type AuthedHandler = (call: Call, principal: Principal) => Promise<Response>;
 
 /** Fresh recovery codes, when they were issued, and each one's word form, which the page offers for reading aloud. */
-function withWords({ recoveryCodes, issuedAt }: { recoveryCodes: string[]; issuedAt: number }) {
+function withWords({ recoveryCodes, issuedAt }: { recoveryCodes: string[]; issuedAt: number }): IssuedCodes {
   return { recoveryCodes, recoveryCodeWords: recoveryCodes.map(seedWords), issuedAt };
 }
 
@@ -78,7 +79,9 @@ function routes(roles: OperatorRolesFor): Routes {
       const outcome = await passkeys.register(ctx, body.response);
       if (!outcome.ok) return outcome.response;
       const { recordId, session, ...codes } = outcome.value;
-      return json({ recordId, ...withWords(codes) }, { headers: { "Set-Cookie": sessionCookie(session) } });
+      return json({ recordId, ...withWords(codes) } satisfies Registered, {
+        headers: { "Set-Cookie": sessionCookie(session) },
+      });
     },
 
     "/auth/login/options": async ({ passkeys, ctx }) => optionsResponse(await passkeys.loginOptions(ctx)),
@@ -112,7 +115,7 @@ function routes(roles: OperatorRolesFor): Routes {
       const outcome = await passkeys.recover(ctx, body.memberName, body.code, body.response);
       if (!outcome.ok) return outcome.response;
       const { recordId, session, codesLeft } = outcome.value;
-      return json({ recordId, codesLeft }, { headers: { "Set-Cookie": sessionCookie(session) } });
+      return json({ recordId, codesLeft } satisfies Recovered, { headers: { "Set-Cookie": sessionCookie(session) } });
     },
 
     "/auth/rebind/options": async ({ passkeys, ctx, body }) =>
@@ -145,7 +148,7 @@ function routes(roles: OperatorRolesFor): Routes {
 
     "/me/credentials/revoke": async ({ passkeys, ctx, request, body }) => {
       const revoked = await passkeys.revokeCredential(ctx, sessionValueFrom(request), body.label);
-      return json({ ok: true, ...revoked });
+      return json({ ok: true, ...revoked } satisfies Revoked & { ok: true });
     },
 
     "/me/recovery-codes/rotate": async ({ passkeys, ctx, request }) =>
@@ -164,16 +167,16 @@ function routes(roles: OperatorRolesFor): Routes {
         recordId: principal.recordId,
         memberName: await call.passkeys.memberName(principal.recordId),
         operator: await roles(call).isOperator(principal.recordId),
-      }),
+      } satisfies Me),
     ),
 
     "/me/credentials": async ({ passkeys, ctx, request }) =>
-      json({ credentials: await passkeys.credentials(ctx, sessionValueFrom(request)) }),
+      json({ credentials: (await passkeys.credentials(ctx, sessionValueFrom(request))) satisfies PasskeyListing[] }),
 
     "/operator/log": operatorLogRoute(roles),
 
     "/me/sessions": async ({ passkeys, request }) =>
-      json({ sessions: await passkeys.sessions(sessionValueFrom(request)) }),
+      json({ sessions: (await passkeys.sessions(sessionValueFrom(request))) satisfies SessionListing[] }),
   };
 
   return { POST, GET };

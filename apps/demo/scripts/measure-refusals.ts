@@ -60,7 +60,9 @@ async function deployWithOperator(): Promise<Browser> {
       break;
     } catch (e) {
       // A taken name will not free up: an earlier attempt registered it but its answer was lost, or the name was reused.
-      if (attempt === 30 || String(e).startsWith("409")) throw new Error(`could not register the operator: ${e}`);
+      if (attempt === 30 || String(e).includes("name-unavailable")) {
+        throw new Error(`could not register the operator: ${e}`);
+      }
       await pause();
     }
   }

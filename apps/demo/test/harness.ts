@@ -3,7 +3,7 @@ import { SoftwareAuthenticator, type AuthenticatorOptions } from "passkey-cloudf
 import { createApp, type AppOptions } from "../src/app.ts";
 import { Browser } from "./browser.ts";
 
-export { Browser, uniqueName } from "./browser.ts";
+export { Browser, prepared, refusal, uniqueName } from "./browser.ts";
 
 export const ORIGIN = "https://passkeydemo.shallweplay.com";
 

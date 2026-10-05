@@ -1,7 +1,7 @@
 import { bytewordToken, seedSecretFromTyped } from "passkey-cloudflare/gordian";
 import { describe, expect, it } from "vitest";
 import { dumpDurableState, hex } from "./durable-state.ts";
-import { ORIGIN, testApp, uniqueName, type Browser, type TestApp } from "./harness.ts";
+import { ORIGIN, prepared, refusal, testApp, uniqueName, type Browser, type TestApp } from "./harness.ts";
 import { refusalArms } from "./refusal-arms.ts";
 
 // One named test per milestone 1 invariant. Each states a promise the system
@@ -21,11 +21,6 @@ function codeSecretHex(code: string): string {
  */
 function labelBlob(label: string): string {
   return `|${hex(Uint8Array.from(label.split("-"), (word) => bytewordToken(word)!))}|`;
-}
-
-async function recoverWith(device: Browser, memberName: string, code: string) {
-  const options = await device.json(device.post("/auth/recover/options", { memberName }));
-  return device.post("/auth/recover", { memberName, code, response: await device.authenticator.create(options) });
 }
 
 async function operatorFor(app: TestApp) {
@@ -67,7 +62,7 @@ describe("invariants", () => {
     const rotated = await person.json(person.post("/me/recovery-codes/rotate"));
     secrets.push(...rotated.recoveryCodes, ...rotated.recoveryCodes.map(codeSecretHex));
     const newDevice = app.browser();
-    await recoverWith(newDevice, name, rotated.recoveryCodes[0]);
+    await newDevice.recover(name, rotated.recoveryCodes[0]);
     secrets.push(newDevice.session!.split(".")[1]!);
     const { link } = await operator.json(operator.post("/operator/rebind-links", { recordId }));
     secrets.push(link.split("#")[1].split(".")[1]);
@@ -98,7 +93,7 @@ describe("invariants", () => {
       await browser.enrol();
       await browser.json(browser.post("/me/recovery-codes/rotate"));
       await operator.json(operator.post("/operator/rebind-links", { recordId }));
-      expect((await recoverWith(app.browser(), name, recoveryCodes[0]!)).status).toBe(400);
+      expect(refusal(await app.browser().recover(name, recoveryCodes[0]!)).status).toBe(400);
     } finally {
       Math.random = original;
     }
@@ -120,22 +115,19 @@ describe("invariants", () => {
     const assertion = await person.authenticator.get(loginOptions);
     await person.post("/auth/login/verify", { response: assertion });
     const recoverDevice = app.browser();
-    const recoverOptions = await recoverDevice.json(recoverDevice.post("/auth/recover/options", { memberName: name }));
-    const recovery = { memberName: name, code: recoveryCodes[0], response: await recoverDevice.authenticator.create(recoverOptions) };
-    await recoverDevice.post("/auth/recover", recovery);
+    const recovery = prepared(await recoverDevice.ceremonies.recoverRequest(name, recoveryCodes[0]));
+    await recoverDevice.post(recovery.path, recovery.body);
     const { link } = await operator.json(operator.post("/operator/rebind-links", { recordId }));
-    const fragment = link.split("#")[1];
     const rebindDevice = app.browser();
-    const rebindOptions = await rebindDevice.json(rebindDevice.post("/auth/rebind/options", { link: fragment }));
-    const rebind = { link: fragment, response: await rebindDevice.authenticator.create(rebindOptions) };
-    await rebindDevice.post("/auth/rebind/verify", rebind);
+    const rebind = prepared(await rebindDevice.ceremonies.rebindRequest(link.split("#")[1]));
+    await rebindDevice.post(rebind.path, rebind.body);
     const sessionsBefore = (await person.json(person.get("/me/sessions"))).sessions.length;
 
     const replays = [
       ["/auth/register/verify", { response: registration }],
       ["/auth/login/verify", { response: assertion }],
-      ["/auth/recover", recovery],
-      ["/auth/rebind/verify", rebind],
+      [recovery.path, recovery.body],
+      [rebind.path, rebind.body],
       ["/auth/login/verify", {}],
       ["/auth/register/verify", {}],
     ] as const;

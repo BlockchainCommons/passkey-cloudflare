@@ -2,7 +2,7 @@ import { env, runInDurableObject } from "cloudflare:test";
 import { credentialLabels, type RecordId } from "passkey-cloudflare";
 import { seedWords } from "passkey-cloudflare/gordian";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { testApp, uniqueName } from "./harness.ts";
+import { prepared, refusal, testApp, uniqueName } from "./harness.ts";
 import { PINNED_LABEL, PINNED_LABEL_BYTES, pinLabelDraws, savedLabel } from "./label-draws.ts";
 
 const MINUTE = 60 * 1000;
@@ -200,17 +200,13 @@ describe("passkeys", () => {
     pinLabelDraws(2);
     const { recoveryCodes } = await app.browser().register(name);
     const collided = app.browser();
-    const options = await collided.json(collided.post("/auth/recover/options", { memberName: name }));
-    const response = await collided.authenticator.create(options);
+
+    const refused = refusal(await collided.recover(name, recoveryCodes[0]!));
+
     expect(collided.authenticator.credentials[0]!.userName).toBe(`${name} (${PINNED_LABEL})`);
-
-    const refused = await collided.post("/auth/recover", { memberName: name, code: recoveryCodes[0], response });
-
     expect(refused.status).toBe(400);
     const retry = app.browser();
-    const again = await retry.json(retry.post("/auth/recover/options", { memberName: name }));
-    const retried = await retry.authenticator.create(again);
-    expect((await retry.post("/auth/recover", { memberName: name, code: recoveryCodes[0], response: retried })).status).toBe(200);
+    expect((await retry.recover(name, recoveryCodes[0]!)).result).toBe("ok");
     const { credentials } = await retry.json(retry.get("/me/credentials"));
     expect(credentials.map((c: any) => c.label)).toEqual([PINNED_LABEL, savedLabel(retry.authenticator.credentials[0]!)]);
   });
@@ -265,15 +261,12 @@ describe("passkeys", () => {
     // Recovering: the retired label is drawn unchecked, never bound, and the recovery is refused.
     const refusedDevice = app.browser();
     const recoverDraws = pinLabelDraws(1);
-    const options = await refusedDevice.json(refusedDevice.post("/auth/recover/options", { memberName: name }));
+    const recovery = prepared(await refusedDevice.ceremonies.recoverRequest(name, recoveryCodes[0]!));
     vi.restoreAllMocks();
     expect(recoverDraws()).toBe(1);
-    const response = await refusedDevice.authenticator.create(options);
-    expect((await refusedDevice.post("/auth/recover", { memberName: name, code: recoveryCodes[0], response })).status).toBe(400);
+    expect((await refusedDevice.post(recovery.path, recovery.body)).status).toBe(400);
     const device = app.browser();
-    const retry = await device.json(device.post("/auth/recover/options", { memberName: name }));
-    const retried = await device.authenticator.create(retry);
-    expect((await device.post("/auth/recover", { memberName: name, code: recoveryCodes[0], response: retried })).status).toBe(200);
+    expect((await device.recover(name, recoveryCodes[0]!)).result).toBe("ok");
 
     const { credentials } = await device.json(device.get("/me/credentials"));
     const labels = credentials.map((c: any) => c.label);

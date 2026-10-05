@@ -31,10 +31,8 @@ for (let round = 0; round <= rounds; round++) {
   await person.stepUp();
   await person.enrol();
 
-  const device = browser();
-  const options = await device.json(device.post("/auth/recover/options", { memberName }));
-  const response = await device.authenticator.create(options);
-  await device.json(device.post("/auth/recover", { memberName, code: recoveryCodes[0], response }));
+  const recovered = await browser().recover(memberName, recoveryCodes[0]!);
+  if (recovered.result !== "ok") throw new Error(`recovery not accepted: ${recovered.result}`);
   process.stderr.write(`round ${round}/${rounds}\r`);
 }
 
