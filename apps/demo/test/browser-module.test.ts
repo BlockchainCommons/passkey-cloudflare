@@ -5,6 +5,7 @@ import {
   findPasskey,
   fromBase64Url,
   requestOptionsFromJSON,
+  signalRevokedPasskey,
   toBase64Url,
   usePasskey,
   type PublicKeyCredentialCreationOptionsJSON,
@@ -130,6 +131,36 @@ describe("canFindWithoutSheet", () => {
   it("is false with no WebAuthn at all", async () => {
     vi.stubGlobal("PublicKeyCredential", undefined);
     expect(await canFindWithoutSheet()).toBe(false);
+  });
+});
+
+describe("signalRevokedPasskey", () => {
+  const revoked = { rpId: "example.test", credentialId: "Cgs" };
+
+  it("tells the password manager the credential is unknown", async () => {
+    const signalUnknownCredential = vi.fn(async () => {});
+    vi.stubGlobal("PublicKeyCredential", { signalUnknownCredential });
+
+    await signalRevokedPasskey(revoked);
+
+    expect(signalUnknownCredential).toHaveBeenCalledWith({ rpId: "example.test", credentialId: "Cgs" });
+  });
+
+  it("does nothing where the browser has no signal", async () => {
+    stubCapabilities();
+    await expect(signalRevokedPasskey(revoked)).resolves.toBeUndefined();
+    vi.stubGlobal("PublicKeyCredential", undefined);
+    await expect(signalRevokedPasskey(revoked)).resolves.toBeUndefined();
+  });
+
+  it("swallows a rejected signal", async () => {
+    vi.stubGlobal("PublicKeyCredential", {
+      signalUnknownCredential: async () => {
+        throw Object.assign(new Error("bad"), { name: "SecurityError" });
+      },
+    });
+
+    await expect(signalRevokedPasskey(revoked)).resolves.toBeUndefined();
   });
 });
 

@@ -298,6 +298,96 @@ test("recover on a new device with a recovery code, and be prompted to replace t
   await device.context().close();
 });
 
+/**
+ * Replace the page's `PublicKeyCredential.signalUnknownCredential` from its
+ * next load: with a recorder whose calls `signalsOn` reads, or, when `present`
+ * is false, with nothing, as in a browser without the Signals API.
+ */
+async function stubSignal(page: Page, present = true) {
+  await page.addInitScript((present) => {
+    const pkc = PublicKeyCredential as unknown as Record<string, unknown>;
+    const signals: unknown[] = [];
+    (window as unknown as { signals: unknown[] }).signals = signals;
+    if (present) pkc.signalUnknownCredential = async (options: unknown) => void signals.push(options);
+    else delete pkc.signalUnknownCredential;
+  }, present);
+}
+
+const signalsOn = (page: Page) => page.evaluate(() => (window as unknown as { signals: unknown[] }).signals);
+
+/**
+ * Register a member on `page` with two passkeys, both held by `authenticator`,
+ * and return them. The second is enrolled while the first is off the
+ * authenticator, which enrolment would otherwise refuse as already registered;
+ * a step-up first means the enrolment needs no passkey to use. Uses no
+ * recovery code, whose hourly limit the persisted test state shares.
+ */
+async function registerWithTwoPasskeys(page: Page, authenticator: Authenticator, memberName: string) {
+  const { cdp, authenticatorId } = authenticator;
+  await registerMember(page, memberName);
+  await openSettings(page);
+  await page.getByRole("button", { name: "Log out everywhere else" }).click();
+  await expect(page.locator("#settings-status")).toHaveText("Logged out everywhere else.");
+  const [first] = (await cdp.send("WebAuthn.getCredentials", { authenticatorId })).credentials;
+  await cdp.send("WebAuthn.removeCredential", { authenticatorId, credentialId: first!.credentialId });
+  await page.getByRole("button", { name: "Add a passkey" }).click();
+  await expect(page.locator("#credential-rows tr")).toHaveCount(2);
+  const [second] = (await cdp.send("WebAuthn.getCredentials", { authenticatorId })).credentials;
+  await cdp.send("WebAuthn.addCredential", { authenticatorId, credential: first! });
+  return { first: first!, second: second! };
+}
+
+/** Revoke the record's oldest passkey from settings, accepting the confirm; returns the server's answer. */
+async function revokeOldest(page: Page) {
+  const answer = page.waitForResponse((r) => r.url().endsWith("/me/credentials/revoke") && r.status() === 200);
+  page.once("dialog", (dialog) => void dialog.accept());
+  await page.locator("#credential-rows tr").first().getByRole("button", { name: "Revoke" }).click();
+  const revoked = (await (await answer).json()) as { credentialId: string; rpId: string };
+  await expect(page.locator("#credential-rows tr")).toHaveCount(1);
+  await expect(page.locator("#settings-status")).toHaveText(
+    /^Revoked [a-z]{4}-[a-z]{4}-[a-z]{4}\. Delete '.+' from your password manager too; it no longer logs in\.$/,
+  );
+  return revoked;
+}
+
+/** A CDP credential's ID, as base64url. */
+const base64url = (credentialId: string) => Buffer.from(credentialId, "base64").toString("base64url");
+
+test("revoking a passkey signals it unknown to the password manager, and a refused login signals nothing", async ({
+  page,
+}) => {
+  await stubSignal(page);
+  const authenticator = await addAuthenticator(page);
+  const { first, second } = await registerWithTwoPasskeys(page, authenticator, `Signal${Date.now().toString(36)}`);
+
+  const revoked = await revokeOldest(page);
+
+  const revokedId = base64url(first.credentialId);
+  expect(revoked).toMatchObject({ credentialId: revokedId, rpId: "localhost" });
+  expect(await signalsOn(page)).toEqual([{ rpId: "localhost", credentialId: revokedId }]);
+
+  // The authenticator still offers the revoked passkey; its login is refused, and the refusal signals nothing.
+  const { cdp, authenticatorId } = authenticator;
+  await cdp.send("WebAuthn.removeCredential", { authenticatorId, credentialId: second.credentialId });
+  await page.getByRole("button", { name: "Log out", exact: true }).click();
+  await openSignIn(page);
+  await page.getByRole("button", { name: "Continue with passkey" }).click();
+  await expect(page.getByText("That passkey was not accepted.")).toBeVisible();
+  expect(await signalsOn(page)).toEqual([{ rpId: "localhost", credentialId: revokedId }]);
+});
+
+test("revoking a passkey in a browser without the Signals API still revokes it and says to delete it", async ({
+  page,
+}) => {
+  await stubSignal(page, false);
+  const authenticator = await addAuthenticator(page);
+  await registerWithTwoPasskeys(page, authenticator, `NoSignal${Date.now().toString(36)}`);
+
+  await revokeOldest(page);
+
+  expect(await page.evaluate(() => "signalUnknownCredential" in PublicKeyCredential)).toBe(false);
+});
+
 test("adding a passkey on a device that already has one says so, and adds nothing", async ({ page }) => {
   await addAuthenticator(page);
   const memberName = `Twice${Date.now().toString(36)}`;

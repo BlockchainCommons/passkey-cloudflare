@@ -55,6 +55,8 @@ export interface SessionListing {
 export interface Revoked {
   passkeyName: string;
   provider: string | null;
+  credentialId: string;
+  rpId: string;
 }
 
 /** One operator action, as the operator log keeps it. */

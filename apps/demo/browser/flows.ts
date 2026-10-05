@@ -7,6 +7,7 @@ import {
   findPasskey,
   formatRecoveryCodes,
   recoveryCodesHeader,
+  signalRevokedPasskey,
   usePasskey,
 } from "passkey-cloudflare/browser";
 import type { IssuedCodes, Me, MemberView, PasskeyListing, SessionListing } from "../src/responses.ts";
@@ -140,6 +141,9 @@ export class Flows {
     if (revoked.result === "only-passkey") return told("You cannot revoke your only passkey. Add another first.");
     if (revoked.result !== "ok") return notDone(revoked, "Could not revoke that passkey.");
     const { passkeyName, provider } = revoked;
+    // Where the password manager takes the signal it drops the passkey; the message covers those that do not,
+    // and does not wait on it.
+    void signalRevokedPasskey(revoked);
     return told(
       `Revoked ${label}. Delete '${passkeyName}' from ${provider ?? "your password manager"} too; it no longer logs in.`,
     );

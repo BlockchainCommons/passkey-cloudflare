@@ -125,6 +125,10 @@ export interface RevokedPasskey {
   passkeyName: string;
   /** The password manager that holds that entry, where its AAGUID is known. */
   provider: string | null;
+  /** The revoked credential's ID, base64url, for the browser to signal as unknown. */
+  credentialId: string;
+  /** The RP ID the credential was made for. */
+  rpId: string;
 }
 
 export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig) {
@@ -574,8 +578,9 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
     /**
      * Revoke the passkey with this label, typed in any form `parseLabel`
      * reads. The last passkey cannot be revoked. Returns the dead entry as
-     * the password manager shows it, and that password manager where its
-     * AAGUID is known.
+     * the password manager shows it, that password manager where its AAGUID
+     * is known, and the credential ID and RP ID the browser needs to tell the
+     * password manager the passkey is gone.
      */
     async revokeCredential(
       ctx: RequestContext,
@@ -599,6 +604,8 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       return {
         passkeyName: passkeyName(memberName ?? session.recordId, label),
         provider: providerName(done.aaguid),
+        credentialId,
+        rpId: config.rp.id,
       };
     },
 

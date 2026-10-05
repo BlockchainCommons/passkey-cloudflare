@@ -37,6 +37,7 @@ interface WebAuthnGlobals {
   };
   PublicKeyCredential?: {
     getClientCapabilities?(): Promise<Record<string, boolean | undefined>>;
+    signalUnknownCredential?(passkey: UnknownPasskey): Promise<void>;
   };
 }
 
@@ -72,6 +73,31 @@ export async function canFindWithoutSheet(): Promise<boolean> {
     return capabilities?.immediateGet === true;
   } catch {
     return false;
+  }
+}
+
+/** A passkey as the Signals API names it: the RP ID it was made for and its credential ID, base64url. */
+export interface UnknownPasskey {
+  rpId: string;
+  credentialId: string;
+}
+
+/**
+ * Tell the password manager a revoked passkey is gone, so it stops offering
+ * it, where the browser has the Signals API. Call it only after a revoke the
+ * server confirmed, never after a refused login: there it would tell the
+ * browser the cause the uniform refusal hides. A manager may ignore the
+ * signal, so the application still tells the person to delete the passkey.
+ * Never throws.
+ */
+export async function signalRevokedPasskey(revoked: UnknownPasskey): Promise<void> {
+  try {
+    await webAuthn().PublicKeyCredential?.signalUnknownCredential?.({
+      rpId: revoked.rpId,
+      credentialId: revoked.credentialId,
+    });
+  } catch {
+    // The signal is advice; the revoke has already happened.
   }
 }
 

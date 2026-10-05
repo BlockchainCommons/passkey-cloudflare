@@ -145,7 +145,31 @@ describe("passkeys", () => {
       browser.post("/me/credentials/revoke", { label: label.toUpperCase().replace(/-/g, " ") }),
     );
 
-    expect(revoked).toEqual({ ok: true, passkeyName: `${name} (${label})`, provider: "Apple Passwords" });
+    expect(revoked).toEqual({
+      ok: true,
+      passkeyName: `${name} (${label})`,
+      provider: "Apple Passwords",
+      credentialId: expect.any(String),
+      rpId: "passkeydemo.shallweplay.com",
+    });
+  });
+
+  it("when revoked, name the revoked credential and the RP ID, so the browser can signal it unknown", async () => {
+    const browser = testApp().browser();
+    await browser.register(uniqueName());
+    const [first] = browser.authenticator.credentials;
+    await browser.stepUp();
+    await browser.enrol();
+    const { credentials } = await browser.json(browser.get("/me/credentials"));
+
+    const revoked = await browser.json(browser.post("/me/credentials/revoke", { label: credentials[0].label }));
+
+    expect(revoked).toMatchObject({ ok: true, credentialId: first!.id, rpId: "passkeydemo.shallweplay.com" });
+    const held = await browser.json(browser.get("/me/credentials"));
+    expect(held.credentials).toHaveLength(1);
+    const options = await browser.json(browser.post("/auth/login/options"));
+    const response = await browser.authenticator.get(options, {}, first!.id);
+    expect((await browser.post("/auth/login/verify", { response })).status).toBe(400);
   });
 
   it("from an unknown password manager, when revoked, name the dead entry without a provider", async () => {
@@ -159,7 +183,13 @@ describe("passkeys", () => {
 
     const revoked = await browser.json(browser.post("/me/credentials/revoke", { label }));
 
-    expect(revoked).toEqual({ ok: true, passkeyName: `${name} (${label})`, provider: null });
+    expect(revoked).toEqual({
+      ok: true,
+      passkeyName: `${name} (${label})`,
+      provider: null,
+      credentialId: expect.any(String),
+      rpId: "passkeydemo.shallweplay.com",
+    });
   });
 
   it("left without a label are given one when listed, and that label revokes them", async () => {
