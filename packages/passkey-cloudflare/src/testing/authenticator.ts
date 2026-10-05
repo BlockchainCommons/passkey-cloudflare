@@ -37,6 +37,8 @@ export interface Tamper {
   signCount?: number;
   /** Clear the user-present flag. */
   userAbsent?: boolean;
+  /** Clear the user-verified flag, as an authenticator that did not verify the person sets it. */
+  userUnverified?: boolean;
   /** The client data's `crossOrigin`, as a browser sets it for a ceremony in a cross-origin frame. Default false. */
   crossOrigin?: boolean;
   /** A `topOrigin` in the client data, which a browser adds for a ceremony in a frame. Default absent. */
@@ -94,8 +96,9 @@ export class SoftwareAuthenticator {
   }
 
   private flags(tamper: Tamper, attested: boolean): number {
-    let flags = FLAG_UV;
+    let flags = 0;
     if (!tamper.userAbsent) flags |= FLAG_UP;
+    if (!tamper.userUnverified) flags |= FLAG_UV;
     if (this.backupEligible) flags |= FLAG_BE | FLAG_BS;
     if (attested) flags |= FLAG_AT;
     return flags;

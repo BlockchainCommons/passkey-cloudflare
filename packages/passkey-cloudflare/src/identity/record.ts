@@ -2,7 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import { FAILURE_SCHEMA, insertFailure, type CeremonyFailure } from "../failures.ts";
 import { addColumnIfMissing } from "../sql.ts";
 import type { RecordId } from "./secrets.ts";
-import { FLAG_BACKED_UP, FLAG_BACKUP_ELIGIBLE, type VerifiedCredential } from "./webauthn.ts";
+import { FLAG_BACKED_UP, FLAG_BACKUP_ELIGIBLE, isUserVerified, type VerifiedCredential } from "./webauthn.ts";
 import { prefixedInstance } from "../storage-prefix.ts";
 
 // One Durable Object per identity record. It holds the record, its credentials,
@@ -20,6 +20,8 @@ export interface NewSession {
   id: string;
   tokenHash: string;
   userAgent: string;
+  /** Whether the passkey ceremony that started the session was user-verified. */
+  userVerified: boolean;
 }
 
 export interface Principal {
@@ -34,6 +36,10 @@ export interface SessionSummary {
   expiresAt: number;
   userAgent: string;
   current: boolean;
+  /** Whether the passkey ceremony that started the session was user-verified. */
+  userVerified: boolean;
+  /** Whether the session's latest step-up was user-verified, or null if it has none. */
+  stepUpUserVerified: boolean | null;
 }
 
 /** A record's state and counts, read without a session. */
@@ -107,7 +113,9 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL,
   user_agent TEXT NOT NULL,
-  step_up_at INTEGER
+  user_verified INTEGER NOT NULL,
+  step_up_at INTEGER,
+  step_up_user_verified INTEGER
 );
 CREATE TABLE IF NOT EXISTS recovery_codes (
   code_hash TEXT PRIMARY KEY,
@@ -159,12 +167,13 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
 
   private insertSession(session: NewSession, now: number): void {
     this.sql.exec(
-      "INSERT INTO sessions (id, token_hash, created_at, expires_at, user_agent) VALUES (?, ?, ?, ?, ?)",
+      "INSERT INTO sessions (id, token_hash, created_at, expires_at, user_agent, user_verified) VALUES (?, ?, ?, ?, ?, ?)",
       session.id,
       session.tokenHash,
       now,
       now + SESSION_LIFETIME_MS,
       session.userAgent,
+      session.userVerified ? 1 : 0,
     );
   }
 
@@ -342,7 +351,12 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
     return this.ctx.storage.transactionSync((): RecordResult => {
       const cause = this.acceptAssertion(input.credentialId, input.signCount, input.flags, input.now);
       if (cause) return { ok: false, cause };
-      this.sql.exec("UPDATE sessions SET step_up_at = ? WHERE id = ?", input.now, gate.principal.sessionId);
+      this.sql.exec(
+        "UPDATE sessions SET step_up_at = ?, step_up_user_verified = ? WHERE id = ?",
+        input.now,
+        isUserVerified(input.flags) ? 1 : 0,
+        gate.principal.sessionId,
+      );
       return { ok: true };
     });
   }
@@ -566,8 +580,15 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
     if (!principal) return null;
     this.sql.exec("DELETE FROM sessions WHERE expires_at <= ?", now);
     return this.sql
-      .exec<{ id: string; created_at: number; expires_at: number; user_agent: string }>(
-        "SELECT id, created_at, expires_at, user_agent FROM sessions ORDER BY created_at",
+      .exec<{
+        id: string;
+        created_at: number;
+        expires_at: number;
+        user_agent: string;
+        user_verified: number;
+        step_up_user_verified: number | null;
+      }>(
+        "SELECT id, created_at, expires_at, user_agent, user_verified, step_up_user_verified FROM sessions ORDER BY created_at",
       )
       .toArray()
       .map((row) => ({
@@ -576,6 +597,8 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
         expiresAt: row.expires_at,
         userAgent: row.user_agent,
         current: row.id === principal.sessionId,
+        userVerified: row.user_verified !== 0,
+        stepUpUserVerified: row.step_up_user_verified === null ? null : row.step_up_user_verified !== 0,
       }));
   }
 

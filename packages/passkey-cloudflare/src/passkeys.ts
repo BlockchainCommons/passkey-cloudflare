@@ -29,6 +29,7 @@ import {
 import {
   claimedChallenge,
   creationOptions,
+  isUserVerified,
   newChallenge,
   requestOptions,
   verifyAssertion,
@@ -303,10 +304,22 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
     throw new CeremonyRefusal(cause);
   }
 
-  /** Mint a session: the value for the client, and the row for the record's object. */
-  async function newSession(recordId: RecordId, ctx: RequestContext) {
+  /**
+   * Mint a session: the value for the client, and the row for the record's
+   * object. `flags` is the authenticator data flags byte of the ceremony that
+   * starts it, which records whether that ceremony was user-verified.
+   */
+  async function newSession(recordId: RecordId, ctx: RequestContext, flags: number) {
     const minted = await mintSession(recordId);
-    return { value: minted.value, row: { id: minted.id, tokenHash: minted.tokenHash, userAgent: ctx.userAgent } };
+    return {
+      value: minted.value,
+      row: {
+        id: minted.id,
+        tokenHash: minted.tokenHash,
+        userAgent: ctx.userAgent,
+        userVerified: isUserVerified(flags),
+      },
+    };
   }
 
   return {
@@ -365,7 +378,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
           now: ctx.now,
           undo: () => names().release(payload.memberName, recordId, ctx.now),
           commit: async () => {
-            const session = await newSession(recordId, ctx);
+            const session = await newSession(recordId, ctx, credential.registrationFlags);
             const recovery = await mintRecoveryCodes();
             const created = await record(recordId).createPerson({
               recordId,
@@ -394,7 +407,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       return runCeremony(ctx, "login", async (trail) => {
         const { challenge } = await consumeChallenge("login", response, ctx.now);
         const assertion = await verifyKnownAssertion(trail, response, challenge);
-        const session = await newSession(assertion.recordId, ctx);
+        const session = await newSession(assertion.recordId, ctx, assertion.flags);
         const done = await record(assertion.recordId).completeLogin({
           credentialId: assertion.credentialId,
           signCount: assertion.signCount,
@@ -650,7 +663,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
           label: payload.label,
           now: ctx.now,
           commit: async () => {
-            const session = await newSession(recordId, ctx);
+            const session = await newSession(recordId, ctx, credential.registrationFlags);
             const done = await record(recordId).recover({
               codeHash,
               credential,
@@ -748,7 +761,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
           label: payload.label,
           now: ctx.now,
           commit: async () => {
-            const session = await newSession(recordId, ctx);
+            const session = await newSession(recordId, ctx, credential.registrationFlags);
             const done = await record(recordId).rebind({
               tokenHash: parsed.tokenHash,
               credential,

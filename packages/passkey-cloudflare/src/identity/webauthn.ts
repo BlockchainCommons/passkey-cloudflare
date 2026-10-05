@@ -41,8 +41,14 @@ export interface VerifiedCredential {
   transports: string[];
 }
 
+export const FLAG_USER_VERIFIED = 0x04;
 export const FLAG_BACKUP_ELIGIBLE = 0x08;
 export const FLAG_BACKED_UP = 0x10;
+
+/** Whether an authenticator data flags byte says the authenticator verified the person. */
+export function isUserVerified(flags: number): boolean {
+  return (flags & FLAG_USER_VERIFIED) !== 0;
+}
 
 export function newChallenge(): Uint8Array<ArrayBuffer> {
   return randomBytes(32);

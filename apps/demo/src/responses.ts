@@ -45,6 +45,10 @@ export interface SessionListing {
   expiresAt: number;
   userAgent: string;
   current: boolean;
+  /** Whether the passkey ceremony that started the session was user-verified. */
+  userVerified: boolean;
+  /** Whether the session's latest step-up was user-verified, or null if it has none. */
+  stepUpUserVerified: boolean | null;
 }
 
 /** A revoked passkey's entry, which its password manager still shows. */
