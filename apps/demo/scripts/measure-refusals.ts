@@ -2,24 +2,32 @@
 // refusal timing floor. The method, and the last run's results, are in
 // docs/refusal-floor.md.
 //
-//   node scripts/measure-refusals.ts https://<measurement host> [rounds]
+//   node scripts/measure-refusals.ts https://<measurement host> [rounds] [--floor <ms>]
 //
-// Run it from apps/demo, against a deployment of wrangler.measure.jsonc: it
-// sets that Worker's OPERATOR_RECORD_IDS secret to a person it registers, so
-// wrangler must be logged in to the account that owns the Worker.
+// Run it from apps/demo. It deploys wrangler.measure.jsonc to the host, with
+// the relying party set to it, a random member name as its operator and, with
+// --floor, that refusal timing floor; so wrangler must be logged in to the
+// account that owns the Worker.
 
 import { execFileSync } from "node:child_process";
 import { SoftwareAuthenticator } from "passkey-cloudflare/testing";
-import { Browser, uniqueName, type Target } from "../test/browser.ts";
+import { Browser, type Target } from "../test/browser.ts";
 import { refusalArms } from "../test/refusal-arms.ts";
 import { recommendFloor, summarize, type ArmSummary } from "../test/refusal-timing.ts";
 
 const REFUSAL = '{"error":"ceremony refused"}';
 const BASELINE = "(baseline: unknown route)";
 
-const [originArg, roundsArg = "150"] = process.argv.slice(2);
-if (!originArg?.startsWith("https://")) {
-  console.error("usage: node scripts/measure-refusals.ts https://<measurement host> [rounds]");
+const USAGE = "usage: node scripts/measure-refusals.ts https://<measurement host> [rounds] [--floor <ms>]";
+/** How many answers in a row must come from the new version before measuring, so no round reaches the old one. */
+const NEW_VERSION_ANSWERS = 8;
+
+const args = process.argv.slice(2);
+const floorAt = args.indexOf("--floor");
+const floor = floorAt === -1 ? undefined : args.splice(floorAt, 2)[1];
+const [originArg, roundsArg = "150"] = args;
+if (!originArg?.startsWith("https://") || (floorAt !== -1 && !/^\d+$/.test(floor ?? ""))) {
+  console.error(USAGE);
   process.exit(2);
 }
 const origin: string = originArg;
@@ -28,17 +36,38 @@ const rounds = Number(roundsArg);
 const target: Target = { origin, fetch: (request) => fetch(request), edge: true };
 const browser = () => new Browser(target, new SoftwareAuthenticator({ origin }));
 
-async function becomeOperator(): Promise<Browser> {
-  const operator = browser();
-  const { recordId } = await operator.register(uniqueName("measureop"));
-  execFileSync("npx", ["wrangler", "secret", "put", "OPERATOR_RECORD_IDS", "-c", "wrangler.measure.jsonc"], {
-    input: recordId,
-    stdio: ["pipe", "ignore", "inherit"],
+const pause = () => new Promise((resolve) => setTimeout(resolve, 1000));
+
+/**
+ * Deploy the measurement Worker with a new operator name, register that name,
+ * and wait until the new version answers. Only the new version lists the name,
+ * so its operator answers come from it; the previous version, which may still
+ * answer for a while, may have no relying party for the host at all.
+ */
+async function deployWithOperator(): Promise<Browser> {
+  const memberName = `Measureop${crypto.randomUUID().slice(0, 8)}`;
+  const host = new URL(origin).host;
+  const vars = [`RP_ID:${host}`, `ORIGIN:${origin}`, `OPERATOR_MEMBER_NAMES:${memberName}`];
+  if (floor !== undefined) vars.push(`REFUSAL_FLOOR_MS:${floor}`);
+  execFileSync("npx", ["wrangler", "deploy", "-c", "wrangler.measure.jsonc", ...vars.flatMap((v) => ["--var", v])], {
+    stdio: ["ignore", "ignore", "inherit"],
   });
+
+  const operator = browser();
   for (let attempt = 0; ; attempt++) {
-    if ((await operator.json(operator.get("/me"))).operator) break;
-    if (attempt === 30) throw new Error("the operator secret did not take effect");
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    try {
+      await operator.register(memberName);
+      break;
+    } catch (e) {
+      // A taken name will not free up: an earlier attempt registered it but its answer was lost, or the name was reused.
+      if (attempt === 30 || String(e).startsWith("409")) throw new Error(`could not register the operator: ${e}`);
+      await pause();
+    }
+  }
+  for (let attempt = 0, inARow = 0; inARow < NEW_VERSION_ANSWERS; attempt++) {
+    inARow = (await operator.json(operator.get("/me"))).operator ? inARow + 1 : 0;
+    if (attempt === 60) throw new Error("the new version did not answer");
+    if (inARow === 0) await pause();
   }
   await operator.stepUp();
   return operator;
@@ -66,7 +95,7 @@ function shuffle<T>(items: T[]): T[] {
   return out;
 }
 
-const operator = await becomeOperator();
+const operator = await deployWithOperator();
 const arms = await refusalArms({
   browser,
   suspend: async (recordId) => void (await operator.json(operator.post("/operator/suspend", { recordId }))),

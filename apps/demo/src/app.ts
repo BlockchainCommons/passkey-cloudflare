@@ -15,7 +15,7 @@ import {
 import { seedWords } from "passkey-cloudflare/gordian";
 import { error, json, type Call, type Handler } from "./http.ts";
 import { operatorLog } from "./operator-log.ts";
-import { operatorLogRoute, operatorRolesFromSecret, operatorRoutes } from "./operator.ts";
+import { operatorLogRoute, operatorRolesFromSecret, operatorRoutes, type OperatorRolesFor } from "./operator.ts";
 
 export interface AppOptions {
   /** Source of the current time, for tests. Defaults to `Date.now`. */
@@ -29,6 +29,11 @@ export interface AppOptions {
    * under, for tests. Absent in production; never read from a var or secret.
    */
   storagePrefix?: string;
+  /**
+   * Who holds the operator role. Defaults to the `OPERATOR_RECORD_IDS` secret,
+   * the only source the production entry uses.
+   */
+  operatorRoles?: OperatorRolesFor;
 }
 
 type AuthedHandler = (call: Call, principal: Principal) => Promise<Response>;
@@ -46,9 +51,6 @@ const STATUS: Record<PasskeyErrorCode, number> = {
   "member-name-unavailable": 409,
 };
 
-/** Who holds the operator role in this deployment. */
-const roles = operatorRolesFromSecret;
-
 function optionsResponse(outcome: CeremonyOutcome<unknown>): Response {
   return outcome.ok ? json(outcome.value) : outcome.response;
 }
@@ -61,119 +63,133 @@ function authed(handler: AuthedHandler): Handler {
   };
 }
 
-const POST: Record<string, Handler> = {
-  "/auth/register/options": async ({ passkeys, ctx, body }) =>
-    optionsResponse(await passkeys.registrationOptions(ctx, body.memberName)),
+interface Routes {
+  POST: Record<string, Handler>;
+  GET: Record<string, Handler>;
+}
 
-  "/auth/register/verify": async ({ passkeys, ctx, body }) => {
-    const outcome = await passkeys.register(ctx, body.response);
-    if (!outcome.ok) return outcome.response;
-    const { recordId, session, ...codes } = outcome.value;
-    return json({ recordId, ...withWords(codes) }, { headers: { "Set-Cookie": sessionCookie(session) } });
-  },
+/** Every route the app answers, given who holds the operator role. */
+function routes(roles: OperatorRolesFor): Routes {
+  const POST: Record<string, Handler> = {
+    "/auth/register/options": async ({ passkeys, ctx, body }) =>
+      optionsResponse(await passkeys.registrationOptions(ctx, body.memberName)),
 
-  "/auth/login/options": async ({ passkeys, ctx }) => optionsResponse(await passkeys.loginOptions(ctx)),
+    "/auth/register/verify": async ({ passkeys, ctx, body }) => {
+      const outcome = await passkeys.register(ctx, body.response);
+      if (!outcome.ok) return outcome.response;
+      const { recordId, session, ...codes } = outcome.value;
+      return json({ recordId, ...withWords(codes) }, { headers: { "Set-Cookie": sessionCookie(session) } });
+    },
 
-  "/auth/login/verify": async ({ passkeys, ctx, body }) => {
-    const outcome = await passkeys.login(ctx, body.response);
-    if (!outcome.ok) return outcome.response;
-    const { recordId, session } = outcome.value;
-    return json({ recordId }, { headers: { "Set-Cookie": sessionCookie(session) } });
-  },
+    "/auth/login/options": async ({ passkeys, ctx }) => optionsResponse(await passkeys.loginOptions(ctx)),
 
-  "/auth/logout": async ({ passkeys, request }) => {
-    await passkeys.logout(sessionValueFrom(request));
-    return json({ ok: true }, { headers: { "Set-Cookie": clearedSessionCookie() } });
-  },
+    "/auth/login/verify": async ({ passkeys, ctx, body }) => {
+      const outcome = await passkeys.login(ctx, body.response);
+      if (!outcome.ok) return outcome.response;
+      const { recordId, session } = outcome.value;
+      return json({ recordId }, { headers: { "Set-Cookie": sessionCookie(session) } });
+    },
 
-  "/auth/logout-everywhere": async ({ passkeys, request }) => {
-    await passkeys.logoutEverywhere(sessionValueFrom(request));
-    return json({ ok: true }, { headers: { "Set-Cookie": clearedSessionCookie() } });
-  },
+    "/auth/logout": async ({ passkeys, request }) => {
+      await passkeys.logout(sessionValueFrom(request));
+      return json({ ok: true }, { headers: { "Set-Cookie": clearedSessionCookie() } });
+    },
 
-  "/auth/logout-elsewhere": async ({ passkeys, request }) => {
-    await passkeys.logoutElsewhere(sessionValueFrom(request));
-    return json({ ok: true });
-  },
+    "/auth/logout-everywhere": async ({ passkeys, request }) => {
+      await passkeys.logoutEverywhere(sessionValueFrom(request));
+      return json({ ok: true }, { headers: { "Set-Cookie": clearedSessionCookie() } });
+    },
 
-  "/auth/recover/options": async ({ passkeys, ctx, body }) =>
-    optionsResponse(await passkeys.recoverOptions(ctx, body.memberName)),
+    "/auth/logout-elsewhere": async ({ passkeys, request }) => {
+      await passkeys.logoutElsewhere(sessionValueFrom(request));
+      return json({ ok: true });
+    },
 
-  "/auth/recover": async ({ passkeys, ctx, body }) => {
-    const outcome = await passkeys.recover(ctx, body.memberName, body.code, body.response);
-    if (!outcome.ok) return outcome.response;
-    const { recordId, session, codesLeft } = outcome.value;
-    return json({ recordId, codesLeft }, { headers: { "Set-Cookie": sessionCookie(session) } });
-  },
+    "/auth/recover/options": async ({ passkeys, ctx, body }) =>
+      optionsResponse(await passkeys.recoverOptions(ctx, body.memberName)),
 
-  "/auth/rebind/options": async ({ passkeys, ctx, body }) =>
-    optionsResponse(await passkeys.rebindOptions(ctx, body.link)),
+    "/auth/recover": async ({ passkeys, ctx, body }) => {
+      const outcome = await passkeys.recover(ctx, body.memberName, body.code, body.response);
+      if (!outcome.ok) return outcome.response;
+      const { recordId, session, codesLeft } = outcome.value;
+      return json({ recordId, codesLeft }, { headers: { "Set-Cookie": sessionCookie(session) } });
+    },
 
-  "/auth/rebind/verify": async ({ passkeys, ctx, body }) => {
-    const outcome = await passkeys.rebind(ctx, body.link, body.response);
-    if (!outcome.ok) return outcome.response;
-    const { recordId, session } = outcome.value;
-    return json({ recordId }, { headers: { "Set-Cookie": sessionCookie(session) } });
-  },
+    "/auth/rebind/options": async ({ passkeys, ctx, body }) =>
+      optionsResponse(await passkeys.rebindOptions(ctx, body.link)),
 
-  ...operatorRoutes(roles),
+    "/auth/rebind/verify": async ({ passkeys, ctx, body }) => {
+      const outcome = await passkeys.rebind(ctx, body.link, body.response);
+      if (!outcome.ok) return outcome.response;
+      const { recordId, session } = outcome.value;
+      return json({ recordId }, { headers: { "Set-Cookie": sessionCookie(session) } });
+    },
 
-  "/auth/step-up/options": async ({ passkeys, ctx, request }) =>
-    json(await passkeys.stepUpOptions(ctx, sessionValueFrom(request))),
+    ...operatorRoutes(roles),
 
-  "/auth/step-up/verify": async ({ passkeys, ctx, request, body }) => {
-    const outcome = await passkeys.stepUp(ctx, sessionValueFrom(request), body.response);
-    return outcome.ok ? json({ ok: true }) : outcome.response;
-  },
+    "/auth/step-up/options": async ({ passkeys, ctx, request }) =>
+      json(await passkeys.stepUpOptions(ctx, sessionValueFrom(request))),
 
-  "/me/credentials/enrol/options": async ({ passkeys, ctx, request }) =>
-    json(await passkeys.enrolOptions(ctx, sessionValueFrom(request))),
+    "/auth/step-up/verify": async ({ passkeys, ctx, request, body }) => {
+      const outcome = await passkeys.stepUp(ctx, sessionValueFrom(request), body.response);
+      return outcome.ok ? json({ ok: true }) : outcome.response;
+    },
 
-  "/me/credentials/enrol/verify": async ({ passkeys, ctx, request, body }) => {
-    const outcome = await passkeys.enrol(ctx, sessionValueFrom(request), body.response);
-    return outcome.ok ? json(outcome.value) : outcome.response;
-  },
+    "/me/credentials/enrol/options": async ({ passkeys, ctx, request }) =>
+      json(await passkeys.enrolOptions(ctx, sessionValueFrom(request))),
 
-  "/me/credentials/revoke": async ({ passkeys, ctx, request, body }) => {
-    const revoked = await passkeys.revokeCredential(ctx, sessionValueFrom(request), body.label);
-    return json({ ok: true, ...revoked });
-  },
+    "/me/credentials/enrol/verify": async ({ passkeys, ctx, request, body }) => {
+      const outcome = await passkeys.enrol(ctx, sessionValueFrom(request), body.response);
+      return outcome.ok ? json(outcome.value) : outcome.response;
+    },
 
-  "/me/recovery-codes/rotate": async ({ passkeys, ctx, request }) =>
-    json(withWords(await passkeys.rotateRecoveryCodes(ctx, sessionValueFrom(request)))),
-};
+    "/me/credentials/revoke": async ({ passkeys, ctx, request, body }) => {
+      const revoked = await passkeys.revokeCredential(ctx, sessionValueFrom(request), body.label);
+      return json({ ok: true, ...revoked });
+    },
 
-const GET: Record<string, Handler> = {
-  "/auth/member-name": async ({ passkeys, ctx, request }) => {
-    const name = new URL(request.url).searchParams.get("name") ?? "";
-    const outcome = await passkeys.checkMemberName(ctx, name);
-    return outcome.ok ? json({ available: outcome.value }) : outcome.response;
-  },
+    "/me/recovery-codes/rotate": async ({ passkeys, ctx, request }) =>
+      json(withWords(await passkeys.rotateRecoveryCodes(ctx, sessionValueFrom(request)))),
+  };
 
-  "/me": authed(async ({ passkeys, env }, principal) =>
-    json({
-      recordId: principal.recordId,
-      memberName: await passkeys.memberName(principal.recordId),
-      operator: roles(env).isOperator(principal.recordId),
-    }),
-  ),
+  const GET: Record<string, Handler> = {
+    "/auth/member-name": async ({ passkeys, ctx, request }) => {
+      const name = new URL(request.url).searchParams.get("name") ?? "";
+      const outcome = await passkeys.checkMemberName(ctx, name);
+      return outcome.ok ? json({ available: outcome.value }) : outcome.response;
+    },
 
-  "/me/credentials": async ({ passkeys, ctx, request }) =>
-    json({ credentials: await passkeys.credentials(ctx, sessionValueFrom(request)) }),
+    "/me": authed(async (call, principal) =>
+      json({
+        recordId: principal.recordId,
+        memberName: await call.passkeys.memberName(principal.recordId),
+        operator: await roles(call).isOperator(principal.recordId),
+      }),
+    ),
 
-  "/operator/log": operatorLogRoute(roles),
+    "/me/credentials": async ({ passkeys, ctx, request }) =>
+      json({ credentials: await passkeys.credentials(ctx, sessionValueFrom(request)) }),
 
-  "/me/sessions": async ({ passkeys, request }) =>
-    json({ sessions: await passkeys.sessions(sessionValueFrom(request)) }),
-};
+    "/operator/log": operatorLogRoute(roles),
+
+    "/me/sessions": async ({ passkeys, request }) =>
+      json({ sessions: await passkeys.sessions(sessionValueFrom(request)) }),
+  };
+
+  return { POST, GET };
+}
+
+/** The route table, built only for its paths, which are the same whoever holds the operator role. */
+const ROUTE_TABLE = routes(operatorRolesFromSecret);
 
 /** The paths the app answers a POST on, each a state-changing route. */
-export const POST_ROUTES: readonly string[] = Object.keys(POST);
+export const POST_ROUTES: readonly string[] = Object.keys(ROUTE_TABLE.POST);
 
 /** The paths the app answers a GET or HEAD on, each a read route. */
-export const GET_ROUTES: readonly string[] = Object.keys(GET);
+export const GET_ROUTES: readonly string[] = Object.keys(ROUTE_TABLE.GET);
 
 export function createApp(options: AppOptions = {}) {
+  const table = routes(options.operatorRoles ?? operatorRolesFromSecret);
   return {
     async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
       const passkeys = createPasskeys(env, {
@@ -186,7 +202,7 @@ export function createApp(options: AppOptions = {}) {
       });
       const ctx = passkeys.context(request);
       try {
-        return await route(request, env, passkeys, ctx, operatorLog(env.OPERATOR_LOG, options.storagePrefix));
+        return await route(table, request, env, passkeys, ctx, operatorLog(env.OPERATOR_LOG, options.storagePrefix));
       } catch (e) {
         if (e instanceof PasskeyError) return error(STATUS[e.code], e.code);
         throw e;
@@ -196,6 +212,7 @@ export function createApp(options: AppOptions = {}) {
 }
 
 async function route(
+  { POST, GET }: Routes,
   request: Request,
   env: Env,
   passkeys: Passkeys,

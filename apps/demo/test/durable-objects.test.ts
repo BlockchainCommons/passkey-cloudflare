@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import * as e2eEntry from "../src/e2e.ts";
 import * as indexEntry from "../src/index.ts";
 import * as measureEntry from "../src/measure.ts";
 import wranglerConfig from "../wrangler.jsonc?raw";
@@ -53,6 +54,15 @@ describe.each([
     const exports: Record<string, unknown> = entry;
     for (const cls of Object.values(DEMO_DURABLE_OBJECTS)) {
       expect(exports[cls.name], `${file}'s entry point exports ${cls.name}`).toBe(cls);
+    }
+  });
+});
+
+describe("src/e2e.ts, which Playwright runs with wrangler.jsonc's bindings", () => {
+  it("exports every Durable Object class", () => {
+    const exports: Record<string, unknown> = e2eEntry;
+    for (const cls of Object.values(DEMO_DURABLE_OBJECTS)) {
+      expect(exports[cls.name], `src/e2e.ts exports ${cls.name}`).toBe(cls);
     }
   });
 });

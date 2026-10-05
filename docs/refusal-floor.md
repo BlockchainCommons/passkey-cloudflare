@@ -8,11 +8,11 @@ The floor is set from measurements of the deployed runtime, not from local tests
 
 You need `wrangler` logged in to the account that will host the measurement Worker, and a Node version that runs TypeScript files directly (Node 23.6 or later). Run every command from `apps/demo`.
 
-1. Deploy the measurement Worker, `apps/demo/wrangler.measure.jsonc`. It runs the same code as the demo with its own Durable Objects and no floor. Its rate limits keep their windows and their per-request work, but are set too high to refuse, so a run from one address times the ceremonies rather than the throttle. Deploy it once to learn its workers.dev host, then again with the relying party set to that host:
+1. Deploy the measurement Worker, `apps/demo/wrangler.measure.jsonc`, once to learn its workers.dev host. It runs the same code as the demo with its own Durable Objects and no floor. Its rate limits keep their windows and their per-request work, but are set too high to refuse, so a run from one address times the ceremonies rather than the throttle.
 
    ```sh
    cd apps/demo
-   npx wrangler deploy -c wrangler.measure.jsonc --var RP_ID:<host> --var ORIGIN:https://<host>
+   npx wrangler deploy -c wrangler.measure.jsonc
    ```
 
 2. Run the measurement:
@@ -21,7 +21,7 @@ You need `wrangler` logged in to the account that will host the measurement Work
    node scripts/measure-refusals.ts https://<host>      # 150 rounds by default
    ```
 
-   The script registers an operator and sets it as the Worker's `OPERATOR_RECORD_IDS` secret, so the suspended-principal arm can run. It then sends every refusal arm from `test/refusal-arms.ts`, the same list the invariant test "no distinguishable ceremony failure" uses, once per round, in a fresh random order each round. Round 0 warms the Worker and is not counted. A request to an unknown route is timed each round as a baseline for the network round trip. Any arm that does not get the uniform refusal stops the run.
+   The script deploys the measurement Worker again, with the relying party set to the host and a random member name in its `OPERATOR_MEMBER_NAMES` var, which only the non-production entry points read. It registers that name, so the suspended-principal arm has an operator, and waits until the new version has answered 8 times in a row, since the edge can go on serving the previous version for a while after one request reaches the new one. It then sends every refusal arm from `test/refusal-arms.ts`, the same list the invariant test "no distinguishable ceremony failure" uses, once per round, in a fresh random order each round. Round 0 warms the Worker and is not counted. A request to an unknown route is timed each round as a baseline for the network round trip. Any arm that does not get the uniform refusal stops the run.
 
 3. Run it a second time. Each run recommends a floor of 1.5 times the slowest arm's p95, rounded up to 50 ms; take the larger of the two. Each arm needs at least 100 samples.
 
@@ -29,7 +29,7 @@ You need `wrangler` logged in to the account that will host the measurement Work
 
    Times are measured at the client, so they include the round trip, which makes the floor a little longer than it needs to be rather than shorter.
 
-4. Check the floor: deploy the measurement Worker again with `--var REFUSAL_FLOOR_MS:<floor>` added, and run the script once more. Ignore its recommendation, which is meaningless with a floor in place; read the table. The arms' p50s should agree to within a few milliseconds, and no arm's p95 should stand out from the others by more than the baseline's own spread.
+4. Check the floor: run the script once more with `--floor <floor>`, which deploys the measurement Worker with that `REFUSAL_FLOOR_MS`. Ignore its recommendation, which is meaningless with a floor in place; read the table. The arms' p50s should agree to within a few milliseconds, and no arm's p95 should stand out from the others by more than the baseline's own spread.
 
 5. Set `REFUSAL_FLOOR_MS` in `apps/demo/wrangler.jsonc`, record the runs below, and delete the measurement Worker with `npx wrangler delete -c wrangler.measure.jsonc`.
 

@@ -52,6 +52,14 @@ The library needs Workers Paid. On Workers Free, whose limit is 10 ms of CPU tim
 
 Operators are listed by identity record id, separated by commas, in the `OPERATOR_RECORD_IDS` secret: `npx wrangler secret put OPERATOR_RECORD_IDS`. Locally, put it in `apps/demo/.dev.vars`.
 
+A deployment on fresh storage starts with no operator, since record ids are new. To set one up:
+
+1. Register on the deployed demo, open Settings, and copy the record id from Account details.
+2. From `apps/demo`, run `npx wrangler secret put OPERATOR_RECORD_IDS` and paste it.
+3. Wait for the new version: the secret takes effect only once the edge serves the version it created. Reload Settings until the operator section shows, or check that `GET /me` answers `"operator": true`.
+
+The Workers that Playwright and the refusal-floor measurement run are never deployed as the demo, and also name operators by member name, in the `OPERATOR_MEMBER_NAMES` var, so their tests need no secret. That code is left out of the demo's own entry point, `apps/demo/src/index.ts`, and `npm test` checks that the deployed bundle does not contain it.
+
 An operator can look up a member by member name and see the record's state and counts: when it was created, whether it is suspended, how many passkeys, live sessions and unused recovery codes it has, whether a rebind link is outstanding, and the operator log entries for that member. Each lookup is logged. It shows counts and state only, to keep small what an operator sees day to day; the device detail (passkey providers, last use, session browsers) still exists in storage. This is no privacy guarantee against an operator, who runs the deployment and can read its storage directly. A member's privacy from an operator rests on trusting the operator, not on the software.
 
 ## License

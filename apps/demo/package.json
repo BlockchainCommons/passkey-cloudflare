@@ -6,7 +6,7 @@
     "build:browser": "esbuild browser/app.ts --bundle --format=esm --target=es2024 --outfile=public/app.js",
     "dev": "wrangler dev",
     "typecheck": "wrangler types --strict-vars=false >/dev/null && tsc --noEmit && tsc --noEmit -p scripts && tsc --noEmit -p browser",
-    "test": "vitest run",
+    "test": "vitest run && node scripts/check-production-bundle.ts",
     "test:e2e": "playwright test"
   },
   "dependencies": {

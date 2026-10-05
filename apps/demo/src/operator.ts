@@ -10,18 +10,24 @@ import type { OperatorLogEntry } from "./operator-log.ts";
 
 /** Who holds the operator role. */
 export interface OperatorRoles {
-  isOperator(recordId: RecordId): boolean;
+  isOperator(recordId: RecordId): Promise<boolean>;
+}
+
+/** Who holds the operator role for one request. */
+export type OperatorRolesFor = (call: Call) => OperatorRoles;
+
+/** A comma-separated list from a var or secret, each item trimmed, empty items dropped. */
+export function listFrom(value: string | undefined): string[] {
+  return (value ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 /** The operator role as the `OPERATOR_RECORD_IDS` secret grants it: a comma-separated list of record ids. */
-export function operatorRolesFromSecret(env: Env): OperatorRoles {
-  const ids = new Set(
-    (env.OPERATOR_RECORD_IDS ?? "")
-      .split(",")
-      .map((id) => id.trim())
-      .filter(Boolean),
-  );
-  return { isOperator: (recordId) => ids.has(recordId) };
+export function operatorRolesFromSecret({ env }: Call): OperatorRoles {
+  const ids = new Set(listFrom(env.OPERATOR_RECORD_IDS));
+  return { isOperator: async (recordId) => ids.has(recordId) };
 }
 
 /** What an operator sees of a member: the record's state and counts, and the operator log entries that target it. */
@@ -66,20 +72,16 @@ interface Action {
 }
 
 /** The caller's record id, if they hold the operator role and have stepped up; otherwise the refusal. */
-async function steppedUpOperator(roles: (env: Env) => OperatorRoles, call: Call): Promise<RecordId | Response> {
+async function steppedUpOperator(roles: OperatorRolesFor, call: Call): Promise<RecordId | Response> {
   const principal = await call.passkeys.authenticate(sessionValueFrom(call.request));
   if (!principal) return error(401, "not logged in");
-  if (!roles(call.env).isOperator(principal.recordId)) return error(403, "not an operator");
+  if (!(await roles(call).isOperator(principal.recordId))) return error(403, "not an operator");
   await call.passkeys.requireStepUp(call.ctx, sessionValueFrom(call.request));
   return principal.recordId;
 }
 
 /** A route that runs one operator action in order. Each step's refusal stops it before the log entry. */
-function operatorRoute(
-  roles: (env: Env) => OperatorRoles,
-  logged: OperatorLogEntry["action"],
-  action: Action,
-): Handler {
+function operatorRoute(roles: OperatorRolesFor, logged: OperatorLogEntry["action"], action: Action): Handler {
   return async (call) => {
     const operatorId = await steppedUpOperator(roles, call);
     if (operatorId instanceof Response) return operatorId;
@@ -98,7 +100,7 @@ async function withMember(call: Call, targetId: RecordId, extra: Record<string, 
 }
 
 /** The operator routes, each answering a POST, given who holds the operator role. */
-export function operatorRoutes(roles: (env: Env) => OperatorRoles): Record<string, Handler> {
+export function operatorRoutes(roles: OperatorRolesFor): Record<string, Handler> {
   const route = (logged: OperatorLogEntry["action"], action: Action) => operatorRoute(roles, logged, action);
   return {
     "/operator/lookup": route("lookup", {
@@ -138,7 +140,8 @@ export function operatorRoutes(roles: (env: Env) => OperatorRoles): Record<strin
     "/operator/remove": route("remove", {
       ...BY_RECORD_ID,
       // An operator is taken off the role before they can be removed.
-      check: async (call, targetId) => (roles(call.env).isOperator(targetId) ? error(409, "operator record") : null),
+      check: async (call, targetId) =>
+        (await roles(call).isOperator(targetId)) ? error(409, "operator record") : null,
       act: async (call, targetId) => {
         await call.passkeys.remove(call.ctx, targetId);
         // Removal retires the name the record holds, unless it was allowed again before.
@@ -163,7 +166,7 @@ export function operatorRoutes(roles: (env: Env) => OperatorRoles): Record<strin
 }
 
 /** The operator log's recent entries, for an operator who has stepped up. */
-export function operatorLogRoute(roles: (env: Env) => OperatorRoles): Handler {
+export function operatorLogRoute(roles: OperatorRolesFor): Handler {
   return async (call) => {
     const caller = await steppedUpOperator(roles, call);
     if (caller instanceof Response) return caller;

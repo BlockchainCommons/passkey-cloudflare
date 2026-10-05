@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Browser, type Page } from "@playwright/test";
+import { OPERATORS } from "./operators.ts";
 
 const CAPITAL_NUDGE = "Member names display as typed, and most read best with a capital letter.";
 const NO_PASSKEY_USED = "No passkey was used. If you do not have a passkey here yet, register; if you lost yours, recover.";
@@ -416,7 +417,28 @@ async function expectInfoToggle(page: Page, name: string, text: string) {
   await expect(info).toBeHidden();
 }
 
-test("info buttons in settings explain each section, and the operator's shows only to operators", async ({ page }) => {
+/** Register a member on a device of their own, in a new browser context. */
+async function registerElsewhere(browser: Browser, memberName: string) {
+  const device = await (await browser.newContext()).newPage();
+  await addAuthenticator(device);
+  await registerMember(device, memberName);
+  const { recordId } = (await (await device.request.get("/me")).json()) as { recordId: string };
+  return { device, recordId };
+}
+
+/** The JSON bodies the page posts to `path`, leaving out those refused for a step-up and sent again after it. */
+function postsTo(page: Page, path: string): unknown[] {
+  const bodies: unknown[] = [];
+  page.on("response", (response) => {
+    if (response.url().endsWith(path) && response.status() !== 403) bodies.push(response.request().postDataJSON());
+  });
+  return bodies;
+}
+
+test("info buttons in settings explain each section, and the operator's shows only to operators", async ({
+  page,
+  browser,
+}) => {
   await addAuthenticator(page);
   await registerMember(page, `Info${Date.now().toString(36)}`);
 
@@ -430,54 +452,19 @@ test("info buttons in settings explain each section, and the operator's shows on
   await expect(page.locator("#operator-info-toggle")).toHaveCount(1);
   await expect(page.locator("#operator-info-toggle")).toBeHidden();
 
-  // The operator role comes from a Worker secret; here /me claims it, so the page shows the section.
-  await page.route("**/me", async (route) => {
-    const response = await route.fetch();
-    await route.fulfill({ response, json: { ...(await response.json()), operator: true } });
-  });
-  await page.locator("#settings .close").click();
-  await openSettings(page);
-  await expectInfoToggle(page, "About the operator actions", INFO.operator);
+  const { device: operator } = await registerElsewhere(browser, OPERATORS.info);
+  await openSettings(operator);
+  await expectInfoToggle(operator, "About the operator actions", INFO.operator);
+  await operator.context().close();
 });
 
-test("an operator looks up a member, and the actions act on the member shown", async ({ page }) => {
+test("an operator looks up a member, and the actions act on the member shown", async ({ page, browser }) => {
+  const memberName = `Lookup${Date.now().toString(36)}`;
+  const { device, recordId } = await registerElsewhere(browser, memberName);
   await addAuthenticator(page);
-  await registerMember(page, `Lookup${Date.now().toString(36)}`);
-  // The operator role comes from a Worker secret fixed when wrangler dev starts, so
-  // /me claims it here, and the operator routes answer as the vitest suite shows they do.
-  await page.route("**/me", async (route) => {
-    const response = await route.fetch();
-    await route.fulfill({ response, json: { ...(await response.json()), operator: true } });
-  });
-  const recordId = "0b5f3a1e-6c2d-4e8f-9a7b-1c2d3e4f5a6b";
-  const operatorId = "9f8e7d6c-5b4a-4321-8fed-cba987654321";
-  const created = Date.UTC(2026, 0, 2, 3, 4, 5);
-  const summary = {
-    createdAt: created,
-    suspendedAt: null,
-    removedAt: null,
-    passkeys: 2,
-    sessions: 3,
-    recoveryCodesLeft: 7,
-    rebindLinkOutstanding: false,
-  };
-  const earlier = { operatorId, action: "resume", targetId: recordId, at: created + 1000 };
-  const lookups: unknown[] = [];
-  await page.route("**/operator/lookup", async (route) => {
-    const body = route.request().postDataJSON();
-    lookups.push(body);
-    if (body.memberName !== "Alice") return route.fulfill({ status: 404, json: { error: "no such member" } });
-    await route.fulfill({ json: { recordId, retired: false, summary, entries: [earlier] } });
-  });
-  const suspends: unknown[] = [];
-  await page.route("**/operator/suspend", async (route) => {
-    suspends.push(route.request().postDataJSON());
-    const suspendedAt = created + 2000;
-    const entry = { operatorId, action: "suspend", targetId: recordId, at: suspendedAt };
-    await route.fulfill({
-      json: { ok: true, member: { recordId, summary: { ...summary, suspendedAt, sessions: 0 }, entries: [earlier, entry] } },
-    });
-  });
+  await registerMember(page, OPERATORS.lookup);
+  const lookups = postsTo(page, "/operator/lookup");
+  const suspends = postsTo(page, "/operator/suspend");
   await openSettings(page);
 
   const name = page.getByRole("textbox", { name: "Member name" });
@@ -486,86 +473,57 @@ test("an operator looks up a member, and the actions act on the member shown", a
   );
   for (const action of actions) await expect(action).toBeDisabled();
 
-  await name.fill("Nobody");
+  await name.fill(`Nobody${Date.now().toString(36)}`);
+  const nobody = await name.inputValue();
   await page.getByRole("button", { name: "Look up" }).click();
   await expect(page.locator("#operator-result")).toHaveText("No such member");
   await expect(page.locator("#operator-member")).toHaveCount(1);
   await expect(page.locator("#operator-member")).toBeHidden();
 
-  await name.fill("Alice");
+  await name.fill(memberName);
   await page.getByRole("button", { name: "Look up" }).click();
   const member = page.locator("#operator-member");
   await expect(member).toBeVisible();
   await expect(member).toContainText(recordId);
   await expect(member).toContainText("Active");
-  await expect(member).toContainText(new Date(created).toLocaleString());
-  await expect(page.locator("#operator-summary")).toContainText("Passkeys2");
-  await expect(page.locator("#operator-summary")).toContainText("Sessions3");
-  await expect(page.locator("#operator-summary")).toContainText("Recovery codes left7");
+  await expect(page.locator("#operator-summary")).toContainText("Passkeys1");
+  await expect(page.locator("#operator-summary")).toContainText("Sessions1");
+  await expect(page.locator("#operator-summary")).toContainText("Recovery codes left8");
   await expect(page.locator("#operator-summary")).toContainText("Rebind linkNone");
+  // The lookup itself is logged before it answers.
   await expect(page.locator("#operator-entries tr")).toHaveCount(1);
-  await expect(page.locator("#operator-entries")).toContainText("resume");
+  await expect(page.locator("#operator-entries")).toContainText("lookup");
   for (const action of actions) await expect(action).toBeEnabled();
 
   // Acting on the shown member sends its record id, not the typed name, and shows the member as it now stands.
-  await actions[1].click();
+  await actions[1]!.click();
   await expect(page.locator("#operator-result")).toHaveText("Done.");
   expect(suspends).toEqual([{ recordId }]);
-  await expect(member).toContainText(`Suspended since ${new Date(created + 2000).toLocaleString()}`);
+  await expect(member).toContainText("Suspended since");
   await expect(page.locator("#operator-summary")).toContainText("Sessions0");
   await expect(page.locator("#operator-entries tr")).toHaveCount(2);
+  await device.reload();
+  await expect(device.getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
 
   // Editing the name clears the result until the next lookup.
-  await name.fill("Alic");
+  await name.fill(memberName.slice(0, -1));
   await expect(member).toBeHidden();
   await expect(page.locator("#operator-result")).toHaveText("");
   for (const action of actions) await expect(action).toBeDisabled();
-  expect(lookups).toEqual([{ memberName: "Nobody" }, { memberName: "Alice" }]);
+  expect(lookups).toEqual([{ memberName: nobody }, { memberName }]);
+  await device.context().close();
 });
 
-test("an operator removes a member after confirming, and the name then looks up as retired, read-only", async ({ page }) => {
+test("an operator removes a member after confirming, and the name then looks up as retired, read-only", async ({
+  page,
+  browser,
+}) => {
+  const memberName = `Remove${Date.now().toString(36)}`;
+  const { device, recordId } = await registerElsewhere(browser, memberName);
   await addAuthenticator(page);
-  await registerMember(page, `Remove${Date.now().toString(36)}`);
-  // As above, /me claims the operator role and the operator routes answer as the vitest suite shows they do.
-  await page.route("**/me", async (route) => {
-    const response = await route.fetch();
-    await route.fulfill({ response, json: { ...(await response.json()), operator: true } });
-  });
-  const recordId = "0b5f3a1e-6c2d-4e8f-9a7b-1c2d3e4f5a6b";
-  const operatorId = "9f8e7d6c-5b4a-4321-8fed-cba987654321";
-  const created = Date.UTC(2026, 0, 2, 3, 4, 5);
-  const removedAt = created + 2000;
-  const summary = {
-    createdAt: created,
-    suspendedAt: null,
-    removedAt: null,
-    passkeys: 2,
-    sessions: 3,
-    recoveryCodesLeft: 7,
-    rebindLinkOutstanding: false,
-  };
-  const removal = { operatorId, action: "remove", targetId: recordId, at: removedAt };
-  const removedSummary = { ...summary, removedAt, sessions: 0 };
-  let removed = false;
-  await page.route("**/operator/lookup", async (route) => {
-    const { memberName } = route.request().postDataJSON();
-    if (memberName === "Root") {
-      return route.fulfill({ json: { recordId: operatorId, retired: false, summary, entries: [] } });
-    }
-    await route.fulfill({
-      json: removed
-        ? { recordId, retired: true, summary: removedSummary, entries: [removal] }
-        : { recordId, retired: false, summary, entries: [] },
-    });
-  });
-  const removes: unknown[] = [];
-  await page.route("**/operator/remove", async (route) => {
-    const body = route.request().postDataJSON();
-    removes.push(body);
-    if (body.recordId === operatorId) return route.fulfill({ status: 409, json: { error: "operator record" } });
-    removed = true;
-    await route.fulfill({ json: { ok: true, member: { recordId, summary: removedSummary, entries: [removal] } } });
-  });
+  await registerMember(page, OPERATORS.remove);
+  const { recordId: operatorId } = (await (await page.request.get("/me")).json()) as { recordId: string };
+  const removes = postsTo(page, "/operator/remove");
   await openSettings(page);
 
   const name = page.getByRole("textbox", { name: "Member name" });
@@ -576,8 +534,9 @@ test("an operator removes a member after confirming, and the name then looks up 
   const remove = actions[3]!;
 
   // An operator's record is refused, and the pane says why.
-  await name.fill("Root");
+  await name.fill(OPERATORS.remove);
   await lookUp.click();
+  await expect(page.locator("#operator-member")).toContainText(operatorId);
   page.once("dialog", (dialog) => void dialog.accept());
   await remove.click();
   await expect(page.locator("#operator-result")).toHaveText(
@@ -585,69 +544,43 @@ test("an operator removes a member after confirming, and the name then looks up 
   );
 
   // Declining the confirmation sends nothing.
-  await name.fill("Alice");
+  await name.fill(memberName);
   await lookUp.click();
+  await expect(page.locator("#operator-member")).toContainText(recordId);
   await expect(remove).toBeEnabled();
   page.once("dialog", (dialog) => void dialog.dismiss());
   await remove.click();
   expect(removes).toEqual([{ recordId: operatorId }]);
 
   page.once("dialog", (dialog) => {
-    expect(dialog.message()).toBe("Remove Alice? This can't be undone, and their name will be retired.");
+    expect(dialog.message()).toBe(`Remove ${memberName}? This can't be undone, and their name will be retired.`);
     void dialog.accept();
   });
   await remove.click();
   await expect(page.locator("#operator-result")).toHaveText("Removed. Their name is retired.");
   expect(removes).toEqual([{ recordId: operatorId }, { recordId }]);
-  await expect(page.locator("#operator-member")).toContainText(`Removed since ${new Date(removedAt).toLocaleString()}`);
+  await expect(page.locator("#operator-member")).toContainText("Removed since");
   for (const action of actions) await expect(action).toBeDisabled();
+  await device.reload();
+  await expect(device.getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
 
-  await name.fill("Alice");
+  await name.fill(memberName);
   await lookUp.click();
   await expect(page.locator("#operator-result")).toHaveText("Retired name");
   await expect(page.locator("#operator-member")).toBeVisible();
   await expect(page.locator("#operator-member")).toContainText(recordId);
   await expect(page.locator("#operator-entries")).toContainText("remove");
   for (const action of actions) await expect(action).toBeDisabled();
+  await device.context().close();
 });
 
-test("an operator allows a retired name after confirming, and only a retired name", async ({ page }) => {
+test("an operator allows a retired name after confirming, and only a retired name", async ({ page, browser }) => {
+  const memberName = `Allow${Date.now().toString(36)}`;
+  const { device, recordId } = await registerElsewhere(browser, memberName);
+  await device.context().close();
   await addAuthenticator(page);
-  await registerMember(page, `Allow${Date.now().toString(36)}`);
-  // As above, /me claims the operator role and the operator routes answer as the vitest suite shows they do.
-  await page.route("**/me", async (route) => {
-    const response = await route.fetch();
-    await route.fulfill({ response, json: { ...(await response.json()), operator: true } });
-  });
-  const recordId = "0b5f3a1e-6c2d-4e8f-9a7b-1c2d3e4f5a6b";
-  const operatorId = "9f8e7d6c-5b4a-4321-8fed-cba987654321";
-  const created = Date.UTC(2026, 0, 2, 3, 4, 5);
-  const removedAt = created + 2000;
-  const summary = {
-    createdAt: created,
-    suspendedAt: null,
-    removedAt,
-    passkeys: 2,
-    sessions: 0,
-    recoveryCodesLeft: 7,
-    rebindLinkOutstanding: false,
-  };
-  const removal = { operatorId, action: "remove", targetId: recordId, at: removedAt };
-  const allowed = { operatorId, action: "allow-name", targetId: recordId, at: removedAt + 1000 };
-  await page.route("**/operator/lookup", async (route) => {
-    const { memberName } = route.request().postDataJSON();
-    if (memberName === "Bob") {
-      return route.fulfill({ json: { recordId: operatorId, retired: false, summary: { ...summary, removedAt: null }, entries: [] } });
-    }
-    await route.fulfill({ json: { recordId, retired: true, summary, entries: [removal] } });
-  });
-  const allows: unknown[] = [];
-  await page.route("**/operator/allow-name", async (route) => {
-    allows.push(route.request().postDataJSON());
-    await route.fulfill({
-      json: { ok: true, member: { recordId, retired: false, summary, entries: [removal, allowed] } },
-    });
-  });
+  await registerMember(page, OPERATORS.allow);
+  const allows = postsTo(page, "/operator/allow-name");
   await openSettings(page);
 
   const name = page.getByRole("textbox", { name: "Member name" });
@@ -659,16 +592,23 @@ test("an operator allows a retired name after confirming, and only a retired nam
   await expect(allow).toBeDisabled();
 
   // A live member's name is not retired, so it can't be allowed.
-  await name.fill("Bob");
+  await name.fill(memberName);
   await lookUp.click();
   await expect(page.locator("#operator-member")).toContainText("Active");
   await expect(allow).toBeDisabled();
 
-  await name.fill("Alice");
+  // Removing the member retires the name.
+  page.once("dialog", (dialog) => void dialog.accept());
+  await others[3]!.click();
+  await expect(page.locator("#operator-result")).toHaveText("Removed. Their name is retired.");
+
+  await name.fill(memberName);
   await lookUp.click();
   await expect(page.locator("#operator-result")).toHaveText("Retired name");
+  await expect(page.locator("#operator-member")).toContainText(recordId);
   await expect(allow).toBeEnabled();
   for (const action of others) await expect(action).toBeDisabled();
+  const entries = await page.locator("#operator-entries tr").count();
 
   // Declining the confirmation sends nothing.
   page.once("dialog", (dialog) => void dialog.dismiss());
@@ -676,14 +616,14 @@ test("an operator allows a retired name after confirming, and only a retired nam
   expect(allows).toEqual([]);
 
   page.once("dialog", (dialog) => {
-    expect(dialog.message()).toBe("Let anyone register Alice again? The removed member stays removed.");
+    expect(dialog.message()).toBe(`Let anyone register ${memberName} again? The removed member stays removed.`);
     void dialog.accept();
   });
   await allow.click();
-  await expect(page.locator("#operator-result")).toHaveText("Anyone can now register Alice.");
+  await expect(page.locator("#operator-result")).toHaveText(`Anyone can now register ${memberName}.`);
   // The typed name is sent, since the name, not the removed record, is what is allowed.
-  expect(allows).toEqual([{ memberName: "Alice" }]);
-  await expect(page.locator("#operator-entries tr")).toHaveCount(2);
+  expect(allows).toEqual([{ memberName }]);
+  await expect(page.locator("#operator-entries tr")).toHaveCount(entries + 1);
   await expect(page.locator("#operator-entries")).toContainText("allow-name");
   await expect(allow).toBeDisabled();
   for (const action of others) await expect(action).toBeDisabled();
