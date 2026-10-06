@@ -61,16 +61,42 @@ A deployment on fresh storage starts with no operator, since record ids are new.
 
 The Workers that Playwright and the refusal-floor measurement run are never deployed as the demo, and also name operators by member name, in the `OPERATOR_MEMBER_NAMES` var, so their tests need no secret. That code is left out of the demo's own entry point, `apps/demo/src/index.ts`, and `npm test` checks that the deployed bundle does not contain it.
 
-An operator can look up a member by member name and see the record's state and counts: when it was created, whether it is suspended, how many passkeys, live sessions and unused recovery codes it has, whether a rebind link is outstanding, and the operator log entries for that member. Each lookup is logged. It shows counts and state only, to keep small what an operator sees day to day; the device detail (passkey providers, last use, session browsers) still exists in storage. This is no privacy guarantee against an operator, who runs the deployment and can read its storage directly. A member's privacy from an operator rests on trusting the operator, not on the software.
+## Design Practices
+
+These practices come from Christopher Allen's write-up of a running passkey system ([the gist](https://gist.github.com/ChristopherA/dfb0f82a1223a95fa199837142e0f989)) and from the WebAuthn Level 3 credential record.
+
+* **Plural passkeys from the first registration.** A person can enrol more passkeys at any time, and the last one cannot be removed. Each passkey gets its own label of three Bytewords (such as `able-acid-also`), shown in the password manager beside the member name, so a person can tell their passkeys apart.
+* **A new user handle for every ceremony.** The WebAuthn user handle is random each time, presented to the authenticator, and never stored, so it cannot link one person's passkeys to each other.
+* **Identity separate from permission.** The library answers only which principal is presenting. Roles, suspension and member names belong to the application tier. Authorization policy can change without touching credential checks.
+* **One refusal for every failure.** A ceremony that fails for any reason gets the same response, sent no sooner than a timing floor measured on a deployed Worker. Only an internal ceremony failure log records the cause.
+* **Step-up for what can lock the owner out.** Adding or revoking a passkey, rotating recovery codes, and ending other sessions each need a fresh passkey check, not only a live session.
+* **No fallback to a weaker credential.** Recovery uses a single-use code and a new passkey, in one transaction. No password, email or SMS path exists.
+* **Recovery codes are stored only as hashes.** A code is shown once and checked by its hash. Input is liberal: a code is accepted as a UR, as words, or as its bare 16 bytes.
+* **Operators see state and counts, not device detail.** An operator who looks up a member sees when the record was created, whether it is suspended, how many passkeys, live sessions and unused recovery codes it has, whether a rebind link is outstanding, and the operator log entries for that member. The device detail (passkey providers, last use, session browsers) still exists in storage, and every operator action is logged. This keeps small what an operator sees day to day. It is no privacy guarantee against an operator, who runs the deployment and can read its storage directly: a member's privacy from an operator rests on trusting the operator, not on the software.
+
+## Gordian Technologies
+
+### In Use Now
+
+* **[Bytewords](https://developer.blockchaincommons.com/bytewords/)** spell each passkey's label, and offer a words form of each recovery code for reading aloud or writing by hand.
+* **[UR](https://developer.blockchaincommons.com/ur/) and [dCBOR](https://developer.blockchaincommons.com/dcbor/).** Each recovery code is 128 random bits typed as a Gordian seed (dCBOR tag 40300) and shown as a `ur:seed` UR. That is the text form [Gordian Seed Tool](https://github.com/BlockchainCommons/GordianSeedTool-iOS) imports, so a person can keep their codes there.
+* **Hand-written encoders, checked against the reference implementations.** The library's dCBOR, Bytewords and simple [Gordian Envelope](https://developer.blockchaincommons.com/envelope/) encoders take no Blockchain Commons package as a dependency. Their tests hard-code vectors made with the Blockchain Commons Rust and TypeScript libraries. The Envelope encoder is tested but not yet used by a ceremony.
+
+### Planned
+
+* **Signed, elidable artifacts with Gordian Envelope:** an export of a shared canvas that can have cards elided before it is shared, a grant record that lets a third party verify what an agent may do without asking the server, and an activity log for each canvas.
+* **A redactable ceremony failure log.** The failure log becomes an append-only chain of signed Envelopes, with an operator view, an auditor view with causes and records elided, and the member's own view. When a member is removed, their entries are redacted in place and the chain still verifies.
+* **Sharded account recovery with [SSKR](https://developer.blockchaincommons.com/sskr/).** A person can split recovery into three shares (any two recover) or five (any three), each a UR or a printable QR code, to keep offline, with a partly trusted service, or with friends and family for social recovery.
+* **Under consideration:** an identity record that is also an [XID](https://developer.blockchaincommons.com/xid/) document (several keys with permissions, agents as delegates), and a key derived from each passkey (WebAuthn PRF) so peers can verify a member's signatures without the server. The credential schema leaves room for that key.
 
 ## Gordian Principles
 
-`passkey-cloudflare` is being built as the identity layer for Blockchain Commons' reference web apps, such as [Collaborative Seed Recovery](https://developer.blockchaincommons.com/csr/) and signing coordinators for [FROST](https://developer.blockchaincommons.com/frost/). It also shows best practices for secret-key management with Blockchain Commons technologies such as UR and SSKR in a more mainstream web app. It is meant to display the [Gordian Principles](https://github.com/BlockchainCommons/Gordian#gordian-principles), which are philosophical and technical underpinnings to Blockchain Commons' Gordian technology:
+`passkey-cloudflare` is being built as the identity layer for Blockchain Commons' reference web apps, such as [Collaborative Seed Recovery](https://developer.blockchaincommons.com/csr/) and signing coordinators for [FROST](https://developer.blockchaincommons.com/frost/). It also shows best practices for secret-key management with Blockchain Commons technologies in a more mainstream web app. It is meant to display the [Gordian Principles](https://github.com/BlockchainCommons/Gordian#gordian-principles), which are philosophical and technical underpinnings to Blockchain Commons' Gordian technology:
 
-* **Independence.** Passkeys are the only credential. No identity provider, password or email address stands between a person and their account, and the library deploys inside each application's own Worker.
-* **Privacy.** Every failed ceremony gets the same response, recovery never falls back to email, and an operator's day-to-day view of a member is limited to counts and state.
-* **Resilience.** Every person can hold several passkeys from their first registration, and recovery codes restore access without a password. Each recovery code is a seed written as a `ur:seed` UR, so it can be read aloud as Bytewords.
-* **Openness.** The library and its demo are open source under the BSD-2-Clause-Patent license.
+* **Independence.** No identity provider, password or email address stands between a person and their account. The library deploys inside each application's own Worker, and recovery codes are standard `ur:seed` URs that a person can keep in tools of their choosing.
+* **Privacy.** Refusals are uniform, so a failure reveals nothing about the account. User handles are never stored, and an operator's day-to-day view is limited to counts and state. Planned: elision, so logs and exports can be shared with only what each reader needs.
+* **Resilience.** Several passkeys from the first registration, and recovery codes that restore access without a password. Planned: sharded and social recovery, so no single lost or stolen code decides the account.
+* **Openness.** The library and its demo are open source under the BSD-2-Clause-Patent license, and its Gordian encoders are checked against the published reference implementations.
 
 ## Status - Alpha
 
