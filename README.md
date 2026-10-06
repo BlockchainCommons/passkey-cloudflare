@@ -20,7 +20,7 @@ The following files contain ...
 
 - `packages/passkey-cloudflare`: the library. It deploys inside an application's own Worker. Its main entry point exports the Durable Object classes and `createPasskeys`. Its `/testing` entry point exports a software authenticator for tests, which must never be used as a real authenticator.
 - `apps/demo`: the demo Worker, deployed at https://passkeydemo.gordianstack.com: a placeholder app with sign-in and settings in panes over it.
-- `CONTEXT.md`](CONTEXT.md): Vocabulary
+- [`CONTEXT.md`](CONTEXT.md): Vocabulary
 - [`docs/adr/`](docs/adr/): Architectural decisions
 
 ## Installation & Testing Instructions
