@@ -14,31 +14,37 @@ credential. Every person can hold several passkeys from their first
 registration, recovery never falls back to passwords or email, and
 every failed ceremony gets the same response.
 
-A demo app, a shared card canvas, is built alongside the library to
-show it in use.
+A demo app is built alongside the library to show it in use. It is
+a placeholder today and will become a shared card canvas.
 
 ## Additional Information
 
-- `packages/passkey-cloudflare`: the library. It deploys inside an application's own Worker. Its main entry point exports the Durable Object classes and `createPasskeys`. Its `/testing` entry point exports a software authenticator for tests, which must never be used as a real authenticator.
+- `packages/passkey-cloudflare`: the library. It deploys inside an application's own Worker. It has four entry points:
+  - the main entry point: `createPasskeys`, which runs the ceremonies, the Durable Object classes an application binds (listed in `PASSKEY_DURABLE_OBJECTS`), and the building blocks around them, such as rate limits, member names, passkey labels, session cookies and the uniform refusal.
+  - `/browser`: the browser half of each ceremony. It turns the options JSON the application fetched into a WebAuthn call and returns the response JSON to post back, and makes no requests of its own.
+  - `/gordian`: hand-written dCBOR, Bytewords and Envelope encoders, and the `ur:seed` form recovery codes take.
+  - `/testing`: a software authenticator for tests, which must never be used as a real authenticator.
 - `apps/demo`: the demo Worker, deployed at https://passkeydemo.gordianstack.com: a placeholder app with sign-in and settings in panes over it.
 - [`CONTEXT.md`](CONTEXT.md): Vocabulary
 - [`docs/adr/`](docs/adr/): Architectural decisions
 
 ## Installation & Testing Instructions
 
+The test scripts run TypeScript files directly, which needs Node 23.6 or later.
+
 ```sh
 npm install
-npm test                               # the demo's HTTP surface, inside the Workers runtime
+npm test                               # the demo's HTTP surface inside the Workers runtime, then a check of the deployed bundle
 npm run typecheck
 npx playwright install chromium        # once
 npm run test:e2e -w demo               # the browser smoke test, against wrangler dev
 ```
 
-To run the demo locally, the relying party must match the page's origin:
+To run the demo locally, the relying party must match the page's origin, and `--local-upstream` must name the local host. Without it, the demo's custom-domain route rewrites each request's Origin to the deployed domain, and every ceremony is refused as "origin not allowed":
 
 ```sh
 cd apps/demo
-npx wrangler dev --var RP_ID:localhost --var ORIGIN:http://localhost:8787
+npx wrangler dev --local-upstream localhost:8787 --var RP_ID:localhost --var ORIGIN:http://localhost:8787
 ```
 
 Every refused ceremony waits until the timing floor, `REFUSAL_FLOOR_MS`, has passed. It is set from measurements of a deployed Worker: see [`docs/refusal-floor.md`](docs/refusal-floor.md) for how to repeat them.
@@ -63,21 +69,23 @@ An operator can look up a member by member name and see the record's state and c
 
 * **Independence.** Passkeys are the only credential. No identity provider, password or email address stands between a person and their account, and the library deploys inside each application's own Worker.
 * **Privacy.** Every failed ceremony gets the same response, recovery never falls back to email, and an operator's day-to-day view of a member is limited to counts and state.
-* **Resilience.** Every person can hold several passkeys from their first registration, and recovery codes restore access without a password.
+* **Resilience.** Every person can hold several passkeys from their first registration, and recovery codes restore access without a password. Each recovery code is a seed written as a `ur:seed` UR, so it can be read aloud as Bytewords.
 * **Openness.** The library and its demo are open source under the BSD-2-Clause-Patent license.
 
 ## Status - Alpha
 
 Passkey login works: registration, login, adding and revoking
-passkeys, recovery codes, step-up, sessions, and operator lookup,
-rebind, suspension and removal. The canvas, agents and signed
+passkeys, recovery codes and their rotation, step-up, and sessions,
+including logging out elsewhere or everywhere. Operators can look up a member, issue a rebind link,
+suspend and resume, remove, and allow a retired member name again,
+and every operator action is logged. The canvas, agents and signed
 artifacts come later. The API is not stable yet.
 
 Because it is in alpha, `passkey-cloudflare` should not be used for production tasks until it has had further testing and auditing. See [Blockchain Commons' Development Phases](https://github.com/BlockchainCommons/Community/blob/master/release-path.md).
 
 ### What Has Been Tested
 
-Checked by hand on the deployed demo, September 2026:
+Checked by hand on the deployed demo, September 2026, before it moved to its current domain:
 
 - Safari on macOS and on iOS. Neither reports immediate mediation, so register and recover show from the start.
 - Chrome on macOS, with its access to passkeys in Apple Passwords both on and off. On macOS, Chrome reads passkeys from Apple Passwords for the whole machine, so a new Chrome profile still finds them. With access on, Continue signs in with an existing passkey. With access off, Continue finds no passkey and reveals register and recover without showing a passkey sheet.
@@ -92,8 +100,14 @@ The base64url and CBOR helpers of `@simplewebauthn/server`, the
 WebAuthn library used for verification, are not checked directly
 against the RFC 4648 and RFC 8949 test vectors. Every ceremony test
 runs them, so a broken helper would fail those tests, but without
-saying which helper broke. The library's own dCBOR and Bytewords
-encoders are checked against published test vectors.
+saying which helper broke. The library's own dCBOR, Bytewords and
+Envelope encoders, the `ur:seed` text of recovery codes, and passkey
+labels are checked against test vectors made with Blockchain Commons'
+reference implementations.
+
+### Known Issues
+
+- Password managers that draw their passkey picker inside the page, such as LastPass, are blocked by the demo's sign-in pane, and overlapping logins can show a refusal while signed in ([#1](https://github.com/BlockchainCommons/passkey-cloudflare/issues/1)).
 
 ### Version History
 
@@ -106,10 +120,6 @@ the file's header comments) the contents of this repository are
 Copyright © 2026 by Blockchain Commons, LLC, and are
 [licensed](./LICENSE) under the [spdx:BSD-2-Clause Plus Patent
 License](https://spdx.org/licenses/BSD-2-Clause-Patent.html).
-
-In most cases, the authors, copyright, and license for each file
-reside in header comments in the source code. When it does not, we
-have attempted to attribute it accurately in the table below.
 
 ## Financial Support
 
