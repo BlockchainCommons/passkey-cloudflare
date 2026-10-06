@@ -1,6 +1,9 @@
-# Blockchain Commons passkey-cloudflare
+# Passkey-Only Identity for Collaborative Web Apps on Cloudflare
 
-### _by Christopher Allen_
+### _by [Christopher Allen](https://github.com/ChristopherA), Blockchain Commons_
+
+[![License](https://img.shields.io/badge/License-BSD_2--Clause--Patent-blue.svg)](https://spdx.org/licenses/BSD-2-Clause-Patent.html)
+[![Project Status: WIP](https://www.repostatus.org/badges/latest/wip.svg)](https://www.repostatus.org/#wip)
 
 **`passkey-cloudflare` is a Passkey-only identity for collaborative
 web apps on Cloudflare Workers and Durable Objects.**
@@ -15,8 +18,6 @@ A demo app, a shared card canvas, is built alongside the library to
 show it in use.
 
 ## Additional Information
-
-The following files contain ...
 
 - `packages/passkey-cloudflare`: the library. It deploys inside an application's own Worker. Its main entry point exports the Durable Object classes and `createPasskeys`. Its `/testing` entry point exports a software authenticator for tests, which must never be used as a real authenticator.
 - `apps/demo`: the demo Worker, deployed at https://passkeydemo.gordianstack.com: a placeholder app with sign-in and settings in panes over it.
@@ -56,12 +57,23 @@ The Workers that Playwright and the refusal-floor measurement run are never depl
 
 An operator can look up a member by member name and see the record's state and counts: when it was created, whether it is suspended, how many passkeys, live sessions and unused recovery codes it has, whether a rebind link is outstanding, and the operator log entries for that member. Each lookup is logged. It shows counts and state only, to keep small what an operator sees day to day; the device detail (passkey providers, last use, session browsers) still exists in storage. This is no privacy guarantee against an operator, who runs the deployment and can read its storage directly. A member's privacy from an operator rests on trusting the operator, not on the software.
 
-## Status - Early Development
+## Gordian Principles
+
+`passkey-cloudflare` is being built as the identity layer for Blockchain Commons' reference web apps, such as [Collaborative Seed Recovery](https://developer.blockchaincommons.com/csr/) and signing coordinators for [FROST](https://developer.blockchaincommons.com/frost/). It also shows best practices for secret-key management with Blockchain Commons technologies such as UR and SSKR in a more mainstream web app. It is meant to display the [Gordian Principles](https://github.com/BlockchainCommons/Gordian#gordian-principles), which are philosophical and technical underpinnings to Blockchain Commons' Gordian technology:
+
+* **Independence.** Passkeys are the only credential. No identity provider, password or email address stands between a person and their account, and the library deploys inside each application's own Worker.
+* **Privacy.** Every failed ceremony gets the same response, recovery never falls back to email, and an operator's day-to-day view of a member is limited to counts and state.
+* **Resilience.** Every person can hold several passkeys from their first registration, and recovery codes restore access without a password.
+* **Openness.** The library and its demo are open source under the BSD-2-Clause-Patent license.
+
+## Status - Alpha
 
 Passkey login works: registration, login, adding and revoking
 passkeys, recovery codes, step-up, sessions, and operator lookup,
 rebind, suspension and removal. The canvas, agents and signed
 artifacts come later. The API is not stable yet.
+
+Because it is in alpha, `passkey-cloudflare` should not be used for production tasks until it has had further testing and auditing. See [Blockchain Commons' Development Phases](https://github.com/BlockchainCommons/Community/blob/master/release-path.md).
 
 ### What Has Been Tested
 
@@ -107,7 +119,7 @@ To financially support further development of this and other projects, please co
 
 ## Contributing
 
-We encourage public contributions through issues and pull requests! Please review [CONTRIBUTING.md](./CONTRIBUTING.md) for details on our development process. All contributions to this repository require a GPG signed [Contributor License Agreement](./CLA.md).
+We encourage public contributions through issues and pull requests! Please review [How to Contribute](https://github.com/BlockchainCommons/Community/blob/master/CONTRIBUTING.md) for details on our development process.
 
 ### Discussions
 
@@ -120,18 +132,20 @@ The best place to talk about Blockchain Commons and its projects is in our GitHu
 
 ### Other Questions & Problems
 
-As an open-source, open-development community, Blockchain Commons does not have the resources to provide direct support of our projects. Please consider the discussions area as a locale where you might get answers to questions. Alternatively, please use this repository's [issues](./issues) feature. Unfortunately, we can not make any promises on response time.
+As an open-source, open-development community, Blockchain Commons does not have the resources to provide direct support of our projects. Please consider the discussions area as a locale where you might get answers to questions. Alternatively, please use this repository's [issues](https://github.com/BlockchainCommons/passkey-cloudflare/issues) feature. Unfortunately, we can not make any promises on response time.
 
 If your company requires support to use our projects, please feel free to contact us directly about options. We may be able to offer you a contract for support from one of our contributors, or we might be able to point you to another entity who can offer the contractual support that you need.
 
 ### Credits
 
-The following people directly contributed to this repository. You can add your name here by getting involved. The first step is learning how to contribute from our [CONTRIBUTING.md](./CONTRIBUTING.md) documentation.
+The following people directly contributed to this repository. You can add your name here by getting involved. The first step is learning how to contribute from our [How to Contribute](https://github.com/BlockchainCommons/Community/blob/master/CONTRIBUTING.md) documentation.
 
 
 | Name              | Role                | Github                                            | Email                                                       | GPG Fingerprint                                    |
 | ----------------- | ------------------- | ------------------------------------------------- | ----------------------------------------------------------- | -------------------------------------------------- |
 | Christopher Allen | Principal Architect & Engineer | [@ChristopherA](https://github.com/ChristopherA) | \<ChristopherA@LifeWithAlacrity.com\>                       | FDFE 14A5 4ECB 30FC 5D22  74EF F8D3 6C91 3574 05ED |
+
+Commits are signed with SSH keys. Christopher Allen's current SSH signing keys are listed at <https://api.github.com/users/ChristopherA/ssh_signing_keys>.
 
 ## Responsible Disclosure
 
