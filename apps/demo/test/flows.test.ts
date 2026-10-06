@@ -4,7 +4,7 @@ import { ALREADY_REGISTERED, Flows } from "../browser/flows.ts";
 import { softwareAuthenticator, type Browser } from "./browser.ts";
 import { testApp, uniqueName } from "./harness.ts";
 
-const SITE = "passkeydemo.shallweplay.com";
+const SITE = "passkeydemo.gordianstack.com";
 
 /** The demo's flows on `browser`, its authenticator replaced in part by `answering`. */
 function flowsOn(browser: Browser, answering: Partial<Authenticator> = {}) {

@@ -14,7 +14,7 @@ Status: early development. Passkey login works: registration, login, adding and 
 ## Layout
 
 - `packages/passkey-cloudflare`: the library. It deploys inside an application's own Worker. Its main entry point exports the Durable Object classes and `createPasskeys`. Its `/testing` entry point exports a software authenticator for tests, which must never be used as a real authenticator.
-- `apps/demo`: the demo Worker, deployed at https://passkeydemo.shallweplay.com: a placeholder app with sign-in and settings in panes over it.
+- `apps/demo`: the demo Worker, deployed at https://passkeydemo.gordianstack.com: a placeholder app with sign-in and settings in panes over it.
 
 ## What has been tested
 

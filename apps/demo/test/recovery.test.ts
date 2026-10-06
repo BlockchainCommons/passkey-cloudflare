@@ -85,7 +85,7 @@ describe("recovery", () => {
     const app = testApp();
     const name = uniqueName();
     const { recordId, recoveryCodes, issuedAt } = await app.browser().register(name);
-    const text = formatRecoveryCodes({ site: "passkeydemo.shallweplay.com", memberName: name, issuedAt, codes: recoveryCodes });
+    const text = formatRecoveryCodes({ site: "passkeydemo.gordianstack.com", memberName: name, issuedAt, codes: recoveryCodes });
     const line = text.split("\n").find((l) => l.includes(recoveryCodes[4]!))!;
 
     const recovered = await app.browser().recover(name, ` ${line}\n`);

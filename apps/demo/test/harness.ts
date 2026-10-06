@@ -5,7 +5,7 @@ import { Browser } from "./browser.ts";
 
 export { Browser, prepared, refusal, uniqueName } from "./browser.ts";
 
-export const ORIGIN = "https://passkeydemo.shallweplay.com";
+export const ORIGIN = "https://passkeydemo.gordianstack.com";
 
 export interface HarnessOptions extends AppOptions {
   vars?: Partial<Env>;

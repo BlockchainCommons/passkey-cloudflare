@@ -44,7 +44,7 @@ describe("operator rebind", () => {
     const newDevice = app.browser();
     const rebound = await newDevice.rebind(link);
 
-    expect(link).toMatch(/^https:\/\/passkeydemo\.shallweplay\.com\/rebind#/);
+    expect(link).toMatch(/^https:\/\/passkeydemo\.gordianstack\.com\/rebind#/);
     expect(rebound.result).toBe("ok");
     expect(await newDevice.json(newDevice.get("/me"))).toMatchObject({ recordId: personId });
     newDevice.session = undefined;

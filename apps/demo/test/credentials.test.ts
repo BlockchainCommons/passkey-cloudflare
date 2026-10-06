@@ -150,7 +150,7 @@ describe("passkeys", () => {
       passkeyName: `${name} (${label})`,
       provider: "Apple Passwords",
       credentialId: expect.any(String),
-      rpId: "passkeydemo.shallweplay.com",
+      rpId: "passkeydemo.gordianstack.com",
     });
   });
 
@@ -164,7 +164,7 @@ describe("passkeys", () => {
 
     const revoked = await browser.json(browser.post("/me/credentials/revoke", { label: credentials[0].label }));
 
-    expect(revoked).toMatchObject({ ok: true, credentialId: first!.id, rpId: "passkeydemo.shallweplay.com" });
+    expect(revoked).toMatchObject({ ok: true, credentialId: first!.id, rpId: "passkeydemo.gordianstack.com" });
     const held = await browser.json(browser.get("/me/credentials"));
     expect(held.credentials).toHaveLength(1);
     const options = await browser.json(browser.post("/auth/login/options"));
@@ -188,7 +188,7 @@ describe("passkeys", () => {
       passkeyName: `${name} (${label})`,
       provider: null,
       credentialId: expect.any(String),
-      rpId: "passkeydemo.shallweplay.com",
+      rpId: "passkeydemo.gordianstack.com",
     });
   });
 
