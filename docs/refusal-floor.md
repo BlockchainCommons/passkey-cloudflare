@@ -39,6 +39,8 @@ Measure again when a ceremony gains work, such as another Durable Object call or
 
 ## Last measurement
 
+These runs were taken in the Cloudflare account the demo ran in before 2026-10-06, on Workers Paid. The demo has since moved to another account, also on Workers Paid, and the floor has not been measured there yet; until it is, the deployed floor is the one below.
+
 2026-10-03: two runs of 150 rounds each against the measurement Worker, from one client, after recovery came to check the code before the new passkey. The identity record now applies the throttle, counts the attempt and checks the code in one call before the passkey is verified, so a wrong or throttled code is refused without the verification, the credential index, the label or the session. Times are in milliseconds, first run / second run, arms in the first run's order by p95.
 
 | Arm | p50 | p95 | p99 | max |

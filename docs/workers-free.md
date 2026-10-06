@@ -29,45 +29,42 @@ Measure again when a ceremony gains work, such as another Durable Object call or
 
 ## Last measurement
 
-2026-10-03: four deploys, of 21, 6, 6 and 6 rounds, against the measurement Worker, after recovery came to check the code with the identity record before verifying the new passkey. A successful recovery makes one more Durable Object call than before. Every ceremony succeeded.
+2026-10-06: six deploys, of 21 rounds and then 6 rounds each, against the measurement Worker in the Cloudflare account the demo moved to that day. The demo runs there on Workers Paid; the 10 ms limit below is Free's, which the numbers are compared against. Every ceremony succeeded, and every request in each run's window was served by that deploy's version.
 
-In the first deploy, rounds 0 to 4 were served by the previous version although the readiness probe had already reached the new one; the new version's first calls fell in round 5, starting at its login. Its first-call column below is from there, and the previous version's requests are left out. For the fourth deploy the probe waited for eight new-version answers in a row.
+The first three deploys ran about twice as slow as the 2026-10-03 measurement, warm and cold. To tell new code from a slow machine, the code measured on 2026-10-03 (`7008613`) was deployed three times to the same Worker between the fourth and fifth deploys, with 6 rounds each. It gave the 2026-10-03 numbers again (register verify p50 4 and p95 6 ms, first calls 10 to 11 ms), and so did the current code's deploys 4 to 6 on either side of it (register verify p50 5 and p95 7 ms). So the slow runs came from where or when they ran, not from the code, and the table includes them: they are what a deployment meets on a bad minute.
 
-After the first call of each path on a version, in milliseconds of CPU time, 28 to 30 samples per path (40 for register options, which also answered the readiness probe):
+After the first call of each path on a version, in milliseconds of CPU time, 43 to 45 samples per path (122 for register options, which also answered the readiness probe; observability dropped a few events):
 
 | Request | min | p50 | p95 | max | Over 10 ms |
 |---|---|---|---|---|---|
-| POST /auth/register/options | 1 | 1 | 5 | 6 | 0 |
-| POST /auth/register/verify | 2 | 4 | 8 | 8 | 0 |
-| POST /auth/login/options | 0 | 1 | 3 | 3 | 0 |
-| POST /auth/login/verify | 2 | 3 | 5 | 6 | 0 |
-| POST /auth/step-up/options | 0 | 1 | 1 | 1 | 0 |
-| POST /auth/step-up/verify | 2 | 2 | 4 | 5 | 0 |
-| POST /me/credentials/enrol/options | 1 | 1 | 2 | 3 | 0 |
-| POST /me/credentials/enrol/verify | 1 | 3 | 4 | 4 | 0 |
-| POST /auth/recover/options | 1 | 1 | 3 | 3 | 0 |
-| POST /auth/recover | 3 | 3 | 6 | 8 | 0 |
+| POST /auth/register/options | 1 | 2 | 8 | 11 | 1 |
+| POST /auth/register/verify | 3 | 6 | 11 | 16 | 5 |
+| POST /auth/login/options | 0 | 1 | 3 | 5 | 0 |
+| POST /auth/login/verify | 2 | 5 | 9 | 13 | 1 |
+| POST /auth/step-up/options | 1 | 2 | 3 | 3 | 0 |
+| POST /auth/step-up/verify | 2 | 4 | 8 | 8 | 0 |
+| POST /me/credentials/enrol/options | 1 | 3 | 4 | 5 | 0 |
+| POST /me/credentials/enrol/verify | 2 | 4 | 7 | 8 | 0 |
+| POST /auth/recover/options | 1 | 3 | 4 | 6 | 0 |
+| POST /auth/recover | 4 | 6 | 10 | 13 | 2 |
 
 The first call of each path on each fresh version, one column per deploy:
 
-| Request | 1 | 2 | 3 | 4 |
-|---|---|---|---|---|
-| POST /auth/register/options | 3 | 3 | 4 | 3 |
-| POST /auth/register/verify | 4 | **14** | **12** | 8 |
-| POST /auth/login/verify | 7 | **11** | 10 | 7 |
-| POST /auth/step-up/verify | 3 | 6 | 5 | 3 |
-| POST /me/credentials/enrol/verify | 4 | 5 | 4 | 3 |
-| POST /auth/recover | 5 | 8 | 7 | 5 |
-
-Every options request was 4 ms or less on its first call; the readiness probe had already loaded the Worker on each version.
+| Request | 1 | 2 | 3 | 4 | 5 | 6 |
+|---|---|---|---|---|---|---|
+| POST /auth/register/options | 4 | 9 | 8 | 7 | 4 | 5 |
+| POST /auth/register/verify | **19** | **17** | **20** | 10 | **11** | **11** |
+| POST /auth/login/verify | **14** | **13** | **15** | 6 | 6 | 8 |
+| POST /auth/step-up/verify | 6 | 6 | 9 | 3 | 4 | 3 |
+| POST /me/credentials/enrol/verify | 6 | 6 | **12** | 3 | 4 | 4 |
+| POST /auth/recover | **11** | 10 | **13** | 5 | 6 | 6 |
 
 What this shows:
 
-- Once warm, every ceremony fits under 10 ms: the slowest p95 is 8 ms. Recovery, with its extra call to the identity record, has a p50 of 3 ms, as before, and a p95 of 6 ms against 4 ms before; its first call on a fresh version took 5 to 8 ms, the same range as before.
-- The first passkey verification a fresh version runs costs 7 to 14 ms, over the limit in two of four deploys. In deploys 2 to 4 that was a register verify, because each round starts with one. In the first deploy the new version's first verification was a login verify (7 ms), and its first register verify, which came later, took 4 ms, so the cost belongs to whichever verification comes first, not to registration.
-- On the versions where the first verification was over the limit, the next verification was slow too (login verify 11 and 10 ms), so a fresh version can refuse more than its first ceremony.
+- On a good minute every warm ceremony fits under 10 ms, as on 2026-10-03. On a slow one they do not: in deploys 1 to 3, 8 warm verifications went over, register verify at most 16 ms. One warm register options request in deploy 6 took 11 ms.
+- The first passkey verification a fresh version runs costs 10 to 20 ms, over the limit in five of six deploys, and the next one is slow too (login verify 13 to 15 ms in deploys 1 to 3). A fresh version can refuse more than its first ceremony.
 
-So a Free deployment would refuse some ceremonies: most likely the first one after each deploy or idle eviction, and the first on each new isolate.
+So a Free deployment would refuse some ceremonies: the first after each deploy or idle eviction, the first on each new isolate, and on a slow machine some warm ones as well.
 
 ## Why the first verification costs more
 
