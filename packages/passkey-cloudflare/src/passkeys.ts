@@ -465,14 +465,14 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
 
     async stepUpOptions(ctx: RequestContext, sessionValue: string | null | undefined) {
       const presented = await presentedSession(sessionValue);
-      const found = await record(presented.recordId).credentialIds(presented.tokenHash, ctx.now, "live");
+      const found = await record(presented.recordId).credentialDescriptors(presented.tokenHash, ctx.now, "live");
       if (!found.ok) throw new PasskeyError(found.cause);
       const challenge = await issueChallenge(
         "step-up",
         { recordId: presented.recordId, sessionId: found.sessionId },
         ctx.now,
       );
-      return requestOptions({ rp: config.rp, challenge, allowCredentialIds: found.ids });
+      return requestOptions({ rp: config.rp, challenge, allowCredentials: found.descriptors });
     },
 
     /** Prove control of one of the record's passkeys again, on this session. */
@@ -504,7 +504,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
     async enrolOptions(ctx: RequestContext, sessionValue: string | null | undefined) {
       const presented = await presentedSession(sessionValue);
       // The record gates first, so that a refused session mints no label.
-      const found = await record(presented.recordId).credentialIds(presented.tokenHash, ctx.now, "stepped-up");
+      const found = await record(presented.recordId).credentialDescriptors(presented.tokenHash, ctx.now, "stepped-up");
       if (!found.ok) throw new PasskeyError(found.cause);
       const [label, memberName] = await Promise.all([
         labels(presented.recordId).mint(ctx.now),
@@ -519,7 +519,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
         rp: config.rp,
         challenge,
         userName: passkeyName(memberName ?? presented.recordId, label),
-        excludeCredentialIds: found.ids,
+        excludeCredentials: found.descriptors,
       });
     },
 

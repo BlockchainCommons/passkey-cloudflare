@@ -2,7 +2,13 @@ import { DurableObject } from "cloudflare:workers";
 import { FAILURE_SCHEMA, insertFailure, type CeremonyFailure } from "../failures.ts";
 import { addColumnIfMissing } from "../sql.ts";
 import type { RecordId } from "./secrets.ts";
-import { FLAG_BACKED_UP, FLAG_BACKUP_ELIGIBLE, isUserVerified, type VerifiedCredential } from "./webauthn.ts";
+import {
+  FLAG_BACKED_UP,
+  FLAG_BACKUP_ELIGIBLE,
+  isUserVerified,
+  type CredentialDescriptor,
+  type VerifiedCredential,
+} from "./webauthn.ts";
 import { prefixedInstance } from "../storage-prefix.ts";
 
 // One Durable Object per identity record. It holds the record, its credentials,
@@ -322,19 +328,19 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
     return { ok: true, sessionId: gate.principal.sessionId };
   }
 
-  /** The ids of this record's credentials, for a session that passes the gate. */
-  credentialIds(
+  /** The ids and stored transports of this record's credentials, for a session that passes the gate. */
+  credentialDescriptors(
     tokenHash: string,
     now: number,
     need: SessionNeed,
-  ): RecordResult<{ sessionId: string; ids: string[] }, SessionCause> {
+  ): RecordResult<{ sessionId: string; descriptors: CredentialDescriptor[] }, SessionCause> {
     const gate = this.gate(tokenHash, now, need);
     if (!gate.ok) return gate;
-    const ids = this.sql
-      .exec<{ id: string }>("SELECT id FROM credentials ORDER BY created_at")
+    const descriptors = this.sql
+      .exec<{ id: string; transports: string }>("SELECT id, transports FROM credentials ORDER BY created_at")
       .toArray()
-      .map((r) => r.id);
-    return { ok: true, sessionId: gate.principal.sessionId, ids };
+      .map((r) => ({ id: r.id, transports: JSON.parse(r.transports) as string[] }));
+    return { ok: true, sessionId: gate.principal.sessionId, descriptors };
   }
 
   /** Complete a step-up on the session that asked for it. */

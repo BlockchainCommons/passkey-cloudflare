@@ -41,6 +41,19 @@ export interface VerifiedCredential {
   transports: string[];
 }
 
+/** A credential as the options of a ceremony name it: its id and the transports stored at registration. */
+export interface CredentialDescriptor {
+  id: string;
+  transports: string[];
+}
+
+/** WebAuthn's descriptor for a credential, leaving out `transports` when none were stored. */
+function descriptor(credential: CredentialDescriptor) {
+  return credential.transports.length === 0
+    ? { id: credential.id }
+    : { id: credential.id, transports: credential.transports };
+}
+
 export const FLAG_USER_VERIFIED = 0x04;
 export const FLAG_BACKUP_ELIGIBLE = 0x08;
 export const FLAG_BACKED_UP = 0x10;
@@ -58,7 +71,7 @@ export async function creationOptions(input: {
   rp: RelyingParty;
   challenge: Uint8Array<ArrayBuffer>;
   userName: string;
-  excludeCredentialIds?: string[];
+  excludeCredentials?: CredentialDescriptor[];
 }): Promise<PublicKeyCredentialCreationOptionsJSON> {
   return generateRegistrationOptions({
     rpName: input.rp.name,
@@ -70,7 +83,7 @@ export async function creationOptions(input: {
     challenge: input.challenge,
     timeout: CEREMONY_POLICY.timeoutMs,
     attestationType: CEREMONY_POLICY.attestation,
-    excludeCredentials: (input.excludeCredentialIds ?? []).map((id) => ({ id })),
+    excludeCredentials: (input.excludeCredentials ?? []).map(descriptor),
     authenticatorSelection: {
       residentKey: CEREMONY_POLICY.residentKey,
       requireResidentKey: true,
@@ -83,14 +96,14 @@ export async function creationOptions(input: {
 export async function requestOptions(input: {
   rp: RelyingParty;
   challenge: Uint8Array<ArrayBuffer>;
-  allowCredentialIds?: string[];
+  allowCredentials?: CredentialDescriptor[];
 }): Promise<PublicKeyCredentialRequestOptionsJSON> {
   return generateAuthenticationOptions({
     rpID: input.rp.id,
     challenge: input.challenge,
     timeout: CEREMONY_POLICY.timeoutMs,
     userVerification: CEREMONY_POLICY.userVerification,
-    allowCredentials: (input.allowCredentialIds ?? []).map((id) => ({ id })),
+    allowCredentials: (input.allowCredentials ?? []).map(descriptor),
   });
 }
 

@@ -25,6 +25,8 @@ export interface AuthenticatorOptions {
   backupEligible?: boolean;
   /** AAGUID as 16 bytes. Default all zeros. */
   aaguid?: Uint8Array;
+  /** The transports a registration reports, as the browser's `getTransports()` returns them. Default `["internal"]`. */
+  transports?: string[];
 }
 
 /** Ways to make a single response wrong. */
@@ -86,6 +88,7 @@ export class SoftwareAuthenticator {
   private readonly algorithm: Algorithm;
   private readonly backupEligible: boolean;
   private readonly aaguid: Uint8Array;
+  private readonly transports: string[];
 
   constructor(options: AuthenticatorOptions) {
     this.origin = options.origin;
@@ -93,6 +96,7 @@ export class SoftwareAuthenticator {
     this.backupEligible = options.backupEligible ?? false;
     this.aaguid = options.aaguid ?? new Uint8Array(16);
     if (this.aaguid.length !== 16) throw new Error("AAGUID must be 16 bytes");
+    this.transports = options.transports ?? ["internal"];
   }
 
   private flags(tamper: Tamper, attested: boolean): number {
@@ -190,7 +194,7 @@ export class SoftwareAuthenticator {
       response: {
         clientDataJSON: toBase64Url(clientDataJSON),
         attestationObject: toBase64Url(attestationObject),
-        transports: ["internal"],
+        transports: [...this.transports],
       },
       clientExtensionResults: {},
       authenticatorAttachment: "platform",
