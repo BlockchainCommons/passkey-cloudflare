@@ -111,7 +111,7 @@ reference implementations.
 
 ### Version History
 
-0.1 (10/6/26) - Local repo ported to Blockchain Commons
+0.0.1 (10/6/26) - Local repo ported to Blockchain Commons
 
 ## Origin, Authors, Copyright & Licenses
 

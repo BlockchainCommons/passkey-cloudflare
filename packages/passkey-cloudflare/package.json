@@ -1,6 +1,6 @@
 {
   "name": "passkey-cloudflare",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Passkey-only identity for collaborative web apps on Cloudflare Workers and Durable Objects",
   "license": "BSD-2-Clause-Patent",
   "type": "module",
