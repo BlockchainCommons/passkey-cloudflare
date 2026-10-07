@@ -51,10 +51,20 @@ export async function refusalArms(setup: ArmSetup): Promise<Record<string, Arm>>
     };
   };
 
+  const tooLongCredentialId: Arm = async () => {
+    const browser = setup.browser();
+    const options = await browser.json(browser.post("/auth/register/options", { memberName: uniqueName() }));
+    return {
+      path: "/auth/register/verify",
+      body: { response: await browser.authenticator.create(options, { credentialIdLength: 1024 }) },
+    };
+  };
+
   return {
     "unknown challenge": loginAttempt(person, { challenge: "dW5rbm93bi1jaGFsbGVuZ2UtdW5rbm93bi1jaGFsbGVuZ2U" }),
     "wrong origin": loginAttempt(person, { origin: "https://evil.example" }),
     "cross origin": loginAttempt(person, { crossOrigin: true }),
+    "credential ID too long": tooLongCredentialId,
     "wrong RP ID": loginAttempt(person, { rpId: "evil.example" }),
     "bad signature": loginAttempt(person, { badSignature: true }),
     "regressed sign count": loginAttempt(person, { signCount: 1 }),

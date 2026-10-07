@@ -45,6 +45,8 @@ export interface Tamper {
   crossOrigin?: boolean;
   /** A `topOrigin` in the client data, which a browser adds for a ceremony in a frame. Default absent. */
   topOrigin?: string;
+  /** The length in bytes of the credential ID a registration mints. Default 32. */
+  credentialIdLength?: number;
 }
 
 export interface StoredCredential {
@@ -162,7 +164,7 @@ export class SoftwareAuthenticator {
       ]);
     }
 
-    const credentialId = randomBytes(32);
+    const credentialId = randomBytes(tamper.credentialIdLength ?? 32);
     const signCount = tamper.signCount ?? 0;
     const authData = concatBytes(
       await sha256(tamper.rpId ?? rpId),

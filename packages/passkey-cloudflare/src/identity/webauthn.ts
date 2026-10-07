@@ -170,6 +170,9 @@ function causeOf(error: unknown): string {
   return "verification-failed";
 }
 
+/** WebAuthn Level 3, section 7.1: a relying party should refuse a credential ID longer than this. */
+const MAX_CREDENTIAL_ID_BYTES = 1023;
+
 export async function verifyRegistration(
   response: RegistrationResponseJSON,
   expected: { rp: RelyingParty; challenge: string },
@@ -192,6 +195,9 @@ export async function verifyRegistration(
   }
   if (!verification.verified) throw new CeremonyRefusal("verification-failed");
   const info = verification.registrationInfo;
+  if (fromBase64Url(info.credential.id).length > MAX_CREDENTIAL_ID_BYTES) {
+    throw new CeremonyRefusal("credential-id-too-long");
+  }
   const attestation = decodeAttestationObject(fromBase64Url(response.response.attestationObject));
   const authData = attestation.get("authData");
   const algorithm = decodeCredentialPublicKey(info.credential.publicKey).get(cose.COSEKEYS.alg);
