@@ -65,7 +65,7 @@ Checked by hand on the deployed demo, September 2026:
 
 The automated tests use a software authenticator (ES256 and Ed25519) inside the Workers runtime, and Playwright's Chromium with a virtual authenticator. The library's own dCBOR, Bytewords and Envelope encoders, the `ur:seed` text of recovery codes, and passkey labels are checked against test vectors made with Blockchain Commons' reference implementations. The base64url and CBOR helpers of `@simplewebauthn/server`, the WebAuthn library used for verification, are covered only indirectly, by the ceremony tests.
 
-Not tested: Windows (including Windows Hello), Android, Linux and Firefox. Passkey autofill has not yet been checked by hand on Safari: Playwright checks only that it starts and is aborted, in Chromium with Safari's capabilities stubbed. Registration offers only ES256 and EdDSA, so an authenticator that supports only RS256, such as some older Windows Hello setups, may be unable to register. Registration asks for no attestation, so a deployment cannot limit which authenticator models may register.
+Not tested: Windows (including Windows Hello), Android, Linux and Firefox. Passkey autofill has been checked by hand only in Safari on macOS, against a local server rather than the deployed demo; Playwright checks only that it starts and is aborted, in Chromium with Safari's capabilities stubbed. Registration offers only ES256 and EdDSA, so an authenticator that supports only RS256, such as some older Windows Hello setups, may be unable to register. Registration asks for no attestation, so a deployment cannot limit which authenticator models may register.
 
 ### Known Issues
 
