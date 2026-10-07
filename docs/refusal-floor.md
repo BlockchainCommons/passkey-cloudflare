@@ -39,55 +39,58 @@ Measure again when a ceremony gains work, such as another Durable Object call or
 
 ## Last measurement
 
-These runs were taken in the Cloudflare account the demo ran in before 2026-10-06, on Workers Paid. The demo has since moved to another account, also on Workers Paid, and the floor has not been measured there yet; until it is, the deployed floor is the one below.
-
-2026-10-03: two runs of 150 rounds each against the measurement Worker, from one client, after recovery came to check the code before the new passkey. The identity record now applies the throttle, counts the attempt and checks the code in one call before the passkey is verified, so a wrong or throttled code is refused without the verification, the credential index, the label or the session. Times are in milliseconds, first run / second run, arms in the first run's order by p95.
+2026-10-07: two runs of 150 rounds each against the measurement Worker, from one client, in the account the demo has run in since 2026-10-06, on Workers Paid. They were the first in that account, and the first with the credential ID too long and backup eligibility changed arms. Times are in milliseconds, first run / second run, arms in the first run's order by p95.
 
 | Arm | p50 | p95 | p99 | max |
 |---|---|---|---|---|
-| wrong recovery code | 295 / 272 | 453 / 318 | 699 / 365 | 1710 / 379 |
-| wrong RP ID | 227 / 213 | 329 / 236 | 425 / 354 | 2074 / 921 |
-| unknown member name | 251 / 235 | 324 / 294 | 470 / 478 | 653 / 498 |
-| regressed sign count | 228 / 215 | 311 / 238 | 377 / 338 | 398 / 598 |
-| wrong origin | 225 / 217 | 308 / 276 | 510 / 318 | 937 / 320 |
-| bad signature | 226 / 212 | 307 / 239 | 445 / 262 | 448 / 264 |
-| cross-purpose challenge | 180 / 171 | 250 / 216 | 414 / 530 | 472 / 876 |
-| suspended principal | 217 / 205 | 249 / 252 | 360 / 383 | 393 / 563 |
-| unknown credential | 196 / 187 | 241 / 223 | 339 / 296 | 1736 / 413 |
-| unknown challenge | 149 / 140 | 219 / 161 | 427 / 202 | 625 / 383 |
-| malformed response | 140 / 135 | 191 / 168 | 447 / 267 | 532 / 299 |
-| baseline: unknown route | 29 / 23 | 36 / 28 | 99 / 49 | 117 / 71 |
+| wrong recovery code | 398 / 399 | 525 / 495 | 594 / 712 | 596 / 970 |
+| unknown member name | 367 / 353 | 518 / 427 | 566 / 530 | 608 / 3258 |
+| suspended principal | 240 / 215 | 332 / 268 | 391 / 425 | 402 / 442 |
+| wrong RP ID | 219 / 196 | 330 / 244 | 439 / 265 | 478 / 632 |
+| wrong origin | 218 / 196 | 317 / 253 | 346 / 418 | 524 / 1319 |
+| credential ID too long | 222 / 214 | 314 / 278 | 524 / 329 | 525 / 372 |
+| bad signature | 219 / 195 | 310 / 260 | 381 / 342 | 465 / 407 |
+| regressed sign count | 220 / 194 | 309 / 253 | 387 / 320 | 389 / 365 |
+| backup eligibility changed | 230 / 202 | 308 / 261 | 384 / 468 | 593 / 1005 |
+| cross origin | 219 / 192 | 301 / 269 | 385 / 419 | 524 / 448 |
+| unknown credential | 228 / 218 | 289 / 265 | 386 / 302 | 439 / 393 |
+| unknown challenge | 195 / 188 | 283 / 235 | 353 / 319 | 390 / 367 |
+| cross-purpose challenge | 218 / 213 | 268 / 308 | 503 / 351 | 719 / 471 |
+| malformed response | 183 / 177 | 233 / 224 | 273 / 282 | 349 / 338 |
+| baseline: unknown route | 33 / 32 | 38 / 35 | 165 / 42 | 165 / 46 |
 
-The wrong recovery code is still the slowest arm, but by much less: its p50 fell from 419 and 416 ms in the previous measurement to 295 and 272 now. A refusal there now comes early: the Worker consumes the challenge, resolves the member name and decodes the typed code as Bytewords, then the identity record refuses it before the new passkey is verified. That is the unknown member name's work plus one call to the record, and the two arms' p50s are now 37 to 44 ms apart. Its p95 was 453 and 318 ms; 1.5 times each is 680 and 477, which round up to 700 and 500. The larger gives the floor: **700 ms**, down from 950.
+The wrong recovery code is the slowest arm, as it was in the previous account. Its p95 was 525 and 495 ms; 1.5 times each is 788 and 743, which round up to 800 and 750. The larger gives the floor: **800 ms**, up from 700.
 
-The wrong RP ID's maximum of 2074 ms and the unknown credential's of 1736 ms in the first run are single requests; their p99s are 425 and 339 ms, and neither arm does the slow arm's work.
+The slow arms are slower than in the previous measurement (2026-10-03, in the earlier account), with no change to their code: the wrong recovery code's p50 was 295 and 272 ms then, and the unknown member name's 251 and 235. The new arms are not the cause; both sit among the cheaper arms. Whether the difference comes from the new account or from when the runs were taken has not been checked by measuring the 2026-10-03 code again.
 
-A third run of 150 rounds, the same day, with the measurement Worker's floor at 700 ms:
+A third run of 150 rounds, the same day, with the measurement Worker's floor at 800 ms:
 
 | Arm | p50 | p95 | p99 | max |
 |---|---|---|---|---|
-| cross-purpose challenge | 724 | 742 | 772 | 773 |
-| suspended principal | 725 | 737 | 799 | 829 |
-| unknown challenge | 724 | 733 | 822 | 955 |
-| unknown credential | 724 | 733 | 958 | 1262 |
-| regressed sign count | 724 | 731 | 777 | 796 |
-| wrong recovery code | 724 | 730 | 749 | 750 |
-| wrong RP ID | 724 | 730 | 798 | 808 |
-| wrong origin | 724 | 729 | 762 | 970 |
-| bad signature | 724 | 729 | 761 | 777 |
-| unknown member name | 724 | 729 | 799 | 892 |
-| malformed response | 724 | 729 | 764 | 780 |
-| baseline: unknown route | 23 | 27 | 47 | 58 |
+| malformed response | 833 | 1040 | 2395 | 3372 |
+| cross origin | 835 | 999 | 2898 | 3987 |
+| wrong origin | 836 | 975 | 1049 | 6684 |
+| cross-purpose challenge | 834 | 949 | 1119 | 5010 |
+| wrong RP ID | 836 | 941 | 1063 | 1453 |
+| unknown challenge | 837 | 940 | 1109 | 1271 |
+| wrong recovery code | 836 | 936 | 1552 | 2577 |
+| unknown credential | 837 | 930 | 1032 | 1044 |
+| backup eligibility changed | 836 | 924 | 989 | 992 |
+| bad signature | 836 | 923 | 1041 | 1045 |
+| suspended principal | 836 | 922 | 999 | 1045 |
+| regressed sign count | 835 | 922 | 1047 | 1474 |
+| credential ID too long | 837 | 922 | 989 | 1009 |
+| unknown member name | 838 | 919 | 1047 | 7210 |
+| baseline: unknown route | 33 | 115 | 180 | 229 |
 
-Every arm's p50 is 724 or 725 ms. The p95s span 13 ms, against 43 ms in the previous check, and nine of the eleven are within 4 ms of each other. The highest belongs to the cross-purpose challenge, one of the cheaper arms without a floor (p95 250 and 216 ms); as in the previous checks, the floor was accepted on the reading that a cheap arm cannot be revealed by time it did not spend.
+Every arm's p50 is between 833 and 838 ms. The network was noisier than in the first two runs: the baseline's p95 was 115 ms against 38 and 35. The p95s span 121 ms, and the two highest belong to the malformed response and the cross origin, two of the cheapest arms without a floor (p95 233 and 301 ms in the first run); as in the previous checks, the floor was accepted on the reading that a cheap arm cannot be revealed by time it did not spend.
 
 What the floor does not cover:
 
-- The wrong recovery code's p99 was 699 and 365 ms and its maximum 1710 and 379 ms, so a few of those refusals in the first run took longer than 700 ms.
+- The unknown member name's maximum was 3258 ms and the wrong recovery code's 970 ms in the second run, so a few refusals took longer than 800 ms. Their p99s were 530 and 712 ms.
 - Three refusals are not among the measured arms, because the invariant test does not have them either, but are no slower than one that is: a throttled recovery (`recovery-throttled`), a member name that differs from the one the recovery options were issued for (`wrong-member-name`), and a removed principal (`removed`). The throttled recovery takes the wrong recovery code's path, and the same identity record call refuses it before checking the code. The wrong member name is refused before the passkey is verified. The removed principal is refused by the same check, on the same row, as the suspended principal.
-- An assertion whose backup-eligible bit differs from the one stored at registration (`backup-eligibility-changed`) joined the arms after the measurements above, so they do not include it. It takes the regressed sign count's path: the identity record refuses it in the same call, on the same row, one comparison before the counter check.
-- A member name claimed by another registration after the options were issued (`member-name-taken`) is no slower than the wrong recovery code, and needs no arm of its own. Registration verifies the new passkey, then makes two member-name registry calls: the claim, which fails, and `claimBefore`, which looks for a stale claim to free. It finds none, since a claim made after the options were issued is younger than a challenge's lifetime and a retired name is not a stale claim, so the record lookup that follows a stale claim does not run. That is six Durable Object calls, counting the two throttles and the challenge before them and the ceremony failure log after, against the wrong recovery code's eight. In exchange it runs a registration verification, which no measured arm runs: with attestation `none` it checks no signature, and a whole successful registration takes 4 ms of CPU at p50 and 8 at p95, and 4 to 14 ms as a fresh version's first call (`docs/workers-free.md`). One Durable Object call costs more than that: the unknown member name makes one call fewer than the wrong recovery code, and their p50s are 37 to 44 ms apart.
-- No refusal from the credential binding is covered. A ceremony that adds a passkey (register, enrol, recover, rebind) verifies it, puts its credential id in the credential index, binds its label, then commits to the record. When a later step refuses, it removes the index entry and runs the ceremony's own undo, such as releasing a claimed member name; a label bound for the refused ceremony stays bound and names no passkey. Since recovery came to check the code first, no measured arm verifies a new passkey or reaches the index, so the 700 ms floor was taken without this path. The comparisons below count Durable Object calls; none of these refusals has been timed:
+- A member name claimed by another registration after the options were issued (`member-name-taken`) is no slower than the wrong recovery code, and needs no arm of its own. Registration verifies the new passkey, then makes two member-name registry calls: the claim, which fails, and `claimBefore`, which looks for a stale claim to free. It finds none, since a claim made after the options were issued is younger than a challenge's lifetime and a retired name is not a stale claim, so the record lookup that follows a stale claim does not run. That is six Durable Object calls, counting the two throttles and the challenge before them and the ceremony failure log after, against the wrong recovery code's eight. In exchange it runs a registration verification, which no measured arm runs: with attestation `none` it checks no signature, and a whole successful registration takes 4 ms of CPU at p50 and 8 at p95, and 4 to 14 ms as a fresh version's first call (`docs/workers-free.md`). One Durable Object call costs more than that: the unknown member name makes one call fewer than the wrong recovery code, and their p50s are 31 to 46 ms apart.
+- No refusal from the credential binding is covered. A ceremony that adds a passkey (register, enrol, recover, rebind) verifies it, puts its credential id in the credential index, binds its label, then commits to the record. When a later step refuses, it removes the index entry and runs the ceremony's own undo, such as releasing a claimed member name; a label bound for the refused ceremony stays bound and names no passkey. The credential ID too long arm verifies a new passkey and is refused before the index put, but no measured arm reaches the index, so the 800 ms floor was taken without the rest of this path. The comparisons below count Durable Object calls; none of these refusals has been timed:
   - A passkey already registered (`credential-exists`) is refused at the index put. In registration that comes to seven calls, including the member name's release, and a verification: one call fewer than the wrong recovery code, too close for the floor to be said to cover it. In recovery it is the wrong recovery code's path plus a verification and the index put, more than the slowest measured arm, though only a caller holding a valid recovery code reaches it. Anyone can reach the registration case, with a registration response for a credential id already indexed (attestation `none` lets a client build one), which makes it the arm to add: measuring it would bring the verify-and-index path back under the floor.
   - A label that fails to bind (`label-unbound`) adds the label call and the index entry's removal: nine calls in registration, more than the slowest measured arm. It needs no arm of its own, since only a caller who has proved the record reaches it. A new record has no labels, and enrol and rebind bind a label minted for them when their options were issued, so it comes from three places: a bind that throws, whose time the floor cannot bound (as with `internal-error` below); an enrol, rebind or recovery that presents the credential id of a passkey the record revoked, whose index entry is gone but whose label row still names it; and recovery's unchecked label draw landing on a label the record has bound or retired. Each comes after a live session, a live rebind link or a valid recovery code.
   - A record already at a freshly minted record id (`record-exists`) is refused by the record at commit, after the whole binding: ten calls in registration, counting the undo and the ceremony failure log. It needs two random record ids to collide, so no caller can reach it, and it needs no arm. Any other refusal the record returns at commit takes the same path, such as a recovery code that a concurrent recovery used since the check (`wrong-recovery-code`), a rebind link that expired or was used after its options were issued (`bad-rebind-link`), or a principal suspended or removed during the ceremony.
