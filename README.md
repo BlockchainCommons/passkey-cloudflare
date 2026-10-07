@@ -9,7 +9,7 @@
 
 The library answers one question: which principal is presenting. Each application decides what that principal may do. Passkeys are the only credential. Every person can hold several passkeys from their first registration, recovery never falls back to passwords or email, and every failed ceremony gets the same response. It runs on Workers Paid, not Workers Free.
 
-A demo app is built alongside the library to show it in use. It is a placeholder today. It will become a shared canvas of cards that members edit together, with software agents acting for members under permissions they grant.
+A [live demo](https://passkeydemo.gordianstack.com) is built alongside the library to show it in use. It is a placeholder today. It will become a shared canvas of cards that members edit together, with software agents acting for members under permissions they grant.
 
 ## Design Practices
 
