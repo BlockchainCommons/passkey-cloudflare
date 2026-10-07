@@ -1,6 +1,7 @@
-// Fail if the code that names operators by member name reaches the deployed
-// demo. Bundles the production entry the way `wrangler deploy` does, with
-// wrangler.jsonc, and searches the bundle for the var only that code reads.
+// Fail if code only the test Workers import reaches the deployed demo: naming
+// operators by member name, or the raised rate limits Playwright runs with.
+// Bundles the production entry the way `wrangler deploy` does, with
+// wrangler.jsonc, and searches the bundle for a name only that code holds.
 //
 //   node scripts/check-production-bundle.ts
 //
@@ -12,7 +13,11 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const FORBIDDEN = "OPERATOR_MEMBER_NAMES";
+/** A name only each test-only file holds, and the file. */
+const FORBIDDEN: [name: string, file: string][] = [
+  ["OPERATOR_MEMBER_NAMES", "src/operator-member-names.ts"],
+  ["E2E_RATE_LIMITS", "src/e2e-rate-limits.ts"],
+];
 const EXPECTED = "OPERATOR_RECORD_IDS";
 
 const outdir = mkdtempSync(join(tmpdir(), "demo-bundle-"));
@@ -28,13 +33,15 @@ try {
     );
     process.exit(1);
   }
-  if (bundle.includes(FORBIDDEN)) {
-    console.error(
-      `production bundle check: ${FORBIDDEN} is in the production bundle; src/index.ts must not import src/operator-member-names.ts`,
-    );
-    process.exit(1);
+  for (const [name, file] of FORBIDDEN) {
+    if (bundle.includes(name)) {
+      console.error(
+        `production bundle check: ${name} is in the production bundle; src/index.ts must not import ${file}`,
+      );
+      process.exit(1);
+    }
+    console.log(`production bundle check: ${name} is not in the production bundle`);
   }
-  console.log(`production bundle check: ${FORBIDDEN} is not in the production bundle`);
 } finally {
   rmSync(outdir, { recursive: true, force: true });
 }

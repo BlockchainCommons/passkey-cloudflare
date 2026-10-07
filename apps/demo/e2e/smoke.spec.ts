@@ -319,8 +319,7 @@ const signalsOn = (page: Page) => page.evaluate(() => (window as unknown as { si
  * Register a member on `page` with two passkeys, both held by `authenticator`,
  * and return them. The second is enrolled while the first is off the
  * authenticator, which enrolment would otherwise refuse as already registered;
- * a step-up first means the enrolment needs no passkey to use. Uses no
- * recovery code, whose hourly limit the persisted test state shares.
+ * a step-up first means the enrolment needs no passkey to use.
  */
 async function registerWithTwoPasskeys(page: Page, authenticator: Authenticator, memberName: string) {
   const { cdp, authenticatorId } = authenticator;
