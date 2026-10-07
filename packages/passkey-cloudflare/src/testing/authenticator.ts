@@ -4,7 +4,7 @@ import type {
   PublicKeyCredentialRequestOptionsJSON,
   RegistrationResponseJSON,
 } from "@simplewebauthn/server";
-import { concatBytes, randomBytes, sha256, toBase64Url } from "../encoding.ts";
+import { concatBytes, fromBase64Url, randomBytes, sha256, toBase64Url } from "../encoding.ts";
 import { encodeCbor } from "./cbor.ts";
 
 // A software authenticator for tests. It generates real ES256 and Ed25519 keys
@@ -53,6 +53,16 @@ export interface Tamper {
    * does; false clears both, as a device-bound one does.
    */
   backupEligible?: boolean;
+  /**
+   * Set the backed-up bit and clear the backup-eligible bit, a pair no
+   * authenticator should report. Overrides `backupEligible`.
+   */
+  backedUpWithoutEligibility?: boolean;
+  /**
+   * The credential ID a registration mints, as base64url, such as one another
+   * record already holds. Overrides `credentialIdLength`. Default random.
+   */
+  credentialId?: string;
 }
 
 export interface StoredCredential {
@@ -111,7 +121,8 @@ export class SoftwareAuthenticator {
     let flags = 0;
     if (!tamper.userAbsent) flags |= FLAG_UP;
     if (!tamper.userUnverified) flags |= FLAG_UV;
-    if (tamper.backupEligible ?? this.backupEligible) flags |= FLAG_BE | FLAG_BS;
+    if (tamper.backedUpWithoutEligibility) flags |= FLAG_BS;
+    else if (tamper.backupEligible ?? this.backupEligible) flags |= FLAG_BE | FLAG_BS;
     if (attested) flags |= FLAG_AT;
     return flags;
   }
@@ -170,7 +181,10 @@ export class SoftwareAuthenticator {
       ]);
     }
 
-    const credentialId = randomBytes(tamper.credentialIdLength ?? 32);
+    const credentialId =
+      tamper.credentialId === undefined
+        ? randomBytes(tamper.credentialIdLength ?? 32)
+        : fromBase64Url(tamper.credentialId);
     const signCount = tamper.signCount ?? 0;
     const authData = concatBytes(
       await sha256(tamper.rpId ?? rpId),
