@@ -5,6 +5,7 @@
 // This file connects events to flows and flows to panes. The flows (flows.ts)
 // make the requests and touch no DOM; the panes render and make no requests.
 
+import type { PublicKeyCredentialHint } from "passkey-cloudflare/browser";
 import type { OperatorAction } from "./ceremonies.ts";
 import { CodesPane } from "./codes-pane.ts";
 import { $, input, pane, status } from "./dom.ts";
@@ -106,8 +107,8 @@ async function settled(told: Told) {
   if (!told.declined) await showSettings();
 }
 
-async function addPasskey() {
-  await settled(await flows.addPasskey());
+async function addPasskey(hint: PublicKeyCredentialHint) {
+  await settled(await flows.addPasskey(hint));
 }
 
 async function revokePasskey(label: string) {
@@ -183,7 +184,9 @@ $("copy-record-id").addEventListener("click", guard(async () => {
   await navigator.clipboard.writeText(settings.recordId);
   status("Copied your record id.");
 }));
-$("add-passkey").addEventListener("click", guard(addPasskey));
+for (const hint of ["client-device", "hybrid", "security-key"] as const) {
+  $(`add-passkey-${hint}`).addEventListener("click", guard(() => addPasskey(hint)));
+}
 $("rotate-codes").addEventListener("click", guard(rotateCodes));
 $("rotate-now").addEventListener("click", guard(rotateCodes));
 $("logout").addEventListener("click", guard(async () => {

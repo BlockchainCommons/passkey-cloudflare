@@ -103,7 +103,12 @@
         <thead><tr><th>Label</th><th>Held by</th><th>Synced</th><th>Created</th><th>Last used</th><th></th></tr></thead>
         <tbody id="credential-rows"></tbody>
       </table>
-      <button id="add-passkey" type="button">Add a passkey</button>
+      <div class="button-row" role="group" aria-labelledby="add-passkey-label">
+        <span id="add-passkey-label">Add a passkey on:</span>
+        <button id="add-passkey-client-device" type="button">This device</button>
+        <button id="add-passkey-hybrid" type="button">Another device</button>
+        <button id="add-passkey-security-key" type="button">Security key</button>
+      </div>
 
       <div class="section-heading">
         <h3>Recovery codes</h3>

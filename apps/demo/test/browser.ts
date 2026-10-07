@@ -1,4 +1,5 @@
 import type { SoftwareAuthenticator, Tamper } from "passkey-cloudflare/testing";
+import type { PublicKeyCredentialHint } from "passkey-cloudflare/browser";
 import {
   CeremonyClient,
   type Authenticator,
@@ -133,8 +134,8 @@ export class Browser {
   }
 
   /** Add a passkey, stepping up first if the session needs it. */
-  async enrol() {
-    return accepted(await this.ceremonies.enrol());
+  async enrol(hint?: PublicKeyCredentialHint) {
+    return accepted(await this.ceremonies.enrol(hint));
   }
 
   /** Recover onto this browser's authenticator with a member name and a code. */

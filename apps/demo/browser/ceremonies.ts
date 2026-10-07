@@ -12,6 +12,7 @@ import type {
   CreateResult,
   FindResult,
   PublicKeyCredentialCreationOptionsJSON,
+  PublicKeyCredentialHint,
   PublicKeyCredentialRequestOptionsJSON,
   RegistrationResponseJSON,
 } from "passkey-cloudflare/browser";
@@ -126,9 +127,12 @@ export class CeremonyClient {
     return verified.ok ? { result: "ok" } : refused(verified);
   }
 
-  /** Add a passkey to the signed-in record. Steps up first if the session needs it. */
-  async enrol(): Promise<Ok<{ label: string }> | NoPasskey | Refused> {
-    const options = await this.gated("/me/credentials/enrol/options");
+  /**
+   * Add a passkey to the signed-in record. Steps up first if the session needs it.
+   * `hint` steers where the browser offers to save it.
+   */
+  async enrol(hint?: PublicKeyCredentialHint): Promise<Ok<{ label: string }> | NoPasskey | Refused> {
+    const options = await this.gated("/me/credentials/enrol/options", hint ? { hint } : {});
     if (!(options instanceof Response)) return options;
     const prepared = await this.created(options, "/me/credentials/enrol/verify", (response) => ({ response }));
     return prepared.result === "prepared" ? this.send<{ label: string }>(prepared) : prepared;

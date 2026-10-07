@@ -5,6 +5,7 @@ import {
   verifyRegistrationResponse,
   type AuthenticationResponseJSON,
   type PublicKeyCredentialCreationOptionsJSON,
+  type PublicKeyCredentialHint,
   type PublicKeyCredentialRequestOptionsJSON,
   type RegistrationResponseJSON,
 } from "@simplewebauthn/server";
@@ -67,13 +68,28 @@ export function newChallenge(): Uint8Array<ArrayBuffer> {
   return randomBytes(32);
 }
 
+const HINTS: readonly unknown[] = ["client-device", "hybrid", "security-key"] satisfies PublicKeyCredentialHint[];
+
+/** Whether a value is a WebAuthn client hint: where the browser should offer to save a new passkey. */
+function isHint(value: unknown): value is PublicKeyCredentialHint {
+  return HINTS.includes(value);
+}
+
 export async function creationOptions(input: {
   rp: RelyingParty;
   challenge: Uint8Array<ArrayBuffer>;
   userName: string;
   excludeCredentials?: CredentialDescriptor[];
+  /**
+   * A client hint, sent as `hints: [hint]`. It only steers the browser's
+   * prompt: `authenticatorSelection` stays the same and any destination is
+   * accepted. A value from an untyped caller that is not a hint is ignored,
+   * and no `hints` are sent.
+   */
+  hint?: PublicKeyCredentialHint;
 }): Promise<PublicKeyCredentialCreationOptionsJSON> {
-  return generateRegistrationOptions({
+  // Not the library's preferredAuthenticatorType, which also sets authenticatorAttachment.
+  const { hints: _, ...options } = await generateRegistrationOptions({
     rpName: input.rp.name,
     rpID: input.rp.id,
     // A fresh user handle for every ceremony, presented and never stored.
@@ -91,6 +107,7 @@ export async function creationOptions(input: {
     },
     supportedAlgorithmIDs: [...CEREMONY_POLICY.algorithms],
   });
+  return isHint(input.hint) ? { ...options, hints: [input.hint] } : options;
 }
 
 export async function requestOptions(input: {

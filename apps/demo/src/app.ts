@@ -138,8 +138,8 @@ function routes(roles: OperatorRolesFor): Routes {
       return outcome.ok ? json({ ok: true }) : outcome.response;
     },
 
-    "/me/credentials/enrol/options": async ({ passkeys, ctx, request }) =>
-      json(await passkeys.enrolOptions(ctx, sessionValueFrom(request))),
+    "/me/credentials/enrol/options": async ({ passkeys, ctx, request, body }) =>
+      json(await passkeys.enrolOptions(ctx, sessionValueFrom(request), body.hint)),
 
     "/me/credentials/enrol/verify": async ({ passkeys, ctx, request, body }) => {
       const outcome = await passkeys.enrol(ctx, sessionValueFrom(request), body.response);

@@ -175,6 +175,12 @@ td {
   justify-self: start;
   padding: 0 0.5rem;
 }
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+}
 .section-heading {
   display: flex;
   align-items: baseline;

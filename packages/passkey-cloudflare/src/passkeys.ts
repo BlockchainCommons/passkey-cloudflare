@@ -1,4 +1,4 @@
-import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/server";
+import type { AuthenticationResponseJSON, PublicKeyCredentialHint, RegistrationResponseJSON } from "@simplewebauthn/server";
 import { ceremonyFailures } from "./app-tier/ceremony-failures.ts";
 import { CHALLENGE_LIFETIME_MS, challengeStores } from "./app-tier/challenges.ts";
 import { providerName } from "./app-tier/aaguid-names.ts";
@@ -501,7 +501,11 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       });
     },
 
-    async enrolOptions(ctx: RequestContext, sessionValue: string | null | undefined) {
+    /**
+     * Options to add a passkey to the stepped-up session's record. `hint`
+     * steers where the browser offers to save it.
+     */
+    async enrolOptions(ctx: RequestContext, sessionValue: string | null | undefined, hint?: PublicKeyCredentialHint) {
       const presented = await presentedSession(sessionValue);
       // The record gates first, so that a refused session mints no label.
       const found = await record(presented.recordId).credentialDescriptors(presented.tokenHash, ctx.now, "stepped-up");
@@ -520,6 +524,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
         challenge,
         userName: passkeyName(memberName ?? presented.recordId, label),
         excludeCredentials: found.descriptors,
+        hint,
       });
     },
 

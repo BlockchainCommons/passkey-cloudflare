@@ -6,6 +6,7 @@
 import type {
   AuthenticationResponseJSON,
   PublicKeyCredentialCreationOptionsJSON,
+  PublicKeyCredentialHint,
   PublicKeyCredentialRequestOptionsJSON,
   RegistrationResponseJSON,
 } from "@simplewebauthn/server";
@@ -24,6 +25,7 @@ export { formatRecoveryCodes, recoveryCodesHeader, type RecoveryCodesText } from
 export type {
   AuthenticationResponseJSON,
   PublicKeyCredentialCreationOptionsJSON,
+  PublicKeyCredentialHint,
   PublicKeyCredentialRequestOptionsJSON,
   RegistrationResponseJSON,
 };

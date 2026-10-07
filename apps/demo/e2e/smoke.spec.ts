@@ -329,7 +329,7 @@ async function registerWithTwoPasskeys(page: Page, authenticator: Authenticator,
   await expect(page.locator("#settings-status")).toHaveText("Logged out everywhere else.");
   const [first] = (await cdp.send("WebAuthn.getCredentials", { authenticatorId })).credentials;
   await cdp.send("WebAuthn.removeCredential", { authenticatorId, credentialId: first!.credentialId });
-  await page.getByRole("button", { name: "Add a passkey" }).click();
+  await page.getByRole("button", { name: "This device" }).click();
   await expect(page.locator("#credential-rows tr")).toHaveCount(2);
   const [second] = (await cdp.send("WebAuthn.getCredentials", { authenticatorId })).credentials;
   await cdp.send("WebAuthn.addCredential", { authenticatorId, credential: first! });
@@ -399,12 +399,35 @@ test("adding a passkey on a device that already has one says so, and adds nothin
   await expect(page.locator("#credential-rows tr")).toHaveCount(1);
 
   // The same authenticator holds this record's passkey, which enrolment excludes.
-  await page.getByRole("button", { name: "Add a passkey" }).click();
+  await page.getByRole("button", { name: "This device" }).click();
   await expect(page.locator("#settings-status")).toHaveText(
     "This device already has a passkey for you. Use it to log in, or add one on another device.",
   );
   expect(enrolments).toEqual([]);
   await expect(page.locator("#credential-rows tr")).toHaveCount(1);
+});
+
+test("each add-passkey button sends its hint and adds a passkey", async ({ page }) => {
+  const { cdp, authenticatorId } = await addAuthenticator(page);
+  const options = postsTo(page, "/me/credentials/enrol/options");
+  await registerMember(page, `Hints${Date.now().toString(36)}`);
+  await openSettings(page);
+  // Steps up, so that no enrolment needs a passkey to use.
+  await page.getByRole("button", { name: "Log out everywhere else" }).click();
+  await expect(page.locator("#settings-status")).toHaveText("Logged out everywhere else.");
+
+  const buttons = [
+    ["This device", "client-device"],
+    ["Another device", "hybrid"],
+    ["Security key", "security-key"],
+  ] as const;
+  for (const [index, [name]] of buttons.entries()) {
+    // Take the record's passkeys off the authenticator, so enrolment does not exclude it.
+    await cdp.send("WebAuthn.clearCredentials", { authenticatorId });
+    await page.getByRole("group", { name: "Add a passkey on:" }).getByRole("button", { name }).click();
+    await expect(page.locator("#credential-rows tr")).toHaveCount(index + 2);
+  }
+  expect(options).toEqual(buttons.map(([, hint]) => ({ hint })));
 });
 
 test("log out everywhere else steps up, then leaves only this session", async ({ page, browser }) => {

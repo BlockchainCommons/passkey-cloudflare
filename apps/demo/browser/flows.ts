@@ -9,6 +9,7 @@ import {
   recoveryCodesHeader,
   signalRevokedPasskey,
   usePasskey,
+  type PublicKeyCredentialHint,
 } from "passkey-cloudflare/browser";
 import type { IssuedCodes, Me, MemberView, PasskeyListing, SessionListing } from "../src/responses.ts";
 import {
@@ -130,8 +131,9 @@ export class Flows {
     return { me, credentials, sessions };
   }
 
-  async addPasskey(): Promise<Told> {
-    const enrolled = await this.ceremonies.enrol();
+  /** Add a passkey, with a hint for where the browser should offer to save it. */
+  async addPasskey(hint?: PublicKeyCredentialHint): Promise<Told> {
+    const enrolled = await this.ceremonies.enrol(hint);
     if (enrolled.result !== "ok") return notDone(enrolled, "Adding the passkey was refused.");
     return told(`Added passkey ${enrolled.label}.`);
   }
