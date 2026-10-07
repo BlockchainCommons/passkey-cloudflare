@@ -5,19 +5,26 @@
 [![License](https://img.shields.io/badge/License-BSD_2--Clause--Patent-blue.svg)](https://spdx.org/licenses/BSD-2-Clause-Patent.html)
 [![Project Status: WIP](https://www.repostatus.org/badges/latest/wip.svg)](https://www.repostatus.org/#wip)
 
-**`passkey-cloudflare` is a Passkey-only identity for collaborative
-web apps on Cloudflare Workers and Durable Objects.**
+`passkey-cloudflare` is an identity library for web apps built on Cloudflare Workers and Durable Objects. It is being built as the identity layer for Blockchain Commons' reference web apps, such as [Collaborative Seed Recovery](https://developer.blockchaincommons.com/csr/) and signing coordinators for [FROST](https://developer.blockchaincommons.com/frost/), and to show best practices for secret-key management with Blockchain Commons technologies in a more mainstream web app.
 
-The library answers one question: which principal is presenting. Each
-application decides what that principal may do. Passkeys are the only
-credential. Every person can hold several passkeys from their first
-registration, recovery never falls back to passwords or email, and
-every failed ceremony gets the same response.
+The library answers one question: which principal is presenting. Each application decides what that principal may do. Passkeys are the only credential. Every person can hold several passkeys from their first registration, recovery never falls back to passwords or email, and every failed ceremony gets the same response. It runs on Workers Paid, not Workers Free.
 
-A demo app is built alongside the library to show it in use. It is
-a placeholder today and will become a shared card canvas.
+A demo app is built alongside the library to show it in use. It is a placeholder today. It will become a shared canvas of cards that members edit together, with software agents acting for members under permissions they grant.
 
-## Additional Information
+## Design Practices
+
+These practices come from Christopher Allen's write-up of a running passkey system ([the gist](https://gist.github.com/ChristopherA/dfb0f82a1223a95fa199837142e0f989)) and from the WebAuthn Level 3 credential record.
+
+* **Identity separate from permission.** The library answers only which principal is presenting. Roles, suspension and member names belong to the application tier. Authorization policy can change without touching credential checks.
+* **Plural passkeys from the first registration.** A person can enrol more passkeys at any time, and the last one cannot be removed. Each passkey gets its own label of three Bytewords (such as `able-acid-also`), shown in the password manager beside the member name, so a person can tell their passkeys apart.
+* **No fallback to a weaker credential.** Recovery uses a single-use code and a new passkey, in one transaction. No password, email or SMS path exists.
+* **Recovery codes are stored only as hashes.** A code is shown once and checked by its hash. Input is liberal: a code is accepted as a UR, as words, or as its bare 16 bytes.
+* **Step-up for what can lock the owner out.** Adding or revoking a passkey, rotating recovery codes, and ending other sessions each need a fresh passkey check, not only a live session.
+* **A new user handle for every ceremony.** The WebAuthn user handle is random each time, presented to the authenticator, and never stored, so it cannot link one person's passkeys to each other.
+* **One refusal for every failure.** A ceremony that fails for any reason gets the same response, sent no sooner than a timing floor measured on a deployed Worker. Only an internal ceremony failure log records the cause.
+* **Operators see state and counts, not device detail.** An operator who looks up a member sees when the record was created, whether it is suspended, how many passkeys, live sessions and unused recovery codes it has, whether a rebind link is outstanding, and the operator log entries for that member. The device detail (passkey providers, last use, session browsers) still exists in storage, and every operator action is logged. This limits what an operator sees day to day, but it is no privacy guarantee: an operator runs the deployment and can read its storage directly.
+
+## Repository Layout
 
 - `packages/passkey-cloudflare`: the library. It deploys inside an application's own Worker. It has four entry points:
   - the main entry point: `createPasskeys`, which runs the ceremonies, the Durable Object classes an application binds (listed in `PASSKEY_DURABLE_OBJECTS`), and the building blocks around them, such as rate limits, member names, passkey labels, session cookies and the uniform refusal.
@@ -27,6 +34,8 @@ a placeholder today and will become a shared card canvas.
 - `apps/demo`: the demo Worker, deployed at https://passkeydemo.gordianstack.com: a placeholder app with sign-in and settings in panes over it.
 - [`CONTEXT.md`](CONTEXT.md): Vocabulary
 - [`docs/adr/`](docs/adr/): Architectural decisions
+- [`docs/refusal-floor.md`](docs/refusal-floor.md): How the refusal timing floor is measured
+- [`docs/workers-free.md`](docs/workers-free.md): CPU time per request, and why Workers Free is not enough
 
 ## Installation & Testing Instructions
 
@@ -40,6 +49,8 @@ npx playwright install chromium        # once
 npm run test:e2e -w demo               # the browser smoke test, against wrangler dev
 ```
 
+The Workers that Playwright and the refusal-floor measurement run are never deployed as the demo. They also name operators by member name, in the `OPERATOR_MEMBER_NAMES` var, so their tests need no secret. That code is left out of the demo's own entry point, `apps/demo/src/index.ts`, and `npm test` checks that the deployed bundle does not contain it.
+
 To run the demo locally, the relying party must match the page's origin, and `--local-upstream` must name the local host. Without it, the demo's custom-domain route rewrites each request's Origin to the deployed domain, and every ceremony is refused as "origin not allowed":
 
 ```sh
@@ -47,9 +58,11 @@ cd apps/demo
 npx wrangler dev --local-upstream localhost:8787 --var RP_ID:localhost --var ORIGIN:http://localhost:8787
 ```
 
-Every refused ceremony waits until the timing floor, `REFUSAL_FLOOR_MS`, has passed. It is set from measurements of a deployed Worker: see [`docs/refusal-floor.md`](docs/refusal-floor.md) for how to repeat them.
+## Deploying
 
 The library needs Workers Paid. On Workers Free, whose limit is 10 ms of CPU time per request, the first passkey verification on each new isolate can exceed that limit and be refused: see [`docs/workers-free.md`](docs/workers-free.md).
+
+Every refused ceremony waits until the timing floor, `REFUSAL_FLOOR_MS`, has passed. It is set from measurements of a deployed Worker: see [`docs/refusal-floor.md`](docs/refusal-floor.md) for how to repeat them.
 
 Operators are listed by identity record id, separated by commas, in the `OPERATOR_RECORD_IDS` secret: `npx wrangler secret put OPERATOR_RECORD_IDS`. Locally, put it in `apps/demo/.dev.vars`.
 
@@ -59,27 +72,12 @@ A deployment on fresh storage starts with no operator, since record ids are new.
 2. From `apps/demo`, run `npx wrangler secret put OPERATOR_RECORD_IDS` and paste it.
 3. Wait for the new version: the secret takes effect only once the edge serves the version it created. Reload Settings until the operator section shows, or check that `GET /me` answers `"operator": true`.
 
-The Workers that Playwright and the refusal-floor measurement run are never deployed as the demo, and also name operators by member name, in the `OPERATOR_MEMBER_NAMES` var, so their tests need no secret. That code is left out of the demo's own entry point, `apps/demo/src/index.ts`, and `npm test` checks that the deployed bundle does not contain it.
-
-## Design Practices
-
-These practices come from Christopher Allen's write-up of a running passkey system ([the gist](https://gist.github.com/ChristopherA/dfb0f82a1223a95fa199837142e0f989)) and from the WebAuthn Level 3 credential record.
-
-* **Plural passkeys from the first registration.** A person can enrol more passkeys at any time, and the last one cannot be removed. Each passkey gets its own label of three Bytewords (such as `able-acid-also`), shown in the password manager beside the member name, so a person can tell their passkeys apart.
-* **A new user handle for every ceremony.** The WebAuthn user handle is random each time, presented to the authenticator, and never stored, so it cannot link one person's passkeys to each other.
-* **Identity separate from permission.** The library answers only which principal is presenting. Roles, suspension and member names belong to the application tier. Authorization policy can change without touching credential checks.
-* **One refusal for every failure.** A ceremony that fails for any reason gets the same response, sent no sooner than a timing floor measured on a deployed Worker. Only an internal ceremony failure log records the cause.
-* **Step-up for what can lock the owner out.** Adding or revoking a passkey, rotating recovery codes, and ending other sessions each need a fresh passkey check, not only a live session.
-* **No fallback to a weaker credential.** Recovery uses a single-use code and a new passkey, in one transaction. No password, email or SMS path exists.
-* **Recovery codes are stored only as hashes.** A code is shown once and checked by its hash. Input is liberal: a code is accepted as a UR, as words, or as its bare 16 bytes.
-* **Operators see state and counts, not device detail.** An operator who looks up a member sees when the record was created, whether it is suspended, how many passkeys, live sessions and unused recovery codes it has, whether a rebind link is outstanding, and the operator log entries for that member. The device detail (passkey providers, last use, session browsers) still exists in storage, and every operator action is logged. This keeps small what an operator sees day to day. It is no privacy guarantee against an operator, who runs the deployment and can read its storage directly: a member's privacy from an operator rests on trusting the operator, not on the software.
-
 ## Gordian Technologies
 
 ### In Use Now
 
-* **[Bytewords](https://developer.blockchaincommons.com/bytewords/)** spell each passkey's label, and offer a words form of each recovery code for reading aloud or writing by hand.
 * **[UR](https://developer.blockchaincommons.com/ur/) and [dCBOR](https://developer.blockchaincommons.com/dcbor/).** Each recovery code is 128 random bits typed as a Gordian seed (dCBOR tag 40300) and shown as a `ur:seed` UR. That is the text form [Gordian Seed Tool](https://github.com/BlockchainCommons/GordianSeedTool-iOS) imports, so a person can keep their codes there.
+* **[Bytewords](https://developer.blockchaincommons.com/bytewords/)** spell each passkey's label, and offer a words form of each recovery code for reading aloud or writing by hand.
 * **Hand-written encoders, checked against the reference implementations.** The library's dCBOR, Bytewords and simple [Gordian Envelope](https://developer.blockchaincommons.com/envelope/) encoders take no Blockchain Commons package as a dependency. Their tests hard-code vectors made with the Blockchain Commons Rust and TypeScript libraries. The Envelope encoder is tested but not yet used by a ceremony.
 
 ### Planned
@@ -91,7 +89,7 @@ These practices come from Christopher Allen's write-up of a running passkey syst
 
 ## Gordian Principles
 
-`passkey-cloudflare` is being built as the identity layer for Blockchain Commons' reference web apps, such as [Collaborative Seed Recovery](https://developer.blockchaincommons.com/csr/) and signing coordinators for [FROST](https://developer.blockchaincommons.com/frost/). It also shows best practices for secret-key management with Blockchain Commons technologies in a more mainstream web app. It is meant to display the [Gordian Principles](https://github.com/BlockchainCommons/Gordian#gordian-principles), which are philosophical and technical underpinnings to Blockchain Commons' Gordian technology:
+`passkey-cloudflare` is meant to display the [Gordian Principles](https://github.com/BlockchainCommons/Gordian#gordian-principles), which are philosophical and technical underpinnings to Blockchain Commons' Gordian technology:
 
 * **Independence.** No identity provider, password or email address stands between a person and their account. The library deploys inside each application's own Worker, and recovery codes are standard `ur:seed` URs that a person can keep in tools of their choosing.
 * **Privacy.** Refusals are uniform, so a failure reveals nothing about the account. User handles are never stored, and an operator's day-to-day view is limited to counts and state. Planned: elision, so logs and exports can be shared with only what each reader needs.
@@ -100,44 +98,24 @@ These practices come from Christopher Allen's write-up of a running passkey syst
 
 ## Status - Alpha
 
-Passkey login works: registration, login, adding and revoking
-passkeys, recovery codes and their rotation, step-up, and sessions,
-including logging out elsewhere or everywhere. Operators can look up a member, issue a rebind link,
-suspend and resume, remove, and allow a retired member name again,
-and every operator action is logged. The canvas, agents and signed
-artifacts come later. The API is not stable yet.
+Passkey login works: registration, login, adding and revoking passkeys, recovery codes and their rotation, step-up, and sessions, including logging out elsewhere or everywhere. Operators can look up a member, issue a rebind link, suspend and resume, remove, and allow a retired member name again, and every operator action is logged. The canvas, agents and signed artifacts come later. The API is not stable yet.
 
 Because it is in alpha, `passkey-cloudflare` should not be used for production tasks until it has had further testing and auditing. See [Blockchain Commons' Development Phases](https://github.com/BlockchainCommons/Community/blob/master/release-path.md).
 
 ### What Has Been Tested
 
-Checked by hand on the deployed demo, September 2026, before it moved to its current domain:
+Checked by hand on the deployed demo, September 2026:
 
 - Safari on macOS and on iOS. Neither reports immediate mediation, so register and recover show from the start.
 - Chrome on macOS, with its access to passkeys in Apple Passwords both on and off. On macOS, Chrome reads passkeys from Apple Passwords for the whole machine, so a new Chrome profile still finds them. With access on, Continue signs in with an existing passkey. With access off, Continue finds no passkey and reveals register and recover without showing a passkey sheet.
 
-The automated tests use a software authenticator (ES256 and Ed25519)
-inside the Workers runtime, and Playwright's Chromium with a virtual
-authenticator.
+The automated tests use a software authenticator (ES256 and Ed25519) inside the Workers runtime, and Playwright's Chromium with a virtual authenticator. The library's own dCBOR, Bytewords and Envelope encoders, the `ur:seed` text of recovery codes, and passkey labels are checked against test vectors made with Blockchain Commons' reference implementations. The base64url and CBOR helpers of `@simplewebauthn/server`, the WebAuthn library used for verification, are covered only indirectly, by the ceremony tests.
 
 Not tested: Windows (including Windows Hello), Android, Linux and Firefox. Registration offers only ES256 and EdDSA, so an authenticator that supports only RS256, such as some older Windows Hello setups, may be unable to register.
-
-The base64url and CBOR helpers of `@simplewebauthn/server`, the
-WebAuthn library used for verification, are not checked directly
-against the RFC 4648 and RFC 8949 test vectors. Every ceremony test
-runs them, so a broken helper would fail those tests, but without
-saying which helper broke. The library's own dCBOR, Bytewords and
-Envelope encoders, the `ur:seed` text of recovery codes, and passkey
-labels are checked against test vectors made with Blockchain Commons'
-reference implementations.
 
 ### Known Issues
 
 - Password managers that draw their passkey picker inside the page, such as LastPass, are blocked by the demo's sign-in pane, and overlapping logins can show a refusal while signed in ([#1](https://github.com/BlockchainCommons/passkey-cloudflare/issues/1)).
-
-### Current Work
-
-Toward 0.1.0, we are tightening verification and refusal handling, running a second architecture review, writing architecture and recovery-code documentation, and cleaning up the repository and demo for others to use. An adversarial security review follows 0.1.0.
 
 ### Not Yet Supported
 
@@ -148,17 +126,13 @@ Toward 0.1.0, we are tightening verification and refusal handling, running a sec
 - Password-manager icons beside passkey names.
 - Changing a member name after registration.
 
+### Current Work
+
+Toward 0.1.0, we are tightening verification and refusal handling, running a second architecture review, writing architecture and recovery-code documentation, and cleaning up the repository and demo for others to use. An adversarial security review follows 0.1.0.
+
 ### Version History
 
-0.0.1 (10/6/26) - Local repo ported to Blockchain Commons
-
-## Origin, Authors, Copyright & Licenses
-
-Unless otherwise noted (either in this [/README.md](./README.md) or in
-the file's header comments) the contents of this repository are
-Copyright © 2026 by Blockchain Commons, LLC, and are
-[licensed](./LICENSE) under the [spdx:BSD-2-Clause Plus Patent
-License](https://spdx.org/licenses/BSD-2-Clause-Patent.html).
+- 0.0.1 - October 6, 2026: Moved to Blockchain Commons.
 
 ## Financial Support
 
@@ -172,12 +146,11 @@ We encourage public contributions through issues and pull requests! Please revie
 
 ### Discussions
 
-The best place to talk about Blockchain Commons and its projects is in our GitHub Discussions areas.
+The best place to talk about Blockchain Commons and its projects is in our GitHub Discussions areas:
 
-[**Gordian User Community**](https://github.com/BlockchainCommons/Gordian/discussions). For users of the Gordian reference apps.
-
-[**Blockchain Commons Discussions**](https://github.com/BlockchainCommons/Community/discussions). For developers, interns, and patrons of Blockchain Commons, please use the discussions area of the [Community repo](https://github.com/BlockchainCommons/Community) to talk about general Blockchain Commons issues, the intern program, or topics other than those covered by the [Gordian Developer Community](https://github.com/BlockchainCommons/Gordian-Developer-Community/discussions) or the 
-[Gordian User Community](https://github.com/BlockchainCommons/Gordian/discussions).
+- [**Gordian Developer Community**](https://github.com/BlockchainCommons/Gordian-Developer-Community/discussions): For developers working with Gordian specifications.
+- [**Gordian User Community**](https://github.com/BlockchainCommons/Gordian/discussions): For users of the Gordian reference apps.
+- [**Blockchain Commons Discussions**](https://github.com/BlockchainCommons/Community/discussions): For developers, interns, and patrons of Blockchain Commons, to talk about general Blockchain Commons issues, the intern program, or topics other than those covered by the other two areas.
 
 ### Other Questions & Problems
 
@@ -189,10 +162,9 @@ If your company requires support to use our projects, please feel free to contac
 
 The following people directly contributed to this repository. You can add your name here by getting involved. The first step is learning how to contribute from our [How to Contribute](https://github.com/BlockchainCommons/Community/blob/master/CONTRIBUTING.md) documentation.
 
-
-| Name              | Role                | Github                                            | Email                                                       | GPG Fingerprint                                    |
-| ----------------- | ------------------- | ------------------------------------------------- | ----------------------------------------------------------- | -------------------------------------------------- |
-| Christopher Allen | Principal Architect & Engineer | [@ChristopherA](https://github.com/ChristopherA) | \<ChristopherA@LifeWithAlacrity.com\>                       | FDFE 14A5 4ECB 30FC 5D22  74EF F8D3 6C91 3574 05ED |
+| Name              | Role                           | Github                                           | Email                                 | GPG Fingerprint                                    |
+| ----------------- | ------------------------------ | ------------------------------------------------ | ------------------------------------- | -------------------------------------------------- |
+| Christopher Allen | Principal Architect & Engineer | [@ChristopherA](https://github.com/ChristopherA) | \<ChristopherA@LifeWithAlacrity.com\> | FDFE 14A5 4ECB 30FC 5D22  74EF F8D3 6C91 3574 05ED |
 
 Commits are signed with SSH keys. Christopher Allen's current SSH signing keys are listed at <https://api.github.com/users/ChristopherA/ssh_signing_keys>.
 
@@ -200,7 +172,7 @@ Commits are signed with SSH keys. Christopher Allen's current SSH signing keys a
 
 We want to keep all of our software safe for everyone. If you have discovered a security vulnerability, we appreciate your help in disclosing it to us in a responsible manner. We are unfortunately not able to offer bug bounties at this time.
 
-We do ask that you offer us good faith and use best efforts not to leak information or harm any user, their data, or our developer community. Please give us a reasonable amount of time to fix the issue before you publish it. Do not defraud our users or us in the process of discovery. We promise not to bring legal action against researchers who point out a problem provided they do their best to follow the these guidelines.
+We do ask that you offer us good faith and use best efforts not to leak information or harm any user, their data, or our developer community. Please give us a reasonable amount of time to fix the issue before you publish it. Do not defraud our users or us in the process of discovery. We promise not to bring legal action against researchers who point out a problem provided they do their best to follow these guidelines.
 
 ### Reporting a Vulnerability
 
@@ -212,4 +184,8 @@ The following keys may be used to communicate sensitive information to developer
 | ----------------- | -------------------------------------------------- |
 | Christopher Allen | FDFE 14A5 4ECB 30FC 5D22  74EF F8D3 6C91 3574 05ED |
 
-You can import a key by running the following command with that individual’s fingerprint: `gpg --recv-keys "<fingerprint>"` Ensure that you put quotes around fingerprints that contain spaces.
+You can import a key by running the following command with that individual's fingerprint: `gpg --recv-keys "<fingerprint>"` Ensure that you put quotes around fingerprints that contain spaces.
+
+## License
+
+Unless otherwise noted (either in this [/README.md](./README.md) or in the file's header comments) the contents of this repository are Copyright © 2026 by Blockchain Commons, LLC, and are [licensed](./LICENSE) under the [spdx:BSD-2-Clause Plus Patent License](https://spdx.org/licenses/BSD-2-Clause-Patent.html).
