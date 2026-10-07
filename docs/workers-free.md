@@ -25,7 +25,7 @@ You need `wrangler` logged in, and a Node version that runs TypeScript files dir
 
 5. Record the results below and delete the Worker with `npx wrangler delete -c wrangler.measure.jsonc`.
 
-Measure again when a ceremony gains work, such as another Durable Object call or more expensive verification.
+Measure again when a ceremony gains work, such as another Durable Object call or more expensive verification. The RP ID check every ceremony runs was not measured: once an isolate has seen the stored RP ID match, the check is a lookup in memory, with no Durable Object call (see `docs/refusal-floor.md`).
 
 ## Last measurement
 

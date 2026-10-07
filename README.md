@@ -128,6 +128,8 @@ The library needs Workers Paid. On Workers Free, whose limit is 10 ms of CPU tim
 
 Every refused ceremony waits until the timing floor, `REFUSAL_FLOOR_MS`, has passed. It is set from measurements of a deployed Worker: see [`docs/refusal-floor.md`](docs/refusal-floor.md) for how to repeat them.
 
+Every passkey is bound to the relying party ID, the `RP_ID` var. When a deployment binds its first passkey, the library stores that RP ID, and keeps it while any passkey is bound. If `RP_ID` is changed after that, every ceremony ends in the uniform refusal: browsers offer none of the existing passkeys, and no new one can be registered. The Worker logs an error naming both RP IDs, and the ceremony failure log records the cause `rp-id-changed` (unlike `wrong-rp-id`, which is one passkey response made for another RP ID). Passkeys cannot be moved to a new RP ID. Either restore the old value, or deploy on fresh storage and register again.
+
 Operators are listed by identity record id, separated by commas, in the `OPERATOR_RECORD_IDS` secret: `npx wrangler secret put OPERATOR_RECORD_IDS`. Locally, put it in `apps/demo/.dev.vars`.
 
 A deployment on fresh storage starts with no operator, since record ids are new. To set one up:

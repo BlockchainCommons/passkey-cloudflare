@@ -14,6 +14,8 @@ import { CeremonyRefusal } from "./refusal.ts";
 export interface CredentialBindingStores {
   index: () => DurableObjectStub<CredentialIndex>;
   labels: (recordId: RecordId) => DurableObjectStub<CredentialLabels>;
+  /** The RP ID every new credential is made for. */
+  rpId: string;
 }
 
 export interface NewCredentialBinding<T> {
@@ -59,7 +61,7 @@ export function credentialBinding(stores: CredentialBindingStores) {
   return async function bindNewCredential<T>(request: NewCredentialBinding<T>): Promise<T> {
     const undo: Array<() => Promise<void>> = request.undo ? [request.undo] : [];
     try {
-      if (!(await stores.index().put(request.credentialId, request.recordId))) {
+      if (!(await stores.index().put(request.credentialId, request.recordId, stores.rpId))) {
         throw new CeremonyRefusal("credential-exists");
       }
       undo.unshift(() => stores.index().delete(request.credentialId));

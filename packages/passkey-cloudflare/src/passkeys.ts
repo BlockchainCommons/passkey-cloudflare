@@ -10,6 +10,7 @@ import { credentialBinding } from "./credential-binding.ts";
 import type { PasskeyBindings } from "./durable-objects.ts";
 import { sha256Hex, toBase64Url } from "./encoding.ts";
 import { credentialIndex } from "./identity/credential-index.ts";
+import { relyingPartyMatch, relyingPartyMatches } from "./identity/relying-party-matches.ts";
 import {
   identityRecords,
   type Principal,
@@ -145,11 +146,31 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
   const challenges = challengeStores(bindings.CHALLENGES, config.storagePrefix);
   const failures = ceremonyFailures(bindings.CEREMONY_FAILURES, config.storagePrefix);
   const limiter = rateLimiters(bindings.RATE_LIMITS, config.storagePrefix);
-  const bindNewCredential = credentialBinding({ index, labels });
+  const bindNewCredential = credentialBinding({ index, labels, rpId: config.rp.id });
 
   /** Count a hit against a rate-limit bucket; refuse the ceremony if it is full. */
   async function throttle(bucket: string, limit: Limit, now: number) {
     if (!(await limiter(bucket).hit(limit, now))) throw new CeremonyRefusal("rate-limited");
+  }
+
+  /**
+   * Refuse the ceremony if the deployment's credentials were made for another
+   * RP ID: none of them can work under this one, and the operator needs to be
+   * told why. A deployment with no credentials has no RP ID stored yet.
+   */
+  async function checkRelyingParty(ceremony: Ceremony) {
+    const match = relyingPartyMatch(config.storagePrefix, config.rp.id);
+    if (relyingPartyMatches.has(match)) return;
+    const stored = await index().rpId();
+    if (stored === null) return;
+    if (stored === config.rp.id) {
+      relyingPartyMatches.add(match);
+      return;
+    }
+    console.error(
+      `passkey ${ceremony} refused: the RP ID is ${config.rp.id}, but this deployment's passkeys were made for ${stored}`,
+    );
+    throw new CeremonyRefusal("rp-id-changed");
   }
 
   /** Run `run` within a per-source limit. Past the limit, the uniform refusal. */
@@ -185,6 +206,8 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
     const trail: Trail = {};
     let cause: string;
     try {
+      // First, so that a ceremony refused for its RP ID writes nothing but its failure.
+      await checkRelyingParty(ceremony);
       await throttle(`ceremony:${sourceHash}`, limits.ceremonyPerSource, ctx.now);
       if (ANONYMOUS_CEREMONIES.has(ceremony)) await throttle("ceremony:global", limits.ceremonyGlobal, ctx.now);
       if (ceremony === "recover") {
