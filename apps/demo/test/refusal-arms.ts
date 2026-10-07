@@ -68,6 +68,7 @@ export async function refusalArms(setup: ArmSetup): Promise<Record<string, Arm>>
     "wrong RP ID": loginAttempt(person, { rpId: "evil.example" }),
     "bad signature": loginAttempt(person, { badSignature: true }),
     "regressed sign count": loginAttempt(person, { signCount: 1 }),
+    "backup eligibility changed": loginAttempt(person, { backupEligible: true }),
     "cross-purpose challenge": crossPurpose,
     "unknown credential": loginAttempt(stranger),
     "suspended principal": loginAttempt(suspended),

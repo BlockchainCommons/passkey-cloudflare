@@ -47,6 +47,12 @@ export interface Tamper {
   topOrigin?: string;
   /** The length in bytes of the credential ID a registration mints. Default 32. */
   credentialIdLength?: number;
+  /**
+   * Report the backup-eligible bit as given, whatever the authenticator was
+   * created with: true sets it and the backed-up bit, as a synced passkey
+   * does; false clears both, as a device-bound one does.
+   */
+  backupEligible?: boolean;
 }
 
 export interface StoredCredential {
@@ -105,7 +111,7 @@ export class SoftwareAuthenticator {
     let flags = 0;
     if (!tamper.userAbsent) flags |= FLAG_UP;
     if (!tamper.userUnverified) flags |= FLAG_UV;
-    if (this.backupEligible) flags |= FLAG_BE | FLAG_BS;
+    if (tamper.backupEligible ?? this.backupEligible) flags |= FLAG_BE | FLAG_BS;
     if (attested) flags |= FLAG_AT;
     return flags;
   }

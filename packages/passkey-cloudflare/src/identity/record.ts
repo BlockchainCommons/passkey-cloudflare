@@ -83,6 +83,7 @@ export type RecordCause =
   | "removed"
   | "unknown-credential"
   | "counter-regressed"
+  | "backup-eligibility-changed"
   | "wrong-session"
   | "not-found"
   | "last-credential"
@@ -226,16 +227,17 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
   }
 
   /**
-   * Record a verified assertion: re-check the sign counter against the stored
-   * one, then update the credential. Returns the cause if the assertion must
-   * be refused. Runs inside the caller's transaction.
+   * Record a verified assertion: check its backup-eligible bit and sign
+   * counter against the stored ones, then update the credential. Returns the
+   * cause if the assertion must be refused. Runs inside the caller's
+   * transaction.
    */
   private acceptAssertion(
     credentialId: string,
     signCount: number,
     flags: number,
     now: number,
-  ): "unknown-credential" | "counter-regressed" | null {
+  ): "unknown-credential" | "counter-regressed" | "backup-eligibility-changed" | null {
     const row = this.sql
       .exec<{ sign_count: number; registration_flags: number }>(
         "SELECT sign_count, registration_flags FROM credentials WHERE id = ?",
@@ -243,6 +245,11 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
       )
       .toArray()[0];
     if (!row) return "unknown-credential";
+    // The backup-eligible bit decides counter enforcement, so it must not
+    // change after registration (WebAuthn Level 3, section 7.2).
+    if ((flags & FLAG_BACKUP_ELIGIBLE) !== (row.registration_flags & FLAG_BACKUP_ELIGIBLE)) {
+      return "backup-eligibility-changed";
+    }
     const enforce = (row.registration_flags & FLAG_BACKUP_ELIGIBLE) === 0;
     if (enforce && (signCount > 0 || row.sign_count > 0) && signCount <= row.sign_count) {
       return "counter-regressed";
