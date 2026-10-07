@@ -21,8 +21,18 @@ body {
 }
 #signed-in:not([hidden]) {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+.app-bar-actions {
+  /* Settings and Log out wrap as a pair. */
+  display: flex;
   gap: 0.75rem;
+}
+#member-name {
+  /* A long member name wraps rather than push the buttons off a narrow screen. */
+  overflow-wrap: anywhere;
 }
 main {
   max-width: 44rem;
@@ -67,6 +77,18 @@ dialog h2 {
   line-height: 1;
   padding: 0.2rem 0.5rem;
 }
+/* Small and often-used buttons take a click over at least 44 x 44 px (WCAG 2.5.5);
+   padding grows the target, and the glyph or word keeps its size. */
+.close,
+.info-toggle,
+#copy-record-id,
+.app-bar button:not([hidden]) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+}
 #settings table {
   /* Five columns of dates and names; scroll them on a narrow screen rather than squeeze them. */
   display: block;
@@ -89,12 +111,14 @@ dialog h2 {
   --accent-hover: #184ea8;
   --on-accent: #fff;
   --disabled: color-mix(in srgb, currentColor 35%, transparent);
+  --danger: #b3261e;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --accent: #5b9bff;
     --accent-hover: #7fb1ff;
     --on-accent: #0b1a33;
+    --danger: #ff8a80;
   }
 }
 button {
@@ -122,8 +146,14 @@ button.primary:hover:enabled {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
 }
+/* An action that cannot be undone reads as one. */
+button.danger {
+  color: var(--danger);
+  border-color: var(--danger);
+}
 button:disabled,
-button.primary:disabled {
+button.primary:disabled,
+button.danger:disabled {
   color: var(--disabled);
   background: transparent;
   border-color: var(--disabled);
@@ -174,6 +204,7 @@ td {
 .info-toggle {
   justify-self: start;
   padding: 0 0.5rem;
+  border-color: transparent;
 }
 .button-row {
   display: flex;
@@ -185,6 +216,15 @@ td {
   display: flex;
   align-items: baseline;
   gap: 0.5rem;
+}
+#operator-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+/* Remove cannot be undone: last, and set well apart from the actions a miss would land on. */
+#operator-actions [value="remove"] {
+  margin-inline-start: auto;
 }
 #operator-form {
   grid-template-columns: 1fr;

@@ -12,7 +12,10 @@
       <h1>Gordian Stack passkey demo</h1>
       <span id="signed-in" hidden>
         <strong id="member-name"></strong>
-        <button id="open-settings" type="button">Settings</button>
+        <span class="app-bar-actions">
+          <button id="open-settings" type="button">Settings</button>
+          <button id="logout" type="button">Log out</button>
+        </span>
       </span>
       <button id="open-sign-in" class="primary" type="button" hidden>Sign in</button>
     </header>
@@ -134,10 +137,11 @@
           <thead><tr><th>Browser</th><th>Started</th><th>Ends</th></tr></thead>
           <tbody id="session-rows"></tbody>
         </table>
+        <div class="button-row">
+          <button id="logout-everywhere" type="button">Log out everywhere</button>
+          <button id="logout-elsewhere" type="button">Log out everywhere else</button>
+        </div>
       </details>
-      <button id="logout" type="button">Log out</button>
-      <button id="logout-everywhere" type="button">Log out everywhere</button>
-      <button id="logout-elsewhere" type="button">Log out everywhere else</button>
 
       <section id="operator" hidden>
         <div class="section-heading">
@@ -165,8 +169,8 @@
           <button type="button" value="rebind" disabled>Create rebind link</button>
           <button type="button" value="suspend" disabled>Suspend</button>
           <button type="button" value="resume" disabled>Resume</button>
-          <button type="button" value="remove" disabled>Remove</button>
           <button type="button" value="allow-name" disabled>Allow name again</button>
+          <button class="danger" type="button" value="remove" disabled>Remove</button>
         </div>
         <p id="operator-result"></p>
       </section>

@@ -14,4 +14,5 @@ export const OPERATORS = {
   lookup: `Lookupop${run}`,
   remove: `Removeop${run}`,
   allow: `Allowop${run}`,
+  layout: `Layoutop${run}`,
 };

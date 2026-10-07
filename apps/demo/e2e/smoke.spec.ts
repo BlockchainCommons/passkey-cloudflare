@@ -1,4 +1,4 @@
-import { expect, test, type Browser, type Page } from "@playwright/test";
+import { expect, test, type Browser, type Locator, type Page } from "@playwright/test";
 import { OPERATORS } from "./operators.ts";
 
 const CAPITAL_NUDGE = "Member names display as typed, and most read best with a capital letter.";
@@ -49,12 +49,29 @@ async function expectSignedIn(page: Page, memberName: string) {
   await expect(page.locator("#sign-in")).toBeHidden();
   await expect(page.locator("#member-name")).toHaveText(memberName);
   await expect(page.getByRole("button", { name: "Settings" })).toBeVisible();
+  await expect(page.locator("#open-sign-in")).toHaveCount(1);
+  await expect(page.locator("#open-sign-in")).toBeHidden();
 }
 
 /** Open the settings pane from the app bar. */
 async function openSettings(page: Page) {
   await page.getByRole("button", { name: "Settings" }).click();
   await expect(page.locator("#settings")).toBeVisible();
+}
+
+/** Log out from the app bar, closing settings first if it is open over the app. */
+async function logOut(page: Page) {
+  const settings = page.locator("#settings");
+  if (await settings.isVisible()) await settings.getByRole("button", { name: "Close" }).click();
+  await page.locator("header.app-bar").getByRole("button", { name: "Log out", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Settings" })).toBeHidden();
+}
+
+/** Open settings' Account details, where the sessions and the log-out-all buttons are, unless it is open. */
+async function openAccountDetails(page: Page) {
+  const details = page.locator("#account-details");
+  if ((await details.getAttribute("open")) === null) await page.getByText("Account details").click();
+  await expect(details).toHaveAttribute("open");
 }
 
 /** Register a new member from the sign-in pane and leave the recovery codes. */
@@ -143,10 +160,11 @@ test("register, log out and log back in with a passkey", async ({ page }) => {
   await expect(page.locator("#codes")).toBeHidden();
   await expectSignedIn(page, memberName);
 
-  await openSettings(page);
-  await page.getByRole("button", { name: "Log out", exact: true }).click();
+  // Log out sits in the app bar, one click from the app, with no settings to open.
   await expect(page.locator("#settings")).toBeHidden();
-  await expect(page.getByRole("button", { name: "Settings" })).toBeHidden();
+  await logOut(page);
+  await expect(page.locator("#app-signed-out")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
   await openSignIn(page);
   await expect(page.getByRole("button", { name: "Continue with passkey" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "New here? Register" })).toBeHidden();
@@ -353,8 +371,7 @@ test("recover on a new device with a recovery code, and be prompted to replace t
   await expectSignedIn(page, memberName);
   await openSettings(page);
   await expect(page.locator("#rotate-prompt")).toBeHidden();
-  await page.getByRole("button", { name: "Log out", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Settings" })).toBeHidden();
+  await logOut(page);
 
   // A new device: no session and no passkey, only the member name and a code.
   const device = await (await browser.newContext()).newPage();
@@ -418,6 +435,7 @@ async function registerWithTwoPasskeys(page: Page, authenticator: Authenticator,
   const { cdp, authenticatorId } = authenticator;
   await registerMember(page, memberName);
   await openSettings(page);
+  await openAccountDetails(page);
   await page.getByRole("button", { name: "Log out everywhere else" }).click();
   await expect(page.locator("#settings-status")).toHaveText("Logged out everywhere else.");
   const [first] = (await cdp.send("WebAuthn.getCredentials", { authenticatorId })).credentials;
@@ -461,7 +479,7 @@ test("revoking a passkey signals it unknown to the password manager, and a refus
   // The authenticator still offers the revoked passkey; its login is refused, and the refusal signals nothing.
   const { cdp, authenticatorId } = authenticator;
   await cdp.send("WebAuthn.removeCredential", { authenticatorId, credentialId: second.credentialId });
-  await page.getByRole("button", { name: "Log out", exact: true }).click();
+  await logOut(page);
   await openSignIn(page);
   await page.getByRole("button", { name: "Continue with passkey" }).click();
   await expect(page.getByText("That passkey was not accepted.")).toBeVisible();
@@ -506,6 +524,7 @@ test("each add-passkey button sends its hint and adds a passkey", async ({ page 
   await registerMember(page, `Hints${Date.now().toString(36)}`);
   await openSettings(page);
   // Steps up, so that no enrolment needs a passkey to use.
+  await openAccountDetails(page);
   await page.getByRole("button", { name: "Log out everywhere else" }).click();
   await expect(page.locator("#settings-status")).toHaveText("Logged out everywhere else.");
 
@@ -546,6 +565,7 @@ test("log out everywhere else steps up, then leaves only this session", async ({
   await openSettings(page);
   await expect(page.locator("#session-rows tr")).toHaveCount(2);
 
+  await openAccountDetails(page);
   await page.getByRole("button", { name: "Log out everywhere else" }).click();
 
   await expect(page.locator("#settings-status")).toHaveText("Logged out everywhere else.");
@@ -558,7 +578,7 @@ test("log out everywhere else steps up, then leaves only this session", async ({
   await phone.context().close();
 });
 
-test("account details hold the record id and sessions, collapsed, with log-out left outside", async ({ page }) => {
+test("account details hold the record id, sessions and log out everywhere, collapsed", async ({ page }) => {
   await addAuthenticator(page);
   const memberName = `Details${Date.now().toString(36)}`;
   await registerMember(page, memberName);
@@ -566,23 +586,114 @@ test("account details hold the record id and sessions, collapsed, with log-out l
   const { recordId } = await page.evaluate(() => fetch("/me").then((r) => r.json() as Promise<{ recordId: string }>));
 
   await openSettings(page);
+  const settings = page.locator("#settings");
+  await expect(settings.locator("#logout")).toHaveCount(0);
   const details = page.locator("#account-details");
   await expect(details).not.toHaveAttribute("open");
   await expect(page.locator("#record-id")).toBeHidden();
   await expect(page.locator("#session-rows")).toBeHidden();
-  for (const name of ["Log out", "Log out everywhere", "Log out everywhere else"]) {
-    await expect(page.getByRole("button", { name, exact: true })).toBeVisible();
+  const logOutAll = [page.locator("#logout-everywhere"), page.locator("#logout-elsewhere")];
+  for (const button of logOutAll) {
+    await expect(button).toHaveCount(1);
+    await expect(button).toBeHidden();
   }
 
   await page.getByText("Account details").click();
   await expect(page.locator("#record-id")).toHaveText(recordId);
   await expect(page.locator("#session-rows tr")).toHaveCount(1);
   await expect(page.locator("#session-rows tr")).toContainText("(this one)");
+  // The rare, deliberate log-outs follow the sessions they end.
+  const sessionsBottom = await page.locator("#session-rows").evaluate((rows) => rows.getBoundingClientRect().bottom);
+  for (const name of ["Log out everywhere", "Log out everywhere else"]) {
+    const button = details.getByRole("button", { name, exact: true });
+    await expect(button).toBeVisible();
+    expect((await button.boundingBox())!.y).toBeGreaterThanOrEqual(sessionsBottom);
+  }
 
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
   await page.getByRole("button", { name: "Copy record id" }).click();
   await expect(page.locator("#settings-status")).toHaveText("Copied your record id.");
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(recordId);
+});
+
+/** Expect the element's box, which is what takes a click, to be at least 44 x 44 px. */
+async function expectTargetSize(locator: Locator) {
+  await expect(locator).toBeVisible();
+  const box = (await locator.boundingBox())!;
+  const button = await locator.evaluate((e) => e.outerHTML);
+  expect(box.width, button).toBeGreaterThanOrEqual(44);
+  expect(box.height, button).toBeGreaterThanOrEqual(44);
+}
+
+test("small buttons take a click over at least 44 x 44 px", async ({ page }) => {
+  await addAuthenticator(page);
+  await page.goto("/");
+  await expectTargetSize(page.getByRole("button", { name: "Sign in", exact: true }));
+  await openSignIn(page);
+  await expectTargetSize(page.locator("#sign-in").getByRole("button", { name: "Close" }));
+  await page.getByRole("button", { name: "Continue with passkey" }).click();
+  await expectTargetSize(page.getByRole("button", { name: "About member names" }));
+
+  await page.locator("#register-name").fill(`Targets${Date.now().toString(36)}`);
+  await page.getByRole("button", { name: "Register with a passkey" }).click();
+  await page.getByRole("checkbox", { name: "I have saved my recovery codes" }).check();
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  const appBar = page.locator("header.app-bar");
+  await expectTargetSize(appBar.getByRole("button", { name: "Settings" }));
+  await expectTargetSize(appBar.getByRole("button", { name: "Log out", exact: true }));
+
+  await openSettings(page);
+  await openAccountDetails(page);
+  await expectTargetSize(page.locator("#settings").getByRole("button", { name: "Close" }));
+  for (const name of ["About passkeys", "About recovery codes", "About sessions", "About the record id"]) {
+    await expectTargetSize(page.getByRole("button", { name, exact: true }));
+  }
+  await expectTargetSize(page.getByRole("button", { name: "Copy record id" }));
+});
+
+test("an operator's Remove stands apart, and settings fit a phone-width screen", async ({ page }) => {
+  await addAuthenticator(page);
+  await registerMember(page, OPERATORS.layout);
+  await openSettings(page);
+  await expectTargetSize(page.getByRole("button", { name: "About the operator actions" }));
+
+  const actions = page.locator("#operator-actions button");
+  await expect(actions).toHaveText(["Create rebind link", "Suspend", "Resume", "Allow name again", "Remove"]);
+  await expect(actions.last()).toHaveClass(/\bdanger\b/);
+  const boxes = await actions.evaluateAll((buttons) =>
+    buttons.map((b) => b.getBoundingClientRect().toJSON() as DOMRect),
+  );
+  const gaps = boxes.slice(1).map((box, i) => box.left - boxes[i]!.right);
+  // All on one row at this width, so each gap is the space between neighbours.
+  for (const box of boxes) expect(box.top).toBe(boxes[0]!.top);
+  for (const gap of gaps.slice(0, -1)) expect(gaps.at(-1)!).toBeGreaterThan(gap);
+
+  await page.setViewportSize({ width: 375, height: 812 });
+  const fits = () =>
+    page.evaluate(() => {
+      const settings = document.getElementById("settings")!;
+      return {
+        page: document.documentElement.scrollWidth <= innerWidth,
+        settings: settings.scrollWidth <= settings.clientWidth,
+      };
+    });
+  await openAccountDetails(page);
+  expect(await fits()).toEqual({ page: true, settings: true });
+  await page.locator("#settings").getByRole("button", { name: "Close" }).click();
+  expect((await fits()).page).toBe(true);
+  const appBar = page.locator("header.app-bar");
+  for (const name of ["Settings", "Log out"]) {
+    const button = appBar.getByRole("button", { name, exact: true });
+    await expect(button).toBeInViewport({ ratio: 1 });
+  }
+  await expect(page.locator("#member-name")).toBeInViewport({ ratio: 1 });
+  // The two buttons wrap together, not one under the other.
+  const [settingsBox, logOutBox] = await Promise.all(
+    ["Settings", "Log out"].map(
+      async (name) => (await appBar.getByRole("button", { name, exact: true }).boundingBox())!,
+    ),
+  );
+  expect(logOutBox!.y).toBe(settingsBox!.y);
 });
 
 test("a rebind link opens the sign-in pane at its passkey, and says when the link is not valid", async ({ page }) => {
