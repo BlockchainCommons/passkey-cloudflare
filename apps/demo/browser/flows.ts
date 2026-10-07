@@ -3,19 +3,26 @@
 // DOM; the panes render their outcomes, and app.ts connects the two.
 
 import {
+  autofillPasskey,
+  canAutofillPasskey,
+  canFindWithoutSheet,
   createPasskey,
   findPasskey,
   formatRecoveryCodes,
   recoveryCodesHeader,
   signalRevokedPasskey,
   usePasskey,
+  type PublicKeyCredentialCreationOptionsJSON,
   type PublicKeyCredentialHint,
+  type PublicKeyCredentialRequestOptionsJSON,
 } from "passkey-cloudflare/browser";
 import type { IssuedCodes, Me, MemberView, PasskeyListing, SessionListing } from "../src/responses.ts";
 import {
   CeremonyClient,
   type AlreadyRegistered,
+  type Authenticator,
   type Cancelled,
+  type GetMode,
   type OperatorAction,
   type Refused,
 } from "./ceremonies.ts";
@@ -68,14 +75,31 @@ const refusedNote = (refused: Refused) => ({ result: "noted", note: `Refused (${
 export type OperatorOutcome =
   { result: "member"; member: FoundMember; note: string } | { result: "noted"; note: string } | Told;
 
+/** The page's one autofill request: `start` aborts any earlier one and gives the signal a new one runs under; `stop` aborts it. */
+export class AutofillRequests {
+  private current = new AbortController();
+
+  start(): AbortSignal {
+    this.current.abort();
+    this.current = new AbortController();
+    return this.current.signal;
+  }
+
+  stop() {
+    this.current.abort();
+  }
+}
+
 export class Flows {
   readonly ceremonies: CeremonyClient;
   /** The site recovery codes are for: the demo's RP ID, its host name. */
   readonly site: string;
+  readonly autofillRequests: AutofillRequests;
 
-  constructor(ceremonies: CeremonyClient, site: string) {
+  constructor(ceremonies: CeremonyClient, site: string, autofillRequests = new AutofillRequests()) {
     this.ceremonies = ceremonies;
     this.site = site;
+    this.autofillRequests = autofillRequests;
   }
 
   /** Who is signed in, or null. */
@@ -89,10 +113,32 @@ export class Flows {
    * Log in with a passkey found on this device. `no-passkey` covers both no
    * passkey here and a dismissed picker, which browsers do not tell apart.
    */
-  async continueWithPasskey(): Promise<{ result: "signed-in" | "no-passkey" | "not-accepted" }> {
-    const loggedIn = await this.ceremonies.login();
-    if (loggedIn.result === "ok") return { result: "signed-in" };
-    return { result: loggedIn.result === "cancelled" ? "no-passkey" : "not-accepted" };
+  async continueWithPasskey(): Promise<LoggedIn> {
+    return loggedIn(await this.ceremonies.login());
+  }
+
+  /**
+   * Whether to offer passkeys in the member-name field's autofill: only where
+   * the browser can, and Continue cannot find a passkey without a sheet.
+   */
+  async offersAutofill(): Promise<boolean> {
+    return !(await canFindWithoutSheet()) && (await canAutofillPasskey());
+  }
+
+  /**
+   * Log in with a passkey the person picks from the member-name field's
+   * autofill. `no-passkey` also when the request was stopped, by `stopAutofill`
+   * or by any other passkey request on the page, and when the login options
+   * were refused: the person asked for nothing, so there is nothing to tell.
+   */
+  async autofill(): Promise<LoggedIn> {
+    const prepared = await this.ceremonies.loginRequest({ autofill: this.autofillRequests.start() });
+    if (prepared.result !== "prepared") return { result: "no-passkey" };
+    return loggedIn(await this.ceremonies.send(prepared));
+  }
+
+  stopAutofill() {
+    this.autofillRequests.stop();
   }
 
   /** Whether a member name is free to register; null when the check was refused, which says nothing either way. */
@@ -220,14 +266,41 @@ export class Flows {
   }
 }
 
+/** How a login ended: `no-passkey` covers both no passkey used and a dismissed picker. */
+type LoggedIn = { result: "signed-in" | "no-passkey" | "not-accepted" };
+
+function loggedIn(outcome: { result: "ok" | "cancelled" | "refused" }): LoggedIn {
+  if (outcome.result === "ok") return { result: "signed-in" };
+  return { result: outcome.result === "cancelled" ? "no-passkey" : "not-accepted" };
+}
+
+/**
+ * The browser's passkeys, for the page. Browsers allow one WebAuthn request at
+ * a time, so every other request first aborts the autofill one.
+ */
+class PagePasskeys implements Authenticator {
+  readonly autofillRequests = new AutofillRequests();
+
+  create(options: PublicKeyCredentialCreationOptionsJSON) {
+    this.autofillRequests.stop();
+    return createPasskey(options);
+  }
+
+  get(options: PublicKeyCredentialRequestOptionsJSON, mode: GetMode) {
+    // A signal stopped while the options were on their way rejects at once.
+    if (typeof mode === "object") return autofillPasskey(options, mode.autofill);
+    this.autofillRequests.stop();
+    return mode === "find" ? findPasskey(options) : usePasskey(options);
+  }
+}
+
 /** The flows of the page at `page` (its `location`): requests to its own origin, passkeys from the browser. */
 export function pageFlows(page: { origin: string; hostname: string }): Flows {
+  const passkeys = new PagePasskeys();
   return new Flows(
-    new CeremonyClient(
-      { origin: page.origin, fetch: (request) => fetch(request) },
-      { create: createPasskey, get: (options, mode) => (mode === "find" ? findPasskey(options) : usePasskey(options)) },
-    ),
+    new CeremonyClient({ origin: page.origin, fetch: (request) => fetch(request) }, passkeys),
     // The demo's RP ID is its host name.
     page.hostname,
+    passkeys.autofillRequests,
   );
 }

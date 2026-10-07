@@ -34,11 +34,12 @@ interface WebAuthnGlobals {
   navigator: {
     credentials: {
       create(options: { publicKey: unknown }): Promise<unknown>;
-      get(options: { publicKey: unknown; mediation?: string; uiMode?: string }): Promise<unknown>;
+      get(options: { publicKey: unknown; mediation?: string; uiMode?: string; signal?: unknown }): Promise<unknown>;
     };
   };
   PublicKeyCredential?: {
     getClientCapabilities?(): Promise<Record<string, boolean | undefined>>;
+    isConditionalMediationAvailable?(): Promise<boolean>;
     signalUnknownCredential?(passkey: UnknownPasskey): Promise<void>;
   };
 }
@@ -73,6 +74,24 @@ export async function canFindWithoutSheet(): Promise<boolean> {
   try {
     const capabilities = await webAuthn().PublicKeyCredential?.getClientCapabilities?.();
     return capabilities?.immediateGet === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether the browser can offer this site's passkeys in a form field's
+ * autofill (conditional mediation), for `autofillPasskey`. Asks
+ * `getClientCapabilities` where the browser has it, and the older
+ * `isConditionalMediationAvailable` where not.
+ */
+export async function canAutofillPasskey(): Promise<boolean> {
+  try {
+    const credential = webAuthn().PublicKeyCredential;
+    if (credential?.getClientCapabilities) {
+      return (await credential.getClientCapabilities()).conditionalGet === true;
+    }
+    return (await credential?.isConditionalMediationAvailable?.()) === true;
   } catch {
     return false;
   }
@@ -133,6 +152,19 @@ export async function findPasskey(options: PublicKeyCredentialRequestOptionsJSON
 /** Ask for a passkey through the browser's ordinary sheet, as step-up does. */
 export async function usePasskey(options: PublicKeyCredentialRequestOptionsJSON): Promise<FindResult> {
   return get(options);
+}
+
+/**
+ * Offer this site's passkeys in the autofill of an input whose autocomplete
+ * includes `webauthn`, until the person picks one or `signal` aborts the
+ * request. Browsers allow one WebAuthn request at a time, so abort this one
+ * before starting any other. Returns not-found when aborted.
+ */
+export async function autofillPasskey(
+  options: PublicKeyCredentialRequestOptionsJSON,
+  signal: AbortSignal,
+): Promise<FindResult> {
+  return get(options, { mediation: "conditional", signal });
 }
 
 /** One get; a TypeError is thrown for findPasskey to try the next spelling. */

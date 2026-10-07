@@ -52,7 +52,7 @@ These practices come from Christopher Allen's write-up of a running passkey syst
 
 ## Status - Alpha
 
-Passkey login works: registration, login, adding passkeys (steered to this device, another device or a security key) and revoking them, recovery codes and their rotation, step-up, and sessions, including logging out elsewhere or everywhere. Operators can look up a member, issue a rebind link, suspend and resume, remove, and allow a retired member name again, and every operator action is logged. The canvas, agents and signed artifacts come later. The API is not stable yet, and the library is not yet published to npm: use it from this repository.
+Passkey login works: registration, login (from the member-name field's passkey autofill too, on browsers without immediate mediation such as Safari), adding passkeys (steered to this device, another device or a security key) and revoking them, recovery codes and their rotation, step-up, and sessions, including logging out elsewhere or everywhere. Operators can look up a member, issue a rebind link, suspend and resume, remove, and allow a retired member name again, and every operator action is logged. The canvas, agents and signed artifacts come later. The API is not stable yet, and the library is not yet published to npm: use it from this repository.
 
 Because it is in alpha, `passkey-cloudflare` should not be used for production tasks until it has had further testing and auditing. See [Blockchain Commons' Development Phases](https://github.com/BlockchainCommons/Community/blob/master/release-path.md).
 
@@ -65,7 +65,7 @@ Checked by hand on the deployed demo, September 2026:
 
 The automated tests use a software authenticator (ES256 and Ed25519) inside the Workers runtime, and Playwright's Chromium with a virtual authenticator. The library's own dCBOR, Bytewords and Envelope encoders, the `ur:seed` text of recovery codes, and passkey labels are checked against test vectors made with Blockchain Commons' reference implementations. The base64url and CBOR helpers of `@simplewebauthn/server`, the WebAuthn library used for verification, are covered only indirectly, by the ceremony tests.
 
-Not tested: Windows (including Windows Hello), Android, Linux and Firefox. Registration offers only ES256 and EdDSA, so an authenticator that supports only RS256, such as some older Windows Hello setups, may be unable to register. Registration asks for no attestation, so a deployment cannot limit which authenticator models may register.
+Not tested: Windows (including Windows Hello), Android, Linux and Firefox. Passkey autofill has not yet been checked by hand on Safari: Playwright checks only that it starts and is aborted, in Chromium with Safari's capabilities stubbed. Registration offers only ES256 and EdDSA, so an authenticator that supports only RS256, such as some older Windows Hello setups, may be unable to register. Registration asks for no attestation, so a deployment cannot limit which authenticator models may register.
 
 ### Known Issues
 
@@ -73,7 +73,6 @@ Not tested: Windows (including Windows Hello), Android, Linux and Firefox. Regis
 
 ### Not Yet Supported
 
-- Passkey autofill (conditional mediation), where the browser offers passkeys in a form field's suggestions.
 - Passkeys used across several domains (WebAuthn Related Origin Requests).
 - RS256 at registration, which some older Windows Hello setups need.
 - Workers Free (see [`docs/workers-free.md`](docs/workers-free.md)).

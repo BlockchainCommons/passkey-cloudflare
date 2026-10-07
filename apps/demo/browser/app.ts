@@ -52,6 +52,27 @@ async function signedOut() {
 
 // --- sign-in pane -----------------------------------------------------------
 
+async function openSignIn() {
+  await signIn.open();
+  await autofill();
+}
+
+/**
+ * Where Continue would need a sheet, offer passkeys in the member-name field's
+ * autofill from when the pane opens until it closes or another passkey request
+ * starts. A stopped request ends here quietly.
+ */
+async function autofill() {
+  // Closed while the capabilities were checked: closing stopped nothing yet, so start nothing.
+  if (!(await flows.offersAutofill()) || !signIn.isOpen) return;
+  signIn.offerAutofill();
+  const loggedIn = await flows.autofill();
+  if (loggedIn.result === "no-passkey") return;
+  if (loggedIn.result === "not-accepted") return signIn.notAccepted();
+  signIn.close();
+  await refreshApp();
+}
+
 async function continueWithPasskey() {
   status("");
   const loggedIn = await flows.continueWithPasskey();
@@ -146,7 +167,7 @@ async function operatorAction(action: OperatorAction) {
 
 // --- wiring -----------------------------------------------------------------
 
-$("open-sign-in").addEventListener("click", guard(() => signIn.open()));
+$("open-sign-in").addEventListener("click", guard(openSignIn));
 $("open-settings").addEventListener("click", guard(async () => {
   settings.clearStatus();
   await showSettings();
@@ -156,6 +177,7 @@ for (const close of document.querySelectorAll<HTMLButtonElement>("dialog .close"
 }
 pane("codes").addEventListener("cancel", (event) => event.preventDefault());
 pane("codes").addEventListener("close", () => codes.closed());
+pane("sign-in").addEventListener("close", () => flows.stopAutofill());
 $("continue").addEventListener("click", guard(continueWithPasskey));
 for (const toggle of document.querySelectorAll<HTMLButtonElement>(".info-toggle")) {
   const controls = toggle.getAttribute("aria-controls");

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CeremonyClient, type Authenticator } from "../browser/ceremonies.ts";
+import { CeremonyClient, type Authenticator, type GetMode } from "../browser/ceremonies.ts";
 import { ALREADY_REGISTERED, Flows } from "../browser/flows.ts";
 import { softwareAuthenticator, type Browser } from "./browser.ts";
 import { testApp, uniqueName } from "./harness.ts";
@@ -79,6 +79,60 @@ describe("the demo's flows", () => {
     ).toEqual({
       result: "not-accepted",
     });
+  });
+
+  it("log in with a passkey picked from autofill, asked for under the autofill request's signal", async () => {
+    const app = testApp();
+    const browser = app.browser();
+    await browser.register(uniqueName());
+    const software = softwareAuthenticator(browser.authenticator);
+    const asked: GetMode[] = [];
+    const flows = flowsOn(browser, {
+      get: (options, mode) => {
+        asked.push(mode);
+        return software.get(options, mode);
+      },
+    });
+
+    expect(await flows.autofill()).toEqual({ result: "signed-in" });
+    expect(asked).toEqual([{ autofill: expect.any(AbortSignal) }]);
+    expect((asked[0] as { autofill: AbortSignal }).autofill.aborted).toBe(false);
+    expect(await browser.ceremonies.me()).not.toBeNull();
+  });
+
+  it("tell nothing when the autofill request's login options are refused", async () => {
+    const browser = testApp().browser();
+    const asked: GetMode[] = [];
+    const client = new CeremonyClient(
+      {
+        origin: browser.app.origin,
+        fetch: (request) =>
+          request.url.endsWith("/auth/login/options")
+            ? Promise.resolve(new Response(null, { status: 429 }))
+            : browser.send(request),
+      },
+      {
+        ...softwareAuthenticator(browser.authenticator),
+        get: async (_options, mode) => (asked.push(mode), { result: "not-found" }),
+      },
+    );
+
+    expect(await new Flows(client, SITE).autofill()).toEqual({ result: "no-passkey" });
+    expect(asked).toEqual([]);
+  });
+
+  it("abort the autofill request on stopAutofill, and tell it as no passkey", async () => {
+    let signal: AbortSignal | undefined;
+    const flows: Flows = flowsOn(testApp().browser(), {
+      get: async (_options, mode) => {
+        signal = typeof mode === "object" ? mode.autofill : undefined;
+        flows.stopAutofill();
+        return { result: "not-found" };
+      },
+    });
+
+    expect(await flows.autofill()).toEqual({ result: "no-passkey" });
+    expect(signal?.aborted).toBe(true);
   });
 
   it("return a registration's codes as the codes pane shows and copies them", async () => {

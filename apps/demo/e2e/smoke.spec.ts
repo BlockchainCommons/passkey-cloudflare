@@ -178,6 +178,99 @@ test("without immediate mode, register and recover show from the start", async (
   expect(registrations).toEqual([]);
 });
 
+/**
+ * From the page's next load, report `capabilities` and record each WebAuthn
+ * request in `webAuthnOn`'s list: `conditional` for an autofill request, held
+ * open until its signal aborts it (`aborted`), and `get` or `create` for any
+ * other, which reaches the browser. Also counts capability checks.
+ */
+async function recordWebAuthn(page: Page, capabilities: Record<string, boolean>) {
+  await page.addInitScript((capabilities) => {
+    const recorded = { log: [] as string[], capabilityChecks: 0 };
+    (window as unknown as { webAuthn: typeof recorded }).webAuthn = recorded;
+    PublicKeyCredential.getClientCapabilities = async () => {
+      recorded.capabilityChecks++;
+      return capabilities;
+    };
+    const { credentials } = navigator;
+    const get = credentials.get.bind(credentials);
+    const create = credentials.create.bind(credentials);
+    credentials.get = (options) => {
+      if (options?.mediation !== "conditional") {
+        recorded.log.push("get");
+        return get(options);
+      }
+      recorded.log.push("conditional");
+      return new Promise((_, reject) => {
+        options.signal?.addEventListener("abort", () => {
+          recorded.log.push("aborted");
+          reject(options.signal!.reason);
+        });
+      });
+    };
+    credentials.create = (options) => {
+      recorded.log.push("create");
+      return create(options);
+    };
+  }, capabilities);
+}
+
+const webAuthnOn = (page: Page) =>
+  page.evaluate(() => (window as unknown as { webAuthn: { log: string[]; capabilityChecks: number } }).webAuthn);
+
+/** Count the page's login options requests. */
+function countLoginOptions(page: Page) {
+  const requests: string[] = [];
+  page.on("request", (r) => {
+    if (r.url().endsWith("/auth/login/options")) requests.push(r.url());
+  });
+  return requests;
+}
+
+test("without immediate mode, the sign-in pane offers passkeys in the member-name autofill", async ({ page }) => {
+  await recordWebAuthn(page, { immediateGet: false, conditionalGet: true });
+  await addAuthenticator(page);
+  const loginOptions = countLoginOptions(page);
+  await page.goto("/");
+  await expect(page.getByText("Sign in to try passkeys.")).toBeVisible();
+  expect((await webAuthnOn(page)).log).toEqual([]);
+  expect(loginOptions).toHaveLength(0);
+
+  await openSignIn(page);
+  await expect.poll(async () => (await webAuthnOn(page)).log).toEqual(["conditional"]);
+  expect(loginOptions).toHaveLength(1);
+  await expect(page.locator("#register-name")).toHaveAttribute("autocomplete", /\bwebauthn\b/);
+
+  // Continue aborts the autofill request before it asks for a passkey itself.
+  await page.getByRole("button", { name: "Continue with passkey" }).click();
+  await expect(page.getByText(NO_PASSKEY_USED)).toBeVisible();
+  expect((await webAuthnOn(page)).log).toEqual(["conditional", "aborted", "get"]);
+  expect(loginOptions).toHaveLength(2);
+
+  // Closing the pane aborts the request that opening it starts again.
+  await page.getByRole("button", { name: "Close" }).click();
+  await openSignIn(page);
+  await expect.poll(async () => (await webAuthnOn(page)).log).toEqual(["conditional", "aborted", "get", "conditional"]);
+  await page.getByRole("button", { name: "Close" }).click();
+  await expect
+    .poll(async () => (await webAuthnOn(page)).log)
+    .toEqual(["conditional", "aborted", "get", "conditional", "aborted"]);
+});
+
+test("with immediate mode, the sign-in pane asks for no passkey until Continue", async ({ page }) => {
+  await recordWebAuthn(page, { immediateGet: true, conditionalGet: true });
+  const loginOptions = countLoginOptions(page);
+  await page.goto("/");
+  await expect(page.getByText("Sign in to try passkeys.")).toBeVisible();
+
+  await openSignIn(page);
+  // Opening checks the capabilities twice, for the choices and for autofill; the second decides.
+  await expect.poll(async () => (await webAuthnOn(page)).capabilityChecks).toBe(2);
+  expect((await webAuthnOn(page)).log).toEqual([]);
+  expect(loginOptions).toHaveLength(0);
+  await expect(page.locator("#register-name")).toHaveAttribute("autocomplete", "username");
+});
+
 test("the register form checks names by the library's rules and explains them", async ({ page }) => {
   await page.addInitScript(() => {
     PublicKeyCredential.getClientCapabilities = async () => ({ immediateGet: false });

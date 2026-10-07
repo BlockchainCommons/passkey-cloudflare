@@ -1,4 +1,6 @@
 import {
+  autofillPasskey,
+  canAutofillPasskey,
   canFindWithoutSheet,
   createPasskey,
   creationOptionsFromJSON,
@@ -131,6 +133,73 @@ describe("canFindWithoutSheet", () => {
   it("is false with no WebAuthn at all", async () => {
     vi.stubGlobal("PublicKeyCredential", undefined);
     expect(await canFindWithoutSheet()).toBe(false);
+  });
+});
+
+describe("canAutofillPasskey", () => {
+  it("is true when the browser reports conditional get", async () => {
+    stubCapabilities(async () => ({ immediateGet: false, conditionalGet: true }));
+    expect(await canAutofillPasskey()).toBe(true);
+  });
+
+  it("is false when the browser's capabilities leave conditional get out", async () => {
+    stubCapabilities(async () => ({ immediateGet: false }));
+    expect(await canAutofillPasskey()).toBe(false);
+  });
+
+  it("asks isConditionalMediationAvailable where the browser cannot report its capabilities", async () => {
+    vi.stubGlobal("PublicKeyCredential", { isConditionalMediationAvailable: async () => true });
+    expect(await canAutofillPasskey()).toBe(true);
+    vi.stubGlobal("PublicKeyCredential", { isConditionalMediationAvailable: async () => false });
+    expect(await canAutofillPasskey()).toBe(false);
+  });
+
+  it("is false when asking fails, or with no WebAuthn at all", async () => {
+    stubCapabilities(() => Promise.reject(new DOMException("no", "NotSupportedError")));
+    expect(await canAutofillPasskey()).toBe(false);
+    vi.stubGlobal("PublicKeyCredential", undefined);
+    expect(await canAutofillPasskey()).toBe(false);
+  });
+});
+
+describe("autofillPasskey", () => {
+  it("asks with conditional mediation and the signal, and returns the passkey picked", async () => {
+    const asked: Record<string, unknown>[] = [];
+    stubCredentials({
+      get: async (options) => {
+        asked.push(options as Record<string, unknown>);
+        return { toJSON: () => authenticationJSON };
+      },
+    });
+    const { signal } = new AbortController();
+
+    expect(await autofillPasskey(requestOptions, signal)).toEqual({ result: "found", response: authenticationJSON });
+    expect(asked).toHaveLength(1);
+    expect(asked[0]!.mediation).toBe("conditional");
+    expect(asked[0]!.signal).toBe(signal);
+  });
+
+  it("returns not-found when the request is aborted", async () => {
+    // As browsers do: the pending request rejects with the signal's reason, an AbortError.
+    stubCredentials({
+      get: (options) =>
+        new Promise((_, reject) => {
+          const { signal } = options as { signal: AbortSignal };
+          signal.addEventListener("abort", () => reject(signal.reason));
+        }),
+    });
+    const controller = new AbortController();
+
+    const autofilled = autofillPasskey(requestOptions, controller.signal);
+    controller.abort();
+
+    expect(await autofilled).toEqual({ result: "not-found" });
+  });
+
+  it("throws any other error", async () => {
+    const error = new DOMException("bad rp", "SecurityError");
+    stubCredentials({ get: () => Promise.reject(error) });
+    await expect(autofillPasskey(requestOptions, new AbortController().signal)).rejects.toBe(error);
   });
 });
 

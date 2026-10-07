@@ -35,14 +35,18 @@ export interface Target {
   fetch(request: Request): Promise<Response>;
 }
 
+/**
+ * How a get asks for a passkey: `find` to log in, which may end without a
+ * sheet where the browser can; `use` for a step-up, through the browser's
+ * ordinary sheet; `autofill` to log in with a passkey the person picks from a
+ * field's autofill, until its signal aborts the request.
+ */
+export type GetMode = "find" | "use" | { autofill: AbortSignal };
+
 /** How the client asks for a passkey, in the library's browser results. */
 export interface Authenticator {
   create(options: PublicKeyCredentialCreationOptionsJSON): Promise<CreateResult>;
-  /**
-   * `find` to log in, which may end without a sheet where the browser can;
-   * `use` for a step-up, through the browser's ordinary sheet.
-   */
-  get(options: PublicKeyCredentialRequestOptionsJSON, mode: "find" | "use"): Promise<FindResult>;
+  get(options: PublicKeyCredentialRequestOptionsJSON, mode: GetMode): Promise<FindResult>;
 }
 
 /** The person declined the passkey: dismissed the sheet, or had none to use. A declined step-up ends here too. */
@@ -104,11 +108,11 @@ export class CeremonyClient {
     return prepared.result === "prepared" ? this.send<Registered>(prepared) : prepared;
   }
 
-  /** The login's verify request, with a passkey found for it. */
-  async loginRequest(): Promise<Prepared | Cancelled | Refused> {
+  /** The login's verify request, with a passkey found for it, or picked from autofill. */
+  async loginRequest(mode: Exclude<GetMode, "use"> = "find"): Promise<Prepared | Cancelled | Refused> {
     const options = await this.post("/auth/login/options");
     if (!options.ok) return refused(options);
-    const found = await this.authenticator.get(await read(options), "find");
+    const found = await this.authenticator.get(await read(options), mode);
     if (found.result === "not-found") return CANCELLED;
     return { result: "prepared", path: "/auth/login/verify", body: { response: found.response } };
   }
@@ -262,7 +266,8 @@ export class CeremonyClient {
     return response.ok ? { result: "ok", ...(await read<T>(response)) } : refused(response);
   }
 
-  private async send<T>(prepared: Prepared): Promise<Ok<T> | Refused> {
+  /** Send a ceremony's final request, made by one of the `...Request` calls. */
+  async send<T>(prepared: Prepared): Promise<Ok<T> | Refused> {
     return this.answer<T>(await this.post(prepared.path, prepared.body));
   }
 

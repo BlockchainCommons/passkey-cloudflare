@@ -8,7 +8,7 @@ import {
   MEMBER_NAME_RULES,
   needsCapitalNudge,
 } from "passkey-cloudflare/browser";
-import { $, closePane, input, openPane, status } from "./dom.ts";
+import { $, closePane, input, openPane, pane, status } from "./dom.ts";
 
 const CHOICES_GUIDANCE = "If you do not have a passkey here yet, register; if you lost yours, recover.";
 
@@ -42,6 +42,15 @@ export class SignInPane {
 
   close() {
     closePane("sign-in");
+  }
+
+  get isOpen() {
+    return pane("sign-in").open;
+  }
+
+  /** Let the member-name field offer passkeys in its autofill. */
+  offerAutofill() {
+    input("register-name").autocomplete = "username webauthn";
   }
 
   /** Continue used no passkey: no passkey here, or a dismissed picker, so the message says only that none was used. */
