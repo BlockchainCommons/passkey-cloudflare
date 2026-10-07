@@ -135,6 +135,19 @@ reference implementations.
 
 - Password managers that draw their passkey picker inside the page, such as LastPass, are blocked by the demo's sign-in pane, and overlapping logins can show a refusal while signed in ([#1](https://github.com/BlockchainCommons/passkey-cloudflare/issues/1)).
 
+### Current Work
+
+Toward 0.1.0, we are tightening verification and refusal handling, running a second architecture review, writing architecture and recovery-code documentation, and cleaning up the repository and demo for others to use. An adversarial security review follows 0.1.0.
+
+### Not Yet Supported
+
+- Passkeys used across several domains (WebAuthn Related Origin Requests).
+- RS256 at registration, which some older Windows Hello setups need.
+- Workers Free (see [`docs/workers-free.md`](docs/workers-free.md)).
+- A prompt to add another passkey when one stops being backed up.
+- Password-manager icons beside passkey names.
+- Changing a member name after registration.
+
 ### Version History
 
 0.0.1 (10/6/26) - Local repo ported to Blockchain Commons
