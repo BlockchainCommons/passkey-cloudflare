@@ -52,7 +52,7 @@ These practices come from Christopher Allen's write-up of a running passkey syst
 
 ## Status - Alpha
 
-Passkey login works: registration, login, adding and revoking passkeys, recovery codes and their rotation, step-up, and sessions, including logging out elsewhere or everywhere. Operators can look up a member, issue a rebind link, suspend and resume, remove, and allow a retired member name again, and every operator action is logged. The canvas, agents and signed artifacts come later. The API is not stable yet, and the library is not yet published to npm: use it from this repository.
+Passkey login works: registration, login, adding passkeys (steered to this device, another device or a security key) and revoking them, recovery codes and their rotation, step-up, and sessions, including logging out elsewhere or everywhere. Operators can look up a member, issue a rebind link, suspend and resume, remove, and allow a retired member name again, and every operator action is logged. The canvas, agents and signed artifacts come later. The API is not stable yet, and the library is not yet published to npm: use it from this repository.
 
 Because it is in alpha, `passkey-cloudflare` should not be used for production tasks until it has had further testing and auditing. See [Blockchain Commons' Development Phases](https://github.com/BlockchainCommons/Community/blob/master/release-path.md).
 
@@ -114,7 +114,7 @@ npx playwright install chromium        # once
 npm run test:e2e -w demo               # the browser smoke test, against wrangler dev
 ```
 
-The Workers that Playwright and the refusal-floor measurement run are never deployed as the demo. They also name operators by member name, in the `OPERATOR_MEMBER_NAMES` var, so their tests need no secret. That code is left out of the demo's own entry point, `apps/demo/src/index.ts`, and `npm test` checks that the deployed bundle does not contain it.
+The Workers that Playwright and the refusal-floor measurement run are never deployed as the demo. They also name operators by member name, in the `OPERATOR_MEMBER_NAMES` var, so their tests need no secret, and raise every rate limit too high to refuse, so runs from one address are not throttled. That code is left out of the demo's own entry point, `apps/demo/src/index.ts`, and `npm test` checks that the deployed bundle does not contain it.
 
 To run the demo locally, the relying party must match the page's origin, and `--local-upstream` must name the local host. Without it, the demo's custom-domain route rewrites each request's Origin to the deployed domain, and every ceremony is refused as "origin not allowed":
 
