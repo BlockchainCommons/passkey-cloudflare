@@ -1,5 +1,6 @@
 // The settings pane: the signed-in record's passkeys and sessions, its record
-// id, and the prompt to replace recovery codes after a recovery. No requests.
+// id, the suggestion to add a passkey while every one is device-bound, and the
+// prompt to replace recovery codes after a recovery. No requests.
 
 import { $, closePane, openPane, pane, row, when } from "./dom.ts";
 import type { Settings } from "./flows.ts";
@@ -25,6 +26,8 @@ export class SettingsPane {
         );
       }),
     );
+    // One passkey a password manager can copy to another device is a spare; without one, suggest adding one.
+    $("device-bound-notice").hidden = credentials.some((c) => c.backupEligible);
     $("session-rows").replaceChildren(
       ...sessions.map((s) =>
         row([`${s.userAgent}${s.current ? " (this one)" : ""}`, when(s.createdAt), when(s.expiresAt)]),

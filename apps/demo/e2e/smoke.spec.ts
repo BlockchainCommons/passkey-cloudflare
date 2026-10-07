@@ -2,10 +2,17 @@ import { expect, test, type Browser, type Locator, type Page } from "@playwright
 import { OPERATORS } from "./operators.ts";
 
 const CAPITAL_NUDGE = "Member names display as typed, and most read best with a capital letter.";
+const DEVICE_BOUND_NOTICE =
+  "Each of your passkeys is held on one device and can't be copied to another. " +
+  "If you lose that device, only a recovery code gets you back in. " +
+  "Add a passkey on another device or a security key, and keep your recovery codes somewhere safe.";
 const NO_PASSKEY_USED = "No passkey was used. If you do not have a passkey here yet, register; if you lost yours, recover.";
 
-/** Give the page a virtual authenticator; returns what reaches it over CDP. */
-async function addAuthenticator(page: Page) {
+/**
+ * Give the page a virtual authenticator; returns what reaches it over CDP.
+ * Its passkeys are device-bound (BE=0) unless `synced`, as a password manager's would be.
+ */
+async function addAuthenticator(page: Page, { synced = false } = {}) {
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("WebAuthn.enable");
   const { authenticatorId } = await cdp.send("WebAuthn.addVirtualAuthenticator", {
@@ -16,6 +23,8 @@ async function addAuthenticator(page: Page) {
       hasUserVerification: true,
       isUserVerified: true,
       automaticPresenceSimulation: true,
+      defaultBackupEligibility: synced,
+      defaultBackupState: synced,
     },
   });
   return { cdp, authenticatorId };
@@ -540,6 +549,45 @@ test("each add-passkey button sends its hint and adds a passkey", async ({ page 
     await expect(page.locator("#credential-rows tr")).toHaveCount(index + 2);
   }
   expect(options).toEqual(buttons.map(([, hint]) => ({ hint })));
+});
+
+test("settings suggest another passkey while every passkey is device-bound", async ({ page }) => {
+  const deviceBound = await addAuthenticator(page);
+  await registerMember(page, `Bound${Date.now().toString(36)}`);
+  await openSettings(page);
+  const notice = page.locator("#device-bound-notice");
+  await expect(notice).toBeVisible();
+  await expect(notice).toHaveText(DEVICE_BOUND_NOTICE);
+
+  // Steps up, so that neither the enrolment nor the revoke needs the device-bound passkey.
+  await openAccountDetails(page);
+  await page.getByRole("button", { name: "Log out everywhere else" }).click();
+  await expect(page.locator("#settings-status")).toHaveText("Logged out everywhere else.");
+  await deviceBound.cdp.send("WebAuthn.removeVirtualAuthenticator", { authenticatorId: deviceBound.authenticatorId });
+  await addAuthenticator(page, { synced: true });
+
+  // One synced passkey beside the device-bound one hides the notice, without a reload.
+  await page.getByRole("button", { name: "Another device" }).click();
+  await expect(page.locator("#credential-rows tr")).toHaveCount(2);
+  await expect(notice).toHaveCount(1);
+  await expect(notice).toBeHidden();
+
+  // Revoking the synced passkey shows it again.
+  page.once("dialog", (dialog) => void dialog.accept());
+  await page.locator("#credential-rows tr").nth(1).getByRole("button", { name: "Revoke" }).click();
+  await expect(page.locator("#credential-rows tr")).toHaveCount(1);
+  await expect(page.locator("#credential-rows tr td").nth(2)).toHaveText("no");
+  await expect(notice).toBeVisible();
+});
+
+test("settings suggest no other passkey when the record's passkeys are synced", async ({ page }) => {
+  await addAuthenticator(page, { synced: true });
+  await registerMember(page, `Synced${Date.now().toString(36)}`);
+  await openSettings(page);
+  await expect(page.locator("#credential-rows tr")).toHaveCount(1);
+  await expect(page.locator("#credential-rows tr td").nth(2)).toHaveText("yes");
+  await expect(page.locator("#device-bound-notice")).toHaveCount(1);
+  await expect(page.locator("#device-bound-notice")).toBeHidden();
 });
 
 test("log out everywhere else steps up, then leaves only this session", async ({ page, browser }) => {
