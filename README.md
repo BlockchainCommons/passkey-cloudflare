@@ -142,7 +142,7 @@ To financially support further development of this and other projects, please co
 
 ## Contributing
 
-We encourage public contributions through issues and pull requests! Please review [How to Contribute](https://github.com/BlockchainCommons/Community/blob/master/CONTRIBUTING.md) for details on our development process.
+We encourage public contributions through issues and pull requests! Please review [CONTRIBUTING.md](./CONTRIBUTING.md) for details on our development process. All contributions to this repository require a GPG signed [Contributor License Agreement](./CLA.md).
 
 ### Discussions
 
@@ -160,7 +160,7 @@ If your company requires support to use our projects, please feel free to contac
 
 ### Credits
 
-The following people directly contributed to this repository. You can add your name here by getting involved. The first step is learning how to contribute from our [How to Contribute](https://github.com/BlockchainCommons/Community/blob/master/CONTRIBUTING.md) documentation.
+The following people directly contributed to this repository. You can add your name here by getting involved. The first step is learning how to contribute from our [CONTRIBUTING.md](./CONTRIBUTING.md) documentation.
 
 | Name              | Role                           | Github                                           | Email                                 | GPG Fingerprint                                    |
 | ----------------- | ------------------------------ | ------------------------------------------------ | ------------------------------------- | -------------------------------------------------- |
