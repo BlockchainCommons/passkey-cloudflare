@@ -67,10 +67,6 @@ The automated tests use a software authenticator (ES256 and Ed25519) inside the 
 
 Not tested: Windows (including Windows Hello), Android, Linux and Firefox. Passkey autofill has been checked by hand only in Safari on macOS, on the deployed demo; Playwright checks only that it starts and is aborted, in Chromium with Safari's capabilities stubbed. Registration offers only ES256 and EdDSA, so an authenticator that supports only RS256, such as some older Windows Hello setups, may be unable to register. Registration asks for no attestation, so a deployment cannot limit which authenticator models may register.
 
-### Known Issues
-
-- Password managers that draw their passkey picker inside the page, such as LastPass, are blocked by the demo's sign-in pane, and overlapping logins can show a refusal while signed in ([#1](https://github.com/BlockchainCommons/passkey-cloudflare/issues/1)).
-
 ### Not Yet Supported
 
 - Passkeys used across several domains (WebAuthn Related Origin Requests).

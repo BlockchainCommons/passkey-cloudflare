@@ -45,9 +45,10 @@ export class CodesPane {
   /**
    * Esc does not leave codes that are shown once. Chrome may close a dialog on a
    * repeated Esc even so, and the pane opens again until the person has saved them.
+   * Already open again when `lendPage` closed it for a passkey request.
    */
   closed() {
-    if (!this.saved) pane("codes").showModal();
+    if (!this.saved && !pane("codes").open) pane("codes").showModal();
   }
 
   private list(asWords: boolean) {

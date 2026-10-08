@@ -102,7 +102,7 @@ test("the app opens signed out, with sign-in in a pane it can close", async ({ p
   await expect(page.getByRole("button", { name: "Settings" })).toBeHidden();
 
   await openSignIn(page);
-  await expect(page.getByRole("button", { name: "Continue with passkey" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Continue with passkey" })).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(page.locator("#sign-in")).toBeHidden();
   await openSignIn(page);
@@ -296,6 +296,163 @@ test("with immediate mode, the sign-in pane asks for no passkey until Continue",
   expect((await webAuthnOn(page)).log).toEqual([]);
   expect(loginOptions).toHaveLength(0);
   await expect(page.locator("#register-name")).toHaveAttribute("autocomplete", "username");
+});
+
+/**
+ * Let the test hold the page's passkey requests, other than autofill, as a
+ * password manager's in-page picker holds them until the person picks:
+ * `holdPasskeys` holds every later request, `releasePasskeys` lets them
+ * through, and `passkeyRequests` counts them.
+ */
+async function gatePasskeys(page: Page) {
+  await page.addInitScript(() => {
+    let gate = Promise.resolve();
+    const control = {
+      requests: 0,
+      release: () => {},
+      hold() {
+        gate = new Promise((resolve) => (control.release = resolve));
+      },
+    };
+    (window as unknown as { passkeyGate: typeof control }).passkeyGate = control;
+    const { credentials } = navigator;
+    const get = credentials.get.bind(credentials);
+    const create = credentials.create.bind(credentials);
+    credentials.get = async (options) => {
+      if (options?.mediation === "conditional") return get(options);
+      control.requests++;
+      await gate;
+      return get(options);
+    };
+    credentials.create = async (options) => {
+      control.requests++;
+      await gate;
+      return create(options);
+    };
+  });
+}
+
+type PasskeyGate = { requests: number; release: () => void; hold: () => void };
+type Gated = { passkeyGate: PasskeyGate };
+const holdPasskeys = (page: Page) => page.evaluate(() => (window as unknown as Gated).passkeyGate.hold());
+const releasePasskeys = (page: Page) => page.evaluate(() => (window as unknown as Gated).passkeyGate.release());
+const passkeyRequests = (page: Page) => page.evaluate(() => (window as unknown as Gated).passkeyGate.requests);
+
+/**
+ * Draw a button over the page, outside every pane, as a password manager draws
+ * its passkey picker; it counts its clicks.
+ */
+async function addInPagePicker(page: Page) {
+  await page.evaluate(() => {
+    const picker = document.createElement("button");
+    picker.id = "in-page-picker";
+    picker.type = "button";
+    picker.textContent = "Log in with a passkey";
+    picker.dataset.clicks = "0";
+    picker.style.cssText = "position: fixed; top: 0; left: 0; z-index: 2147483647";
+    picker.addEventListener("click", () => (picker.dataset.clicks = String(Number(picker.dataset.clicks) + 1)));
+    document.body.append(picker);
+  });
+  return page.locator("#in-page-picker");
+}
+
+const isModal = (page: Page, id: string) => page.locator(`#${id}`).evaluate((pane) => pane.matches(":modal"));
+
+test("a picker drawn in the page takes clicks while Continue waits on it, and Continue starts no second login", async ({
+  page,
+}) => {
+  await gatePasskeys(page);
+  await addAuthenticator(page);
+  const memberName = `Picker${Date.now().toString(36)}`;
+  await registerMember(page, memberName);
+  await logOut(page);
+  const loginOptions = countLoginOptions(page);
+  const picker = await addInPagePicker(page);
+
+  await openSignIn(page);
+  await holdPasskeys(page);
+  const before = await passkeyRequests(page);
+  await page.getByRole("button", { name: "Continue with passkey" }).click();
+  await expect.poll(() => passkeyRequests(page)).toBeGreaterThan(before);
+  await picker.click();
+  await expect(picker).toHaveAttribute("data-clicks", "1");
+  await page.getByRole("button", { name: "Continue with passkey" }).click();
+  await releasePasskeys(page);
+
+  await expectSignedIn(page, memberName);
+  expect(loginOptions).toHaveLength(1);
+  await expect(page.locator("#status")).toHaveText("");
+});
+
+test("a picker drawn in the page takes clicks while adding a passkey waits, and no other add starts", async ({
+  page,
+}) => {
+  await gatePasskeys(page);
+  await addAuthenticator(page);
+  const options = postsTo(page, "/me/credentials/enrol/options");
+  await registerMember(page, `PickerAdd${Date.now().toString(36)}`);
+  await openSettings(page);
+  const picker = await addInPagePicker(page);
+
+  await holdPasskeys(page);
+  const before = await passkeyRequests(page);
+  const group = page.getByRole("group", { name: "Add a passkey on:" });
+  // A step-up first, as nothing has stepped up yet: a request from settings all the same.
+  await group.getByRole("button", { name: "This device" }).click();
+  await expect.poll(() => passkeyRequests(page)).toBeGreaterThan(before);
+  await picker.click();
+  await expect(picker).toHaveAttribute("data-clicks", "1");
+  await group.getByRole("button", { name: "Another device" }).click();
+  await group.getByRole("button", { name: "Security key" }).click();
+  await releasePasskeys(page);
+
+  // The authenticator holds the record's passkey, so the one enrolment says so.
+  await expect(page.locator("#settings-status")).toHaveText(
+    "This device already has a passkey for you. Use it to log in, or add one on another device.",
+  );
+  expect(options).toEqual([{ hint: "client-device" }]);
+  // Once the request ends, the pane is modal again, with focus back on the button: Escape closes it.
+  expect(await isModal(page, "settings")).toBe(true);
+  await expect(group.getByRole("button", { name: "This device" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#settings")).toBeHidden();
+});
+
+test("a login refused after another signed in leaves the signed-in page without a refusal", async ({ page }) => {
+  // A password manager that answers every pending request with the passkey picked for one, autofill included,
+  // although Continue aborted it.
+  await page.addInitScript(() => {
+    PublicKeyCredential.getClientCapabilities = async () => ({ immediateGet: false, conditionalGet: true });
+    const { credentials } = navigator;
+    const get = credentials.get.bind(credentials);
+    const waiting: ((credential: Credential | null) => void)[] = [];
+    let picked: Credential | null = null;
+    credentials.get = async (options) => {
+      if (options?.mediation === "conditional") return new Promise((resolve) => waiting.push(resolve));
+      picked = await get(options);
+      return picked;
+    };
+    (window as unknown as { answerLate: () => void }).answerLate = () => {
+      for (const answer of waiting.splice(0)) answer(picked);
+    };
+  });
+  await addAuthenticator(page);
+  const memberName = `Late${Date.now().toString(36)}`;
+  await registerMember(page, memberName);
+  await logOut(page);
+
+  await openSignIn(page);
+  await expect(page.locator("#register-name")).toHaveAttribute("autocomplete", /\bwebauthn\b/);
+  await page.getByRole("button", { name: "Continue with passkey" }).click();
+  await expectSignedIn(page, memberName);
+
+  const refused = page.waitForResponse((r) => r.url().endsWith("/auth/login/verify") && r.status() === 400);
+  await page.evaluate(() => (window as unknown as { answerLate: () => void }).answerLate());
+  await refused;
+  // The page handles the refusal after its response arrives.
+  await page.waitForTimeout(250);
+  await expect(page.locator("#status")).toHaveText("");
+  await expect(page.getByText("You're signed in with a passkey.")).toBeVisible();
 });
 
 test("the register form checks names by the library's rules and explains them", async ({ page }) => {

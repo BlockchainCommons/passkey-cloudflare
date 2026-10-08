@@ -274,29 +274,41 @@ function loggedIn(outcome: { result: "ok" | "cancelled" | "refused" }): LoggedIn
   return { result: outcome.result === "cancelled" ? "no-passkey" : "not-accepted" };
 }
 
+/** Runs a passkey request the person answers, with the page ready for that; see `lendPage` in dom.ts. */
+export type RunPasskeyRequest = <T>(request: () => Promise<T>) => Promise<T>;
+
 /**
  * The browser's passkeys, for the page. Browsers allow one WebAuthn request at
- * a time, so every other request first aborts the autofill one.
+ * a time, so every other request first aborts the autofill one. Each request
+ * but autofill goes through `run`.
  */
 class PagePasskeys implements Authenticator {
   readonly autofillRequests = new AutofillRequests();
+  private readonly run: RunPasskeyRequest;
+
+  constructor(run: RunPasskeyRequest) {
+    this.run = run;
+  }
 
   create(options: PublicKeyCredentialCreationOptionsJSON) {
     this.autofillRequests.stop();
-    return createPasskey(options);
+    return this.run(() => createPasskey(options));
   }
 
   get(options: PublicKeyCredentialRequestOptionsJSON, mode: GetMode) {
     // A signal stopped while the options were on their way rejects at once.
     if (typeof mode === "object") return autofillPasskey(options, mode.autofill);
     this.autofillRequests.stop();
-    return mode === "find" ? findPasskey(options) : usePasskey(options);
+    return this.run(() => (mode === "find" ? findPasskey(options) : usePasskey(options)));
   }
 }
 
-/** The flows of the page at `page` (its `location`): requests to its own origin, passkeys from the browser. */
-export function pageFlows(page: { origin: string; hostname: string }): Flows {
-  const passkeys = new PagePasskeys();
+/**
+ * The flows of the page at `page` (its `location`): requests to its own
+ * origin, passkeys from the browser, each request run by `run`.
+ */
+export function pageFlows(page: { origin: string; hostname: string }, run: RunPasskeyRequest): Flows {
+  const passkeys = new PagePasskeys(run);
   return new Flows(
     new DemoClient({ origin: page.origin, fetch: (request) => fetch(request) }, passkeys),
     // The demo's RP ID is its host name.

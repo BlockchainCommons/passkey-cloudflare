@@ -8,7 +8,7 @@ import {
   MEMBER_NAME_RULES,
   needsCapitalNudge,
 } from "passkey-cloudflare/browser";
-import { $, closePane, input, openPane, pane, status } from "./dom.ts";
+import { $, closePane, input, openPane, pane, paneStatus } from "./dom.ts";
 
 const CHOICES_GUIDANCE = "If you do not have a passkey here yet, register; if you lost yours, recover.";
 
@@ -53,13 +53,19 @@ export class SignInPane {
     input("register-name").autocomplete = "username webauthn";
   }
 
-  /** Continue used no passkey: no passkey here, or a dismissed picker, so the message says only that none was used. */
+  /**
+   * Continue used no passkey: no passkey here, or a dismissed picker, so the message says only that none was used.
+   * Says nothing once the pane has closed, as it has when another request signed in.
+   */
   noPasskeyUsed() {
+    if (!this.isOpen) return;
     this.revealChoices(`No passkey was used. ${CHOICES_GUIDANCE}`);
   }
 
+  /** Says nothing once the pane has closed, as it has when another request signed in. */
   notAccepted() {
-    status("That passkey was not accepted.");
+    if (!this.isOpen) return;
+    paneStatus("sign-in", "That passkey was not accepted.");
     this.revealChoices("You can register, or recover with a recovery code.");
   }
 

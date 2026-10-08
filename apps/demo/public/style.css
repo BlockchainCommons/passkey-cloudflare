@@ -62,6 +62,17 @@ dialog {
 dialog::backdrop {
   background: rgb(0 0 0 / 0.45);
 }
+/* While a passkey request runs, the panes are not modal (lendPage in browser/dom.ts): keep them where they were. */
+dialog[open]:not(:modal) {
+  position: fixed;
+  inset: 0;
+  height: fit-content;
+  /* The cap the browser puts on a modal dialog. */
+  max-width: calc(100% - 6px - 2em);
+  margin: auto;
+  overflow: auto;
+  z-index: 1;
+}
 dialog h2 {
   margin: 0;
 }
