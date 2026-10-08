@@ -196,9 +196,14 @@ describe("invariants", () => {
     expect(await dumpDurableState(["CREDENTIAL_LABELS"])).toContain(labelBlob(labels[0]));
   });
 
-  it("no distinguishable ceremony failure", async () => {
+  it("no distinguishable ceremony failure", { timeout: 30_000 }, async () => {
     const FLOOR = 200;
     const BOUND = 50;
+    // Each arm is sent once per round, the rounds interleaved, and compared by
+    // its fastest answer: load on the machine only ever adds time, so a slow
+    // moment must hit every one of an arm's rounds to widen the spread. Each
+    // round comes from its own source address, so that no round is throttled.
+    const ROUNDS = 3;
     const app = testApp({ vars: { REFUSAL_FLOOR_MS: String(FLOOR) } });
     const operator = await operatorFor(app);
     const arms = await refusalArms({
@@ -207,26 +212,32 @@ describe("invariants", () => {
     });
 
     const seen: { arm: string; status: number; body: string; headers: string; ms: number }[] = [];
-    for (const [arm, prepare] of Object.entries(arms)) {
-      const { path, body } = await prepare();
-      const request = new Request(ORIGIN + path, {
-        method: "POST",
-        headers: { Origin: ORIGIN, "Content-Type": "application/json", "CF-Connecting-IP": "2001:db8:ffff::1" },
-        body: JSON.stringify(body),
-      });
-      const started = Date.now();
-      const response = await app.fetch(request);
-      const ms = Date.now() - started;
-      const headers = [...response.headers].filter(([k]) => k !== "date").map(([k, v]) => `${k}: ${v}`).join("\n");
-      seen.push({ arm, status: response.status, body: await response.text(), headers, ms });
+    for (let round = 0; round < ROUNDS; round++) {
+      for (const [arm, prepare] of Object.entries(arms)) {
+        const { path, body } = await prepare();
+        const request = new Request(ORIGIN + path, {
+          method: "POST",
+          headers: {
+            Origin: ORIGIN,
+            "Content-Type": "application/json",
+            "CF-Connecting-IP": `2001:db8:ffff::${round + 1}`,
+          },
+          body: JSON.stringify(body),
+        });
+        const started = Date.now();
+        const response = await app.fetch(request);
+        const ms = Date.now() - started;
+        const headers = [...response.headers].filter(([k]) => k !== "date").map(([k, v]) => `${k}: ${v}`).join("\n");
+        seen.push({ arm, status: response.status, body: await response.text(), headers, ms });
+      }
     }
 
     for (const s of seen) {
       expect(s, s.arm).toMatchObject({ status: 400, body: REFUSAL, headers: seen[0]!.headers });
       expect(s.ms, s.arm).toBeGreaterThanOrEqual(FLOOR);
     }
-    const times = seen.map((s) => s.ms);
-    expect(Math.max(...times) - Math.min(...times)).toBeLessThanOrEqual(BOUND);
+    const fastest = Object.keys(arms).map((arm) => Math.min(...seen.filter((s) => s.arm === arm).map((s) => s.ms)));
+    expect(Math.max(...fastest) - Math.min(...fastest)).toBeLessThanOrEqual(BOUND);
     // Inside, each refusal keeps its own cause.
     const causes = new Set(
       [...(await dumpDurableState(["IDENTITY_RECORDS", "CEREMONY_FAILURES"])).matchAll(/ failures .* cause=(\S+)/g)].map(
@@ -236,6 +247,7 @@ describe("invariants", () => {
     for (const cause of ["unknown-challenge", "wrong-origin", "cross-origin", "credential-id-too-long", "wrong-rp-id", "bad-signature", "counter-regressed", "backup-eligibility-changed", "unknown-credential", "suspended", "wrong-recovery-code", "unknown-member-name", "malformed-response"]) {
       expect(causes).toContain(cause);
     }
+    expect(causes).not.toContain("rate-limited");
   });
 
   it("no cross-purpose challenge", async () => {
