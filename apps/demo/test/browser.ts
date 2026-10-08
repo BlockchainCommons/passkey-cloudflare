@@ -49,7 +49,7 @@ let ipCounter = 0;
 /** One browser: a cookie jar, a source address and an authenticator. */
 export class Browser {
   session: string | undefined;
-  // Unique across the run, because storage (and so every rate-limit bucket) is shared by all tests.
+  // Unique per browser, so each has its own rate-limit buckets and failure-log source within an app.
   readonly ip = `2001:db8::${(++ipCounter).toString(16)}`;
   userAgent = "TestBrowser/1.0";
 
@@ -163,6 +163,10 @@ export function refusal(outcome: { result: string; response?: Response }): Respo
 }
 
 let nameCounter = 0;
+/**
+ * A member name no other call returns. A test app holds every record its test
+ * registers, and the scripts share a deployed Worker's storage across runs.
+ */
 export function uniqueName(prefix = "member"): string {
   return `${prefix}${Date.now().toString(36)}${++nameCounter}`;
 }

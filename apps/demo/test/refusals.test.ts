@@ -102,7 +102,7 @@ describe("rate limits", () => {
     const app = testApp({ rateLimits: { recoverGlobal: { limit: 1, windowMs: HOUR } } });
     const name = uniqueName();
     const { recoveryCodes } = await app.browser().register(name);
-    // The global bucket is shared with every other test's recoveries, which can only make it stricter.
+    // This recovery fills the app's global bucket.
     await app.browser().recover(name, "dddd-dddd-dddd-dddd-dddd-dddd");
 
     expect(refusal(await app.browser().recover(name, recoveryCodes[0]!)).status).toBe(400);
@@ -138,7 +138,7 @@ describe("rate limits", () => {
   it("refuse anonymous ceremonies globally past the global limit", async () => {
     const app = testApp({ rateLimits: { ceremonyGlobal: { limit: 1, windowMs: HOUR } } });
     const browser = app.browser();
-    // The global bucket is shared with every other test's ceremonies, which can only make it stricter.
+    // This ceremony fills the app's global bucket.
     await browser.post("/auth/login/verify", {});
 
     const options = await browser.json(browser.post("/auth/register/options", { memberName: uniqueName() }));

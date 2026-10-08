@@ -423,8 +423,7 @@ describe("operator log", () => {
     await operator.post("/operator/resume", { recordId: personId });
 
     const { entries } = await operator.json(operator.get("/operator/log"));
-    // The log is shared by every operator in the deployment.
-    expect(entries.filter((e: any) => e.operatorId === operatorId)).toEqual([
+    expect(entries).toEqual([
       { operatorId, action: "create-rebind-link", targetId: personId, at: now },
       { operatorId, action: "suspend", targetId: personId, at: now },
       { operatorId, action: "resume", targetId: personId, at: now },
@@ -466,37 +465,30 @@ describe("operator lookup", () => {
       expect(await response.json()).toEqual({ error: "no such member" });
     }
     const { entries } = await operator.json(operator.get("/operator/log"));
-    expect(entries.filter((e: any) => e.operatorId === operatorId)).toEqual([]);
+    expect(entries).toEqual([]);
   });
 
   it("is refused, like the other operator routes, to a non-operator and to an operator who has not stepped up, and logs nothing", async () => {
     let now = Date.now();
     const { operator, operatorId, person, personName, personId } = await deployment({ clock: () => now });
-    const start = now;
     await person.stepUp();
-    // Read through a lookup, whose entries for this member are uncapped. The shared
-    // recent list is capped, and other files' entries could push a lookup out of it.
-    // Each read logs itself first, so it shows its own entry last.
-    const lookups = async () =>
-      (await operator.json(operator.post("/operator/lookup", { memberName: personName }))).entries.filter(
-        (e: any) => e.action === "lookup",
-      );
+    // Reading the log logs nothing, and the app's log holds only this test's entries.
+    const log = async () => (await operator.json(operator.get("/operator/log"))).entries;
 
     const byPerson = await person.post("/operator/lookup", { memberName: personName });
     expect(byPerson.status).toBe(403);
     expect(await byPerson.json()).toEqual({ error: "not an operator" });
-    expect(await lookups()).toEqual([{ operatorId, action: "lookup", targetId: personId, at: start }]);
+    expect(await log()).toEqual([]);
 
     now += 11 * 60 * 1000;
     const stale = await operator.post("/operator/lookup", { memberName: personName });
     expect(stale.status).toBe(403);
     expect(await stale.json()).toEqual({ error: "step-up-required" });
     await operator.stepUp();
-    // Only the two reads.
-    expect(await lookups()).toEqual([
-      { operatorId, action: "lookup", targetId: personId, at: start },
-      { operatorId, action: "lookup", targetId: personId, at: now },
-    ]);
+    expect(await log()).toEqual([]);
+    // A lookup that is let through is logged.
+    await operator.json(operator.post("/operator/lookup", { memberName: personName }));
+    expect(await log()).toEqual([{ operatorId, action: "lookup", targetId: personId, at: now }]);
   });
 
   it("logs each lookup once, and shows every earlier entry for that member, however old", async () => {

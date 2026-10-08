@@ -55,13 +55,11 @@ function send(browser: Browser, method: string, path: string, origin: string | n
 }
 
 /**
- * Nothing the routes could have changed has changed. The operator log is read
- * through each target's lookup, which is uncapped; a lookup logs itself before
- * it reads, so its answer ends with its own entry. So it sees only entries that
- * target the person or the retired member: a new route that acts on another
- * record needs a body that targets one of them.
+ * Nothing the routes could have changed has changed. The app's operator log
+ * holds only this deployment's entries, so it is read whole, before the lookup
+ * below logs one of its own.
  */
-async function expectUnchanged({ operator, person, personName, retiredName }: Awaited<ReturnType<typeof deployment>>) {
+async function expectUnchanged({ operator, person, retiredName }: Awaited<ReturnType<typeof deployment>>) {
   expect((await operator.get("/me")).status).toBe(200);
   const { credentials } = await operator.json(operator.get("/me/credentials"));
   expect(credentials).toHaveLength(2);
@@ -69,12 +67,12 @@ async function expectUnchanged({ operator, person, personName, retiredName }: Aw
   expect(sessions).toHaveLength(1);
   expect((await person.get("/me")).status).toBe(200);
   expect((await person.json(person.get("/me/credentials"))).credentials).toHaveLength(1);
+  const { entries } = await operator.json(operator.get("/operator/log"));
+  expect(entries.map((e: any) => e.action)).toEqual(["remove"]);
   // Read whatever the lookup answers: once the name is allowed, it no longer finds the member.
-  const retired = await (await operator.post("/operator/lookup", { memberName: retiredName })).json<any>();
-  expect(retired).toMatchObject({ retired: true });
-  expect(retired.entries.map((e: any) => e.action)).toEqual(["remove", "lookup"]);
-  const { entries } = await operator.json(operator.post("/operator/lookup", { memberName: personName }));
-  expect(entries.map((e: any) => e.action)).toEqual(["lookup"]);
+  expect(await (await operator.post("/operator/lookup", { memberName: retiredName })).json()).toMatchObject({
+    retired: true,
+  });
 }
 
 describe("a state-changing request", () => {
