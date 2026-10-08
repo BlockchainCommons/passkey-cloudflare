@@ -52,7 +52,9 @@ describe("a credential ID another record holds is refused as credential-exists",
     const browser = app.browser();
     const before = await boundState();
 
-    const response = refusal(await browser.client({ tamper: { credentialId: held.credentialId } }).register(name));
+    const response = refusal(
+      await browser.clientAnswering({ tamper: { credentialId: held.credentialId } }).register(name),
+    );
 
     expect(response.status).toBe(400);
     expect(await response.text()).toBe(REFUSAL);
@@ -62,7 +64,7 @@ describe("a credential ID another record holds is refused as credential-exists",
       cause: "credential-exists",
     });
     expect(await boundState()).toBe(before);
-    expect(await browser.client().memberNameAvailable(name)).toBe(true);
+    expect(await browser.clientAnswering().memberNameAvailable(name)).toBe(true);
     await expectHolderLogsIn(held);
   });
 
@@ -74,7 +76,7 @@ describe("a credential ID another record holds is refused as credential-exists",
     await browser.stepUp();
     const before = await boundState();
 
-    const response = refusal(await browser.client({ tamper: { credentialId: held.credentialId } }).enrol());
+    const response = refusal(await browser.clientAnswering({ tamper: { credentialId: held.credentialId } }).enrol());
 
     expect(response.status).toBe(400);
     expect(await response.text()).toBe(REFUSAL);
@@ -95,7 +97,7 @@ describe("a credential ID another record holds is refused as credential-exists",
     const before = await boundState();
 
     const response = refusal(
-      await newDevice.client({ tamper: { credentialId: held.credentialId } }).recover(name, recoveryCodes[0]!),
+      await newDevice.clientAnswering({ tamper: { credentialId: held.credentialId } }).recover(name, recoveryCodes[0]!),
     );
 
     expect(response.status).toBe(400);
@@ -122,7 +124,9 @@ describe("a credential ID another record holds is refused as credential-exists",
     const before = await boundState();
 
     const response = refusal(
-      await newDevice.client({ tamper: { credentialId: held.credentialId } }).rebind(new URL(link).hash.slice(1)),
+      await newDevice
+        .clientAnswering({ tamper: { credentialId: held.credentialId } })
+        .rebind(new URL(link).hash.slice(1)),
     );
 
     expect(response.status).toBe(400);

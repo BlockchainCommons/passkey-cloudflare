@@ -1,5 +1,5 @@
 // The demo's flows: what each thing a person can do asks of the server,
-// through the ceremony client, and the outcome a pane shows. Flows touch no
+// through the demo client, and the outcome a pane shows. Flows touch no
 // DOM; the panes render their outcomes, and app.ts connects the two.
 
 import {
@@ -18,14 +18,14 @@ import {
 } from "passkey-cloudflare/browser";
 import type { IssuedCodes, Me, MemberView, PasskeyListing, SessionListing } from "../src/responses.ts";
 import {
-  CeremonyClient,
+  DemoClient,
   type AlreadyRegistered,
   type Authenticator,
   type Cancelled,
   type GetMode,
   type OperatorAction,
   type Refused,
-} from "./ceremonies.ts";
+} from "./demo-client.ts";
 
 /**
  * A message for the status line of the pane in front. `declined` when the
@@ -91,20 +91,20 @@ export class AutofillRequests {
 }
 
 export class Flows {
-  readonly ceremonies: CeremonyClient;
+  readonly client: DemoClient;
   /** The site recovery codes are for: the demo's RP ID, its host name. */
   readonly site: string;
   readonly autofillRequests: AutofillRequests;
 
-  constructor(ceremonies: CeremonyClient, site: string, autofillRequests = new AutofillRequests()) {
-    this.ceremonies = ceremonies;
+  constructor(client: DemoClient, site: string, autofillRequests = new AutofillRequests()) {
+    this.client = client;
     this.site = site;
     this.autofillRequests = autofillRequests;
   }
 
   /** Who is signed in, or null. */
   me(): Promise<Me | null> {
-    return this.ceremonies.me();
+    return this.client.me();
   }
 
   // --- signing in -----------------------------------------------------------
@@ -114,7 +114,7 @@ export class Flows {
    * passkey here and a dismissed picker, which browsers do not tell apart.
    */
   async continueWithPasskey(): Promise<LoggedIn> {
-    return loggedIn(await this.ceremonies.login());
+    return loggedIn(await this.client.login());
   }
 
   /**
@@ -132,9 +132,9 @@ export class Flows {
    * were refused: the person asked for nothing, so there is nothing to tell.
    */
   async autofill(): Promise<LoggedIn> {
-    const prepared = await this.ceremonies.loginRequest({ autofill: this.autofillRequests.start() });
+    const prepared = await this.client.loginRequest({ autofill: this.autofillRequests.start() });
     if (prepared.result !== "prepared") return { result: "no-passkey" };
-    return loggedIn(await this.ceremonies.send(prepared));
+    return loggedIn(await this.client.send(prepared));
   }
 
   stopAutofill() {
@@ -143,11 +143,11 @@ export class Flows {
 
   /** Whether a member name is free to register; null when the check was refused, which says nothing either way. */
   memberNameAvailable(name: string): Promise<boolean | null> {
-    return this.ceremonies.memberNameAvailable(name);
+    return this.client.memberNameAvailable(name);
   }
 
   async register(memberName: string): Promise<({ result: "registered" } & IssuedCodes) | Told> {
-    const registered = await this.ceremonies.register(memberName);
+    const registered = await this.client.register(memberName);
     if (registered.result === "name-unavailable") return told(`The member name ${memberName} is not available.`);
     if (registered.result !== "ok") return notDone(registered, "Registration was refused.", "Registration cancelled.");
     return { ...registered, result: "registered" };
@@ -155,14 +155,14 @@ export class Flows {
 
   /** Recover with a recovery code; `codesLeft` is how many unused codes the record has after this one. */
   async recover(memberName: string, code: string): Promise<{ result: "recovered"; codesLeft: number } | Told> {
-    const recovered = await this.ceremonies.recover(memberName, code);
+    const recovered = await this.client.recover(memberName, code);
     if (recovered.result !== "ok") return notDone(recovered, "Recovery was refused.", "Recovery cancelled.");
     return { result: "recovered", codesLeft: recovered.codesLeft };
   }
 
   /** Bind a new passkey with a rebind link's fragment. */
   async rebind(link: string): Promise<{ result: "rebound" } | Told> {
-    const rebound = await this.ceremonies.rebind(link);
+    const rebound = await this.client.rebind(link);
     if (rebound.result === "invalid-link") return told("This link is not valid.");
     if (rebound.result !== "ok")
       return notDone(rebound, "This link was refused. It may have been used or have expired.");
@@ -173,19 +173,19 @@ export class Flows {
 
   /** The settings of `me`, the signed-in record. */
   async settings(me: Me): Promise<Settings> {
-    const [credentials, sessions] = await Promise.all([this.ceremonies.credentials(), this.ceremonies.sessions()]);
+    const [credentials, sessions] = await Promise.all([this.client.credentials(), this.client.sessions()]);
     return { me, credentials, sessions };
   }
 
   /** Add a passkey, with a hint for where the browser should offer to save it. */
   async addPasskey(hint?: PublicKeyCredentialHint): Promise<Told> {
-    const enrolled = await this.ceremonies.enrol(hint);
+    const enrolled = await this.client.enrol(hint);
     if (enrolled.result !== "ok") return notDone(enrolled, "Adding the passkey was refused.");
     return told(`Added passkey ${enrolled.label}.`);
   }
 
   async revoke(label: string): Promise<Told> {
-    const revoked = await this.ceremonies.revoke(label);
+    const revoked = await this.client.revoke(label);
     if (revoked.result === "only-passkey") return told("You cannot revoke your only passkey. Add another first.");
     if (revoked.result !== "ok") return notDone(revoked, "Could not revoke that passkey.");
     const { passkeyName, provider } = revoked;
@@ -199,21 +199,21 @@ export class Flows {
 
   /** Replace the record's recovery codes with a fresh set. */
   async rotateCodes(): Promise<({ result: "rotated" } & IssuedCodes) | Told> {
-    const rotated = await this.ceremonies.rotateRecoveryCodes();
+    const rotated = await this.client.rotateRecoveryCodes();
     if (rotated.result !== "ok") return notDone(rotated, "Could not replace your recovery codes.");
     return { ...rotated, result: "rotated" };
   }
 
   logout(): Promise<void> {
-    return this.ceremonies.logout();
+    return this.client.logout();
   }
 
   logoutEverywhere(): Promise<void> {
-    return this.ceremonies.logoutEverywhere();
+    return this.client.logoutEverywhere();
   }
 
   async logoutElsewhere(): Promise<Told> {
-    const done = await this.ceremonies.logoutElsewhere();
+    const done = await this.client.logoutElsewhere();
     if (done.result !== "ok") return notDone(done, "Could not log out everywhere else.");
     return told("Logged out everywhere else.");
   }
@@ -221,7 +221,7 @@ export class Flows {
   // --- operator -------------------------------------------------------------
 
   async lookUpMember(memberName: string): Promise<OperatorOutcome> {
-    const member = await this.ceremonies.lookUpMember(memberName);
+    const member = await this.client.lookUpMember(memberName);
     if (member.result === "cancelled") return CANCELLED;
     if (member.result === "no-such-member") return { result: "noted", note: "No such member" };
     if (member.result !== "ok") return refusedNote(member);
@@ -235,7 +235,7 @@ export class Flows {
     member: { memberName: string; recordId: string },
   ): Promise<OperatorOutcome> {
     const { memberName } = member;
-    const acted = await this.ceremonies.operatorAction(action, member);
+    const acted = await this.client.operatorAction(action, member);
     if (acted.result === "cancelled") return CANCELLED;
     if (acted.result === "operator-record") {
       return { result: "noted", note: "Operators can't be removed. Take them off OPERATOR_RECORD_IDS first." };
@@ -255,7 +255,7 @@ export class Flows {
 
   /** A fresh set, as the server returns it with when it was issued, as the codes pane shows it to the signed-in member. */
   async codes({ recoveryCodes, recoveryCodeWords, issuedAt }: IssuedCodes): Promise<CodesView> {
-    const memberName = (await this.ceremonies.me())?.memberName ?? "";
+    const memberName = (await this.client.me())?.memberName ?? "";
     const about = { site: this.site, memberName, issuedAt };
     return {
       recoveryCodes,
@@ -298,7 +298,7 @@ class PagePasskeys implements Authenticator {
 export function pageFlows(page: { origin: string; hostname: string }): Flows {
   const passkeys = new PagePasskeys();
   return new Flows(
-    new CeremonyClient({ origin: page.origin, fetch: (request) => fetch(request) }, passkeys),
+    new DemoClient({ origin: page.origin, fetch: (request) => fetch(request) }, passkeys),
     // The demo's RP ID is its host name.
     page.hostname,
     passkeys.autofillRequests,

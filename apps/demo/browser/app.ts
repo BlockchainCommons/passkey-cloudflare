@@ -6,7 +6,7 @@
 // make the requests and touch no DOM; the panes render and make no requests.
 
 import type { PublicKeyCredentialHint } from "passkey-cloudflare/browser";
-import type { OperatorAction } from "./ceremonies.ts";
+import type { OperatorAction } from "./demo-client.ts";
 import { CodesPane } from "./codes-pane.ts";
 import { $, input, pane, status } from "./dom.ts";
 import { pageFlows, type Told } from "./flows.ts";

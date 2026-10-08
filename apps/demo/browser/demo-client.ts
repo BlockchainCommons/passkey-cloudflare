@@ -1,8 +1,9 @@
-// The demo's ceremony client: each ceremony's options -> passkey -> verify
-// sequence against the demo's routes, the step-up a session-gated request may
-// need, and the answers the app tells apart, returned as outcomes. The demo's
-// browser code and its tests both use it. It belongs to the demo, not the
-// library, whose browser module makes no requests (ADR 0006).
+// The demo's client for its own routes: each ceremony's options -> passkey ->
+// verify sequence, the reads and calls on the signed-in record and the
+// operator's, the step-up a session-gated request may need, and the answers
+// the app tells apart, returned as outcomes. The demo's browser code and its
+// tests both use it. It belongs to the demo, not the library, whose browser
+// module makes no requests (ADR 0006).
 //
 // The browser bundles it, the Workers tests import it and Node loads it
 // through scripts/measure-refusals.ts, so it imports only types and declares
@@ -90,7 +91,7 @@ async function errorOf(response: Response): Promise<unknown> {
   }
 }
 
-export class CeremonyClient {
+export class DemoClient {
   readonly target: Target;
   readonly authenticator: Authenticator;
 

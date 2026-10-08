@@ -30,7 +30,7 @@ describe("a response that sets backed up without backup eligibility", () => {
     const app = testApp();
     const browser = app.browser();
 
-    const response = refusal(await browser.client({ tamper: TAMPER }).register(uniqueName()));
+    const response = refusal(await browser.clientAnswering({ tamper: TAMPER }).register(uniqueName()));
 
     expect(response.status).toBe(400);
     expect(await response.text()).toBe(REFUSAL);
@@ -50,7 +50,7 @@ describe("a response that sets backed up without backup eligibility", () => {
     const before = await credentialRows(app, recordId);
     browser.session = undefined;
 
-    const response = refusal(await browser.client({ tamper: TAMPER }).login());
+    const response = refusal(await browser.clientAnswering({ tamper: TAMPER }).login());
 
     expect(response.status).toBe(400);
     expect(await response.text()).toBe(REFUSAL);

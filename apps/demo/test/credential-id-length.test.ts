@@ -81,7 +81,7 @@ describe("a credential ID over 1023 bytes is refused as credential-id-too-long",
     const newDevice = app.browser();
 
     const refused = await timed(async () =>
-      refusal(await newDevice.client({ tamper: TOO_LONG }).recover(name, recoveryCodes[0]!)),
+      refusal(await newDevice.clientAnswering({ tamper: TOO_LONG }).recover(name, recoveryCodes[0]!)),
     );
 
     await expectUniformRefusal(refused);
@@ -104,7 +104,7 @@ describe("a credential ID over 1023 bytes is refused as credential-id-too-long",
     const newDevice = app.browser();
 
     const refused = await timed(async () =>
-      refusal(await newDevice.client({ tamper: TOO_LONG }).rebind(new URL(link).hash.slice(1))),
+      refusal(await newDevice.clientAnswering({ tamper: TOO_LONG }).rebind(new URL(link).hash.slice(1))),
     );
 
     await expectUniformRefusal(refused);

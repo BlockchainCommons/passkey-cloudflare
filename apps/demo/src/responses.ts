@@ -1,5 +1,5 @@
 // The JSON the demo's routes answer with, where a caller reads it. The routes
-// check their answers against these types, and the ceremony client returns
+// check their answers against these types, and the demo client returns
 // them, so the browser code and the tests read the server's own shapes. No
 // Workers APIs: the browser code compiles this file under the DOM lib.
 

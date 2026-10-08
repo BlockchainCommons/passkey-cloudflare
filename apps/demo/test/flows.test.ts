@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CeremonyClient, type Authenticator, type GetMode } from "../browser/ceremonies.ts";
+import { DemoClient, type Authenticator, type GetMode } from "../browser/demo-client.ts";
 import { ALREADY_REGISTERED, Flows } from "../browser/flows.ts";
 import { softwareAuthenticator, type Browser } from "./browser.ts";
 import { testApp, uniqueName } from "./harness.ts";
@@ -9,7 +9,7 @@ const SITE = "passkeydemo.gordianstack.com";
 /** The demo's flows on `browser`, its authenticator replaced in part by `answering`. */
 function flowsOn(browser: Browser, answering: Partial<Authenticator> = {}) {
   const software = softwareAuthenticator(browser.authenticator);
-  const client = new CeremonyClient(
+  const client = new DemoClient(
     { origin: browser.app.origin, fetch: (request) => browser.send(request) },
     { ...software, ...answering },
   );
@@ -38,7 +38,7 @@ describe("the demo's flows", () => {
     const { person, operator, personName, personId } = await signedIn();
     const flows = flowsOn(person, declining);
     const operatorFlows = flowsOn(operator, declining);
-    const label = (await person.ceremonies.credentials())[0]!.label;
+    const label = (await person.client.credentials())[0]!.label;
 
     const told = [
       await flows.addPasskey(),
@@ -97,13 +97,13 @@ describe("the demo's flows", () => {
     expect(await flows.autofill()).toEqual({ result: "signed-in" });
     expect(asked).toEqual([{ autofill: expect.any(AbortSignal) }]);
     expect((asked[0] as { autofill: AbortSignal }).autofill.aborted).toBe(false);
-    expect(await browser.ceremonies.me()).not.toBeNull();
+    expect(await browser.client.me()).not.toBeNull();
   });
 
   it("tell nothing when the autofill request's login options are refused", async () => {
     const browser = testApp().browser();
     const asked: GetMode[] = [];
-    const client = new CeremonyClient(
+    const client = new DemoClient(
       {
         origin: browser.app.origin,
         fetch: (request) =>

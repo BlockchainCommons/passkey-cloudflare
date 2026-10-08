@@ -43,7 +43,7 @@ describe("an assertion whose backup-eligible bit changed since registration", ()
       const before = await credentialRows(app, recordId);
       browser.session = undefined;
 
-      const response = refusal(await browser.client({ tamper }).login());
+      const response = refusal(await browser.clientAnswering({ tamper }).login());
 
       expect(response.status).toBe(400);
       expect(await response.text()).toBe(REFUSAL);
@@ -60,7 +60,7 @@ describe("an assertion whose backup-eligible bit changed since registration", ()
       const { browser, recordId } = await registered(app, synced);
       const before = await credentialRows(app, recordId);
 
-      const response = refusal(await browser.client({ tamper }).stepUp());
+      const response = refusal(await browser.clientAnswering({ tamper }).stepUp());
 
       expect(response.status).toBe(400);
       expect(await response.text()).toBe(REFUSAL);

@@ -115,11 +115,11 @@ describe("invariants", () => {
     const assertion = await person.authenticator.get(loginOptions);
     await person.post("/auth/login/verify", { response: assertion });
     const recoverDevice = app.browser();
-    const recovery = prepared(await recoverDevice.ceremonies.recoverRequest(name, recoveryCodes[0]));
+    const recovery = prepared(await recoverDevice.client.recoverRequest(name, recoveryCodes[0]));
     await recoverDevice.post(recovery.path, recovery.body);
     const { link } = await operator.json(operator.post("/operator/rebind-links", { recordId }));
     const rebindDevice = app.browser();
-    const rebind = prepared(await rebindDevice.ceremonies.rebindRequest(link.split("#")[1]));
+    const rebind = prepared(await rebindDevice.client.rebindRequest(link.split("#")[1]));
     await rebindDevice.post(rebind.path, rebind.body);
     const sessionsBefore = (await person.json(person.get("/me/sessions"))).sessions.length;
 

@@ -37,7 +37,7 @@ describe("a session records whether the ceremony that started it was user-verifi
   ] as const) {
     it(`register, ${name}`, async () => {
       const browser = testApp().browser();
-      const registered = await browser.client({ tamper }).register(uniqueName());
+      const registered = await browser.clientAnswering({ tamper }).register(uniqueName());
 
       expect(registered.result).toBe("ok");
       expect((await currentSession(browser)).userVerified).toBe(verified);
@@ -49,7 +49,7 @@ describe("a session records whether the ceremony that started it was user-verifi
       await phone.register(uniqueName());
       const laptop = app.browser();
       laptop.authenticator.credentials.push(...phone.authenticator.credentials);
-      const loggedIn = await laptop.client({ tamper }).login();
+      const loggedIn = await laptop.clientAnswering({ tamper }).login();
 
       expect(loggedIn.result).toBe("ok");
       expect((await currentSession(laptop)).userVerified).toBe(verified);
@@ -58,7 +58,7 @@ describe("a session records whether the ceremony that started it was user-verifi
     it(`recover, ${name}`, async () => {
       const { app, name: member, recoveryCodes } = await withOperator();
       const device = app.browser();
-      const recovered = await device.client({ tamper }).recover(member, recoveryCodes[0]!);
+      const recovered = await device.clientAnswering({ tamper }).recover(member, recoveryCodes[0]!);
 
       expect(recovered.result).toBe("ok");
       expect((await currentSession(device)).userVerified).toBe(verified);
@@ -67,7 +67,7 @@ describe("a session records whether the ceremony that started it was user-verifi
     it(`rebind, ${name}`, async () => {
       const { app, rebindHash } = await withOperator();
       const device = app.browser();
-      const rebound = await device.client({ tamper }).rebind(await rebindHash());
+      const rebound = await device.clientAnswering({ tamper }).rebind(await rebindHash());
 
       expect(rebound.result).toBe("ok");
       expect((await currentSession(device)).userVerified).toBe(verified);
@@ -87,10 +87,10 @@ describe("a session records whether its latest step-up was user-verified", () =>
     const browser = testApp().browser();
     await browser.register(uniqueName());
 
-    expect((await browser.client().stepUp()).result).toBe("ok");
+    expect((await browser.clientAnswering().stepUp()).result).toBe("ok");
     expect((await currentSession(browser)).stepUpUserVerified).toBe(true);
 
-    expect((await browser.client({ tamper: unverified }).stepUp()).result).toBe("ok");
+    expect((await browser.clientAnswering({ tamper: unverified }).stepUp()).result).toBe("ok");
     expect((await currentSession(browser)).stepUpUserVerified).toBe(false);
   });
 

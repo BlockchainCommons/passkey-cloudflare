@@ -99,14 +99,14 @@ describe("the RP ID a deployment's passkeys were made for", () => {
     expect(await storedRpId(app)).toBe(DEMO_RP_ID);
 
     app.vars.RP_ID = OLD_RP_ID;
-    refusal(await app.browser().ceremonies.register(uniqueName()));
+    refusal(await app.browser().client.register(uniqueName()));
     expect(await storedRpId(app)).toBe(DEMO_RP_ID);
   });
 
   it("can change while the deployment has no records, and the one in use is stored", async () => {
     const app = testApp({ vars: { RP_ID: OLD_RP_ID } });
     const name = uniqueName();
-    await app.browser().client().memberNameAvailable(name);
+    await app.browser().clientAnswering().memberNameAvailable(name);
     expect(await storedRpId(app)).toBeNull();
 
     app.vars.RP_ID = DEMO_RP_ID;
@@ -120,7 +120,7 @@ describe("the RP ID a deployment's passkeys were made for", () => {
     app.vars.IDENTITY_RECORDS = rejecting(env.IDENTITY_RECORDS, "createPerson");
     vi.spyOn(console, "error").mockImplementation(() => {});
 
-    refusal(await app.browser().ceremonies.register(uniqueName()));
+    refusal(await app.browser().client.register(uniqueName()));
     expect(await storedRpId(app)).toBeNull();
 
     delete app.vars.IDENTITY_RECORDS;
@@ -171,7 +171,7 @@ describe("a ceremony under an RP ID other than the stored one is refused as rp-i
     await pinOldRpId(app);
 
     await expectRefusedUnchanged(app, browser, "register", "/auth/register/verify", async () =>
-      refusal(await browser.ceremonies.register(name)),
+      refusal(await browser.client.register(name)),
     );
     expect(browser.session).toBeUndefined();
   });
@@ -184,7 +184,7 @@ describe("a ceremony under an RP ID other than the stored one is refused as rp-i
     await pinOldRpId(app);
 
     await expectRefusedUnchanged(app, browser, "login", "/auth/login/verify", async () =>
-      refusal(await browser.ceremonies.login()),
+      refusal(await browser.client.login()),
     );
     expect(browser.session).toBeUndefined();
   });
@@ -196,7 +196,7 @@ describe("a ceremony under an RP ID other than the stored one is refused as rp-i
     await pinOldRpId(app);
 
     await expectRefusedUnchanged(app, browser, "step-up", "/auth/step-up/verify", async () =>
-      refusal(await browser.ceremonies.stepUp()),
+      refusal(await browser.client.stepUp()),
     );
   });
 
@@ -208,7 +208,7 @@ describe("a ceremony under an RP ID other than the stored one is refused as rp-i
     await pinOldRpId(app);
 
     await expectRefusedUnchanged(app, browser, "enrol", "/me/credentials/enrol/verify", async () =>
-      refusal(await browser.ceremonies.enrol()),
+      refusal(await browser.client.enrol()),
     );
   });
 
@@ -220,7 +220,7 @@ describe("a ceremony under an RP ID other than the stored one is refused as rp-i
     await pinOldRpId(app);
 
     await expectRefusedUnchanged(app, newDevice, "recover", "/auth/recover", async () =>
-      refusal(await newDevice.ceremonies.recover(name, recoveryCodes[0]!)),
+      refusal(await newDevice.client.recover(name, recoveryCodes[0]!)),
     );
     expect(newDevice.session).toBeUndefined();
   });
@@ -237,7 +237,7 @@ describe("a ceremony under an RP ID other than the stored one is refused as rp-i
     await pinOldRpId(app);
 
     await expectRefusedUnchanged(app, newDevice, "rebind", "/auth/rebind/verify", async () =>
-      refusal(await newDevice.ceremonies.rebind(new URL(link).hash.slice(1))),
+      refusal(await newDevice.client.rebind(new URL(link).hash.slice(1))),
     );
     expect(newDevice.session).toBeUndefined();
   });

@@ -1,11 +1,11 @@
 import type { SoftwareAuthenticator, Tamper } from "passkey-cloudflare/testing";
 import type { PublicKeyCredentialHint } from "passkey-cloudflare/browser";
 import {
-  CeremonyClient,
+  DemoClient,
   type Authenticator,
   type Prepared,
   type Target as ClientTarget,
-} from "../browser/ceremonies.ts";
+} from "../browser/demo-client.ts";
 
 // A browser as the tests drive one, against anything that answers requests:
 // the demo app in the Workers runtime, or a deployed Worker over the network.
@@ -55,20 +55,20 @@ export class Browser {
 
   readonly app: Target;
   readonly authenticator: SoftwareAuthenticator;
-  /** The ceremony client, sending through this browser's cookie jar and source address. */
-  readonly ceremonies: CeremonyClient;
+  /** The demo client, sending through this browser's cookie jar and source address. */
+  readonly client: DemoClient;
 
   // Plain fields, not parameter properties, so that Node can strip the types
   // when a script imports this file.
   constructor(app: Target, authenticator: SoftwareAuthenticator) {
     this.app = app;
     this.authenticator = authenticator;
-    this.ceremonies = this.client();
+    this.client = this.clientAnswering();
   }
 
-  /** A ceremony client on this browser, its authenticator answering as `answering` says. */
-  client(answering: Answering = {}): CeremonyClient {
-    return new CeremonyClient(
+  /** A demo client on this browser, its authenticator answering as `answering` says. */
+  clientAnswering(answering: Answering = {}): DemoClient {
+    return new DemoClient(
       { origin: this.app.origin, fetch: (request) => this.send(request) },
       softwareAuthenticator(this.authenticator, answering),
     );
@@ -122,30 +122,30 @@ export class Browser {
 
   /** Register a new person and return what the server answered. */
   async register(memberName: string) {
-    return accepted(await this.ceremonies.register(memberName));
+    return accepted(await this.client.register(memberName));
   }
 
   async login(credentialId?: string) {
-    return accepted(await this.client({ credentialId }).login());
+    return accepted(await this.clientAnswering({ credentialId }).login());
   }
 
   async stepUp() {
-    return accepted(await this.ceremonies.stepUp());
+    return accepted(await this.client.stepUp());
   }
 
   /** Add a passkey, stepping up first if the session needs it. */
   async enrol(hint?: PublicKeyCredentialHint) {
-    return accepted(await this.ceremonies.enrol(hint));
+    return accepted(await this.client.enrol(hint));
   }
 
   /** Recover onto this browser's authenticator with a member name and a code. */
   async recover(memberName: string, code: string) {
-    return this.ceremonies.recover(memberName, code);
+    return this.client.recover(memberName, code);
   }
 
   /** Bind a new passkey with a rebind link, as the operator gave it. */
   async rebind(link: string) {
-    return this.ceremonies.rebind(new URL(link).hash.slice(1));
+    return this.client.rebind(new URL(link).hash.slice(1));
   }
 }
 

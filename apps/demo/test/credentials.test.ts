@@ -291,7 +291,7 @@ describe("passkeys", () => {
     // Recovering: the retired label is drawn unchecked, never bound, and the recovery is refused.
     const refusedDevice = app.browser();
     const recoverDraws = pinLabelDraws(1);
-    const recovery = prepared(await refusedDevice.ceremonies.recoverRequest(name, recoveryCodes[0]!));
+    const recovery = prepared(await refusedDevice.client.recoverRequest(name, recoveryCodes[0]!));
     vi.restoreAllMocks();
     expect(recoverDraws()).toBe(1);
     expect((await refusedDevice.post(recovery.path, recovery.body)).status).toBe(400);

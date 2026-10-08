@@ -34,13 +34,13 @@ export async function refusalArms(setup: ArmSetup): Promise<Record<string, Arm>>
   );
 
   const loginAttempt = (browser: Browser, tamper: Tamper = {}): Arm => async () => {
-    return prepared(await browser.client({ tamper }).loginRequest());
+    return prepared(await browser.clientAnswering({ tamper }).loginRequest());
   };
   // A well-formed recovery code that is never issued: the example secret in
   // the test vectors, as its seed UR.
   const WRONG_CODE = "ur:seed/oyadgdinaauyatsojkdmflfdfrfxtpbkvyfrzmcwntvdta";
   const recoverAttempt = (memberName: string): Arm => async () => {
-    return prepared(await setup.browser().ceremonies.recoverRequest(memberName, WRONG_CODE));
+    return prepared(await setup.browser().client.recoverRequest(memberName, WRONG_CODE));
   };
   const crossPurpose: Arm = async () => {
     const options = await person.json(person.post("/auth/register/options", { memberName: uniqueName() }));

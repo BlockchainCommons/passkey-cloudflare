@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CeremonyClient } from "../browser/ceremonies.ts";
+import { DemoClient } from "../browser/demo-client.ts";
 import { softwareAuthenticator, type Browser } from "./browser.ts";
 import { testApp, uniqueName } from "./harness.ts";
 
@@ -7,7 +7,7 @@ import { testApp, uniqueName } from "./harness.ts";
 function watchedClient(browser: Browser, { decline = false } = {}) {
   const paths: string[] = [];
   const software = softwareAuthenticator(browser.authenticator);
-  const client = new CeremonyClient(
+  const client = new DemoClient(
     {
       origin: browser.app.origin,
       fetch: (request) => {
@@ -20,7 +20,7 @@ function watchedClient(browser: Browser, { decline = false } = {}) {
   return { client, paths };
 }
 
-describe("the ceremony client", () => {
+describe("the demo client", () => {
   it("steps up once and retries a session-gated call refused for want of a step-up", async () => {
     const app = testApp();
     const browser = app.browser();

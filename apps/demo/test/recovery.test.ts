@@ -246,7 +246,7 @@ describe("recovery", () => {
     const { recordId, recoveryCodes } = await app.browser().register(name);
     const countLabelDraws = pinLabelDraws();
     const device = app.browser();
-    const recovery = prepared(await device.ceremonies.recoverRequest(name, recoveryCodes[0]!));
+    const recovery = prepared(await device.client.recoverRequest(name, recoveryCodes[0]!));
     expect(device.authenticator.credentials[0]!.userName).toBe(`${name} (${PINNED_LABEL})`);
     await runInDurableObject(labelsOf(app.storagePrefix, recordId), (_instance, state) => {
       state.storage.sql.exec(
