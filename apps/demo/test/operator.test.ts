@@ -51,6 +51,22 @@ describe("operator rebind", () => {
     expect((await newDevice.login()).recordId).toBe(personId);
   });
 
+  it("options exclude the record's passkeys, which recover options for the same member name do not", async () => {
+    const { app, operator, person, personName, personId } = await deployment();
+    await person.stepUp();
+    await person.enrol();
+    const { link } = await operator.json(operator.post("/operator/rebind-links", { recordId: personId }));
+    const device = app.browser();
+
+    const rebind = await device.json(device.post("/auth/rebind/options", { link: new URL(link).hash.slice(1) }));
+    const recover = await device.json(device.post("/auth/recover/options", { memberName: personName }));
+
+    const ids = person.authenticator.credentials.map((c) => c.id);
+    expect(ids).toHaveLength(2);
+    expect(rebind.excludeCredentials.map((c: { id: string }) => c.id)).toEqual(ids);
+    expect(recover.excludeCredentials).toEqual([]);
+  });
+
   it("links work once", async () => {
     const { app, operator, personId } = await deployment();
     const { link } = await operator.json(operator.post("/operator/rebind-links", { recordId: personId }));

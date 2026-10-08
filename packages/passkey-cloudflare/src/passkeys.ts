@@ -764,16 +764,26 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       return summary;
     },
 
-    /** Options for redeeming a rebind link, within the per-source limit. */
+    /**
+     * Options for redeeming a rebind link, within the per-source limit. The
+     * link proves the record, so the options exclude its passkeys: a device
+     * that already holds one is refused by the authenticator rather than
+     * given a second (ADR 0008).
+     */
     async rebindOptions(ctx: RequestContext, link: string) {
       return anonymousOptions(ctx, async () => {
         const parsed = await parseRecordToken(typeof link === "string" ? link : "");
-        const live = parsed ? await record(parsed.recordId).checkRebindToken(parsed.tokenHash, ctx.now) : false;
-        const memberName = parsed && live ? await names().nameOf(parsed.recordId) : null;
-        if (!parsed || !memberName) throw new PasskeyError("not-found");
+        const descriptors = parsed ? await record(parsed.recordId).rebindDescriptors(parsed.tokenHash, ctx.now) : null;
+        const memberName = parsed && descriptors ? await names().nameOf(parsed.recordId) : null;
+        if (!parsed || !descriptors || !memberName) throw new PasskeyError("not-found");
         const label = await labels(parsed.recordId).mint(ctx.now);
         const challenge = await issueChallenge("rebind", { recordId: parsed.recordId, label }, ctx.now);
-        return creationOptions({ rp: config.rp, challenge, userName: passkeyName(memberName, label) });
+        return creationOptions({
+          rp: config.rp,
+          challenge,
+          userName: passkeyName(memberName, label),
+          excludeCredentials: descriptors,
+        });
       });
     },
 

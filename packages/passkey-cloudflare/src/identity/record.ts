@@ -343,11 +343,14 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
   ): RecordResult<{ sessionId: string; descriptors: CredentialDescriptor[] }, SessionCause> {
     const gate = this.gate(tokenHash, now, need);
     if (!gate.ok) return gate;
-    const descriptors = this.sql
+    return { ok: true, sessionId: gate.principal.sessionId, descriptors: this.descriptors() };
+  }
+
+  private descriptors(): CredentialDescriptor[] {
+    return this.sql
       .exec<{ id: string; transports: string }>("SELECT id, transports FROM credentials ORDER BY created_at")
       .toArray()
       .map((r) => ({ id: r.id, transports: JSON.parse(r.transports) as string[] }));
-    return { ok: true, sessionId: gate.principal.sessionId, descriptors };
   }
 
   /** Complete a step-up on the session that asked for it. */
@@ -494,13 +497,17 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
     return { ok: true };
   }
 
-  /** Whether a rebind token is live, without redeeming it. */
-  checkRebindToken(tokenHash: string, now: number): boolean {
-    return (
+  /**
+   * The ids and stored transports of this record's credentials, when a rebind
+   * token is live, without redeeming it; null when it is not. The live token
+   * proves the record, so it may see its credentials.
+   */
+  rebindDescriptors(tokenHash: string, now: number): CredentialDescriptor[] | null {
+    const live =
       this.sql
         .exec("SELECT 1 FROM rebind_tokens WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?", tokenHash, now)
-        .toArray().length > 0
-    );
+        .toArray().length > 0;
+    return live ? this.descriptors() : null;
   }
 
   /** Redeem a rebind token: bind the new credential and mint a session, in one transaction. */

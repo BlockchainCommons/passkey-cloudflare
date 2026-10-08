@@ -753,6 +753,38 @@ test("a rebind link opens the sign-in pane at its passkey, and says when the lin
   await expect(page.locator("#sign-in-status")).toHaveText("This link is not valid.");
 });
 
+test("a rebind link opened on a device that already has the member's passkey says so, and adds nothing", async ({
+  page,
+  browser,
+}) => {
+  const memberName = `Rebound${Date.now().toString(36)}`;
+  const { device } = await registerElsewhere(browser, memberName);
+  await addAuthenticator(page);
+  await registerMember(page, OPERATORS.rebind);
+  await openSettings(page);
+  await page.getByRole("textbox", { name: "Member name" }).fill(memberName);
+  await page.getByRole("button", { name: "Look up" }).click();
+  await page.locator("#operator").getByRole("button", { name: "Create rebind link", exact: true }).click();
+  await expect(page.locator("#operator-result")).toContainText("/rebind#");
+  const link = (await page.locator("#operator-result").textContent())!.split(": ")[1]!;
+
+  const rebinds: string[] = [];
+  device.on("request", (r) => {
+    if (r.url().endsWith("/auth/rebind/verify")) rebinds.push(r.url());
+  });
+  // The member's own authenticator holds the record's passkey, which the rebind options exclude.
+  await device.goto(`/rebind${new URL(link).hash}`);
+  await device.getByRole("button", { name: "Create a passkey" }).click();
+  await expect(device.locator("#sign-in-status")).toHaveText(
+    "This device already has a passkey for you. Use it to log in, or add one on another device.",
+  );
+  expect(rebinds).toEqual([]);
+  await device.getByRole("button", { name: "Close" }).click();
+  await openSettings(device);
+  await expect(device.locator("#credential-rows tr")).toHaveCount(1);
+  await device.context().close();
+});
+
 const INFO = {
   passkeys:
     "Held by is the password manager or security key that stores the passkey, when it can be identified. Synced means that manager can copy the passkey to your other devices. Revoking a passkey stops it signing in, though sessions it already started stay open, and you can't revoke your only one.",

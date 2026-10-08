@@ -15,4 +15,5 @@ export const OPERATORS = {
   remove: `Removeop${run}`,
   allow: `Allowop${run}`,
   layout: `Layoutop${run}`,
+  rebind: `Rebindop${run}`,
 };
