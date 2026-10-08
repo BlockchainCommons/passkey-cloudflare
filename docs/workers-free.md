@@ -10,16 +10,17 @@ You need `wrangler` logged in, and a Node version that runs TypeScript files dir
 
 1. Deploy the measurement Worker, `apps/demo/wrangler.measure.jsonc`, once to learn its workers.dev host. It runs the same code as the demo with its own Durable Objects, and has Workers observability turned on.
 
-2. Deploy it again with the relying party set to that host, and with an `RP_NAME` used by no earlier deploy. Wait until the new version has answered 8 times in a row: until `POST /auth/register/options` with `Origin: https://<host>` returns options whose `rp.name` is that name. Every deploy of the same code answers any other request the same way, so only the name tells the new version from the last. One answer is not enough: the edge can go on serving the previous version for a while after one request reaches the new one, and in one deploy (see the results below) it served rounds 0 to 4. Then run the ceremonies:
+2. Run the ceremonies against that host:
 
    ```sh
-   npx wrangler deploy -c wrangler.measure.jsonc --var RP_ID:<host> --var ORIGIN:https://<host> --var RP_NAME:<unique name>
    node scripts/measure-cpu.ts https://<host>      # 20 rounds after round 0 by default
    ```
 
-   Each round registers a new person, then logs in, steps up, enrols a second passkey, and recovers on a new device with the first recovery code. The script prints the time window it ran in.
+   The script deploys the measurement Worker again, with the relying party set to the host and an `RP_NAME` used by no earlier deploy. It then waits until the new version has answered 8 times in a row: it sends `POST /auth/register/options` for a new member name each time, until the options' `rp.name` is that name, and gives up after 300 attempts. Every deploy of the same code answers any other request the same way, so only the name tells the new version from the last. One answer is not enough: the edge can go on serving the previous version for a while after one request reaches the new one, and in one deploy (see the results below) it served rounds 0 to 4. Across nine deploys on 2026-10-06 the wait took between 8 and 35 probes.
 
-3. Repeat step 2 at least twice more, with a few rounds each. Every deploy is a new script version, so each run's round 0 holds each ceremony's first call on a fresh version.
+   Each round then registers a new person, logs in, steps up, enrols a second passkey, and recovers on a new device with the first recovery code. The script prints the time window it ran in, which starts before the probes, so they count as extra register options requests.
+
+3. Repeat step 2 at least twice more, with a few rounds each. Every run deploys a new script version, so each run's round 0 holds each ceremony's first verification on a fresh version. Register options is the exception: the wait's probes call it first.
 
 4. Query Workers observability for the Worker's `fetch` events in each window, and read `$workers.cpuTimeMs` by request path and `$workers.scriptVersion`. Check that every request in the window was served by that deploy's version, and drop any the previous version served. Durable Object calls are separate events; leave them out, since each has its own CPU limit.
 

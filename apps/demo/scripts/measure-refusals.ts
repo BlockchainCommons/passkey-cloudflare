@@ -12,6 +12,7 @@
 import { execFileSync } from "node:child_process";
 import { SoftwareAuthenticator } from "passkey-cloudflare/testing";
 import { Browser, type Target } from "../test/browser.ts";
+import { awaitNewVersion } from "../test/new-version.ts";
 import { refusalArms } from "../test/refusal-arms.ts";
 import { recommendFloor, summarize, type ArmSummary } from "../test/refusal-timing.ts";
 
@@ -19,8 +20,6 @@ const REFUSAL = '{"error":"ceremony refused"}';
 const BASELINE = "(baseline: unknown route)";
 
 const USAGE = "usage: node scripts/measure-refusals.ts https://<measurement host> [rounds] [--floor <ms>]";
-/** How many answers in a row must come from the new version before measuring, so no round reaches the old one. */
-const NEW_VERSION_ANSWERS = 8;
 
 const args = process.argv.slice(2);
 const floorAt = args.indexOf("--floor");
@@ -36,7 +35,7 @@ const rounds = Number(roundsArg);
 const target: Target = { origin, fetch: (request) => fetch(request), edge: true };
 const browser = () => new Browser(target, new SoftwareAuthenticator({ origin }));
 
-const pause = () => new Promise((resolve) => setTimeout(resolve, 1000));
+const pause = () => new Promise<void>((resolve) => setTimeout(resolve, 1000));
 
 /**
  * Deploy the measurement Worker with a new operator name, register that name,
@@ -66,11 +65,7 @@ async function deployWithOperator(): Promise<Browser> {
       await pause();
     }
   }
-  for (let attempt = 0, inARow = 0; inARow < NEW_VERSION_ANSWERS; attempt++) {
-    inARow = (await operator.json(operator.get("/me"))).operator ? inARow + 1 : 0;
-    if (attempt === 60) throw new Error("the new version did not answer");
-    if (inARow === 0) await pause();
-  }
+  await awaitNewVersion(async () => (await operator.json(operator.get("/me"))).operator, { attempts: 60, pause });
   await operator.stepUp();
   return operator;
 }
