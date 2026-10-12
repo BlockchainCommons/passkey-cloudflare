@@ -75,14 +75,24 @@ const refusedNote = (refused: Refused) => ({ result: "noted", note: `Refused (${
 export type OperatorOutcome =
   { result: "member"; member: FoundMember; note: string } | { result: "noted"; note: string } | Told;
 
-/** The page's one autofill request: `start` aborts any earlier one and gives the signal a new one runs under; `stop` aborts it. */
+/**
+ * The page's one autofill request: `start` aborts any earlier one and gives the
+ * signal a new one runs under, and `waiting` tells its `onWaiting` once the
+ * browser holds it; `stop` aborts it.
+ */
 export class AutofillRequests {
   private current = new AbortController();
+  private onWaiting = () => {};
 
-  start(): AbortSignal {
+  start(onWaiting = () => {}): AbortSignal {
     this.current.abort();
     this.current = new AbortController();
+    this.onWaiting = onWaiting;
     return this.current.signal;
+  }
+
+  waiting() {
+    this.onWaiting();
   }
 
   stop() {
@@ -130,9 +140,10 @@ export class Flows {
    * autofill. `no-passkey` also when the request was stopped, by `stopAutofill`
    * or by any other passkey request on the page, and when the login options
    * were refused: the person asked for nothing, so there is nothing to tell.
+   * `onWaiting` runs once the browser holds the request.
    */
-  async autofill(): Promise<LoggedIn> {
-    const prepared = await this.client.loginRequest({ autofill: this.autofillRequests.start() });
+  async autofill(onWaiting?: () => void): Promise<LoggedIn> {
+    const prepared = await this.client.loginRequest({ autofill: this.autofillRequests.start(onWaiting) });
     if (prepared.result !== "prepared") return { result: "no-passkey" };
     return loggedIn(await this.client.send(prepared));
   }
@@ -296,8 +307,12 @@ class PagePasskeys implements Authenticator {
   }
 
   get(options: PublicKeyCredentialRequestOptionsJSON, mode: GetMode) {
-    // A signal stopped while the options were on their way rejects at once.
-    if (typeof mode === "object") return autofillPasskey(options, mode.autofill);
+    if (typeof mode === "object") {
+      // A signal stopped while the options were on their way rejects at once.
+      const found = autofillPasskey(options, mode.autofill);
+      this.autofillRequests.waiting();
+      return found;
+    }
     this.autofillRequests.stop();
     return this.run(() => (mode === "find" ? findPasskey(options) : usePasskey(options)));
   }

@@ -234,12 +234,16 @@ test("without immediate mode, register and recover show from the start", async (
  * From the page's next load, report `capabilities` and record each WebAuthn
  * request in `webAuthnOn`'s list: `conditional` for an autofill request, held
  * open until its signal aborts it (`aborted`), and `get` or `create` for any
- * other, which reaches the browser. Also counts capability checks.
+ * other, which reaches the browser. Also counts capability checks, and records
+ * the list's length at each focus on the member-name field (`nameFocuses`).
  */
 async function recordWebAuthn(page: Page, capabilities: Record<string, boolean>) {
   await page.addInitScript((capabilities) => {
-    const recorded = { log: [] as string[], capabilityChecks: 0 };
+    const recorded = { log: [] as string[], capabilityChecks: 0, nameFocuses: [] as number[] };
     (window as unknown as { webAuthn: typeof recorded }).webAuthn = recorded;
+    document.addEventListener("focusin", (event) => {
+      if ((event.target as Element).id === "register-name") recorded.nameFocuses.push(recorded.log.length);
+    });
     PublicKeyCredential.getClientCapabilities = async () => {
       recorded.capabilityChecks++;
       return capabilities;
@@ -268,7 +272,10 @@ async function recordWebAuthn(page: Page, capabilities: Record<string, boolean>)
 }
 
 const webAuthnOn = (page: Page) =>
-  page.evaluate(() => (window as unknown as { webAuthn: { log: string[]; capabilityChecks: number } }).webAuthn);
+  page.evaluate(
+    () =>
+      (window as unknown as { webAuthn: { log: string[]; capabilityChecks: number; nameFocuses: number[] } }).webAuthn,
+  );
 
 /** Count the page's login options requests. */
 function countLoginOptions(page: Page) {
@@ -292,6 +299,9 @@ test("without immediate mode, the sign-in pane offers passkeys in the member-nam
   await expect.poll(async () => (await webAuthnOn(page)).log).toEqual(["conditional"]);
   expect(loginOptions).toHaveLength(1);
   await expect(page.locator("#register-name")).toHaveAttribute("autocomplete", /\bwebauthn\b/);
+  // Safari offers the passkey only to a focus that comes once the request waits.
+  await expect.poll(async () => (await webAuthnOn(page)).nameFocuses.at(-1)).toBe(1);
+  await expect(page.locator("#register-name")).toBeFocused();
 
   // Continue aborts the autofill request before it asks for a passkey itself.
   await page.getByRole("button", { name: "Continue with passkey" }).click();

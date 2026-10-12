@@ -56,6 +56,18 @@ export class SignInPane {
   }
 
   /**
+   * The autofill request now waits. Safari offers its passkey only to a focus
+   * that comes after that, so a member-name field focused since the pane
+   * opened is focused again; focus the person moved elsewhere stays there.
+   */
+  autofillWaiting() {
+    const name = input("register-name");
+    if (!this.isOpen || document.activeElement !== name) return;
+    name.blur();
+    name.focus();
+  }
+
+  /**
    * Continue used no passkey: no passkey here, or a dismissed picker, so the message says only that none was used.
    * Says nothing once the pane has closed, as it has when another request signed in.
    */

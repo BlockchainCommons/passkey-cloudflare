@@ -91,7 +91,7 @@ async function autofill() {
   // Closed while the capabilities were checked: closing stopped nothing yet, so start nothing.
   if (!(await flows.offersAutofill()) || !signIn.isOpen) return;
   signIn.offerAutofill();
-  const loggedIn = await flows.autofill();
+  const loggedIn = await flows.autofill(() => signIn.autofillWaiting());
   if (loggedIn.result === "no-passkey") return;
   if (loggedIn.result === "not-accepted") return signIn.notAccepted();
   signIn.close();
