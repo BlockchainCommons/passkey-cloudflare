@@ -110,6 +110,31 @@ test("the app opens signed out, with sign-in in a pane it can close", async ({ p
   await expect(page.locator("#sign-in")).toBeHidden();
 });
 
+test("without immediate mode, the sign-in pane opens on the member-name field", async ({ page }) => {
+  await page.addInitScript(() => {
+    PublicKeyCredential.getClientCapabilities = async () => ({ immediateGet: false, conditionalGet: true });
+  });
+  await page.goto("/");
+  await openSignIn(page);
+  // Autofill offers a passkey only in a focused field, so the pane starts there.
+  await expect(page.locator("#register-name")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#sign-in")).toBeHidden();
+});
+
+test("with immediate mode, the sign-in pane opens on Continue with the choices hidden", async ({ page }) => {
+  await page.addInitScript(() => {
+    PublicKeyCredential.getClientCapabilities = async () => ({ immediateGet: true, conditionalGet: true });
+  });
+  await page.goto("/");
+  await openSignIn(page);
+  await expect(page.getByRole("button", { name: "Continue with passkey" })).toBeFocused();
+  await expect(page.locator("#choices")).toHaveCount(1);
+  await expect(page.locator("#choices")).toBeHidden();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#sign-in")).toBeHidden();
+});
+
 test("register, log out and log back in with a passkey", async ({ page }) => {
   await addAuthenticator(page);
   const memberName = `Smoke${Date.now().toString(36)}`;
@@ -902,9 +927,13 @@ test("an operator's Remove stands apart, and settings fit a phone-width screen",
 });
 
 test("a rebind link opens the sign-in pane at its passkey, and says when the link is not valid", async ({ page }) => {
+  // Even where the entry step would open on the member-name field, the rebind step keeps focus on its button.
+  await page.addInitScript(() => {
+    PublicKeyCredential.getClientCapabilities = async () => ({ immediateGet: false, conditionalGet: true });
+  });
   await page.goto("/rebind#not-a-link");
   await expect(page.locator("#sign-in")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Create a passkey" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Create a passkey" })).toBeFocused();
   await expect(page.getByRole("button", { name: "Continue with passkey" })).toBeHidden();
   await page.getByRole("button", { name: "Create a passkey" }).click();
   await expect(page.locator("#sign-in-status")).toHaveText("This link is not valid.");

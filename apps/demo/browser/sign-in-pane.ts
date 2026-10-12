@@ -27,17 +27,19 @@ export class SignInPane {
    * Open at `step`: Continue and the choices, or a rebind link's passkey.
    * A browser without immediate mediation cannot say "no passkey here" without a
    * sheet to cancel, so register and recover show at once; with it, they wait
-   * for Continue to end without a passkey.
+   * for Continue to end without a passkey. With the choices showing, the pane
+   * opens on the member-name field, where autofill offers a passkey only once
+   * the field has focus; otherwise on its step's button.
    */
   async open(step: "entry" | "rebind" = "entry") {
     $("sign-in-status").textContent = "";
     $("entry").hidden = step !== "entry";
     $("rebind").hidden = step !== "rebind";
-    if (step === "entry") {
-      if (await canFindWithoutSheet()) $("choices").hidden = true;
-      else this.revealChoices(CHOICES_GUIDANCE);
-    }
+    const choicesAtOnce = step === "entry" && !(await canFindWithoutSheet());
+    if (choicesAtOnce) this.revealChoices(CHOICES_GUIDANCE);
+    else if (step === "entry") $("choices").hidden = true;
     openPane("sign-in");
+    if (choicesAtOnce) input("register-name").focus();
   }
 
   close() {
