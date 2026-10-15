@@ -19,8 +19,12 @@ export const CEREMONY_POLICY = {
   residentKey: "required",
   userVerification: "preferred",
   attestation: "none",
-  /** EdDSA (-8) and ES256 (-7) only. */
-  algorithms: [-8, -7],
+  /**
+   * ES256 (-7) and EdDSA (-8) only, ES256 first: an authenticator takes the
+   * first it supports, and OpenSSH accepts a WebAuthn signature only from a
+   * P-256 key, so only an ES256 passkey can also sign for SSH and Git.
+   */
+  algorithms: [-7, -8],
   timeoutMs: 300_000,
 } as const;
 
