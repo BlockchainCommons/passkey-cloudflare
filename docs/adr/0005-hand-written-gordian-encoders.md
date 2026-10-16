@@ -4,6 +4,8 @@ The library encodes dCBOR, Bytewords and simple Gordian Envelopes with its own s
 
 Correctness is anchored by fixed test vectors, so the tests stay free of these dependencies too. Where the Blockchain Commons specifications and reference test suites publish vectors, the tests use them. For our own structures, such as a recovery code as a seed and as a seed Envelope, the expected bytes are generated outside this repository with the reference implementations (the TypeScript libraries or the Rust command-line tools) and committed as fixtures.
 
+BIP39 words for a recovery code are hand-written on the same terms: a fixed 2048-word list and a checksum of the first bits of a SHA-256, from WebCrypto. Only the 16-byte entropy of a recovery code is supported, and the tests check the list against the SHA-256 of the published wordlist and the encoding against the Trezor reference vectors.
+
 ## Considered Options
 
 - **Reference libraries at runtime** (`bc-dcbor-ts`, `bc-ur-ts`, `bc-envelope-ts`). Rejected for now: several beta packages with no security review, to encode a handful of fixed byte layouts.

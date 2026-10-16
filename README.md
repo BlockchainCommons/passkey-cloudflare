@@ -22,7 +22,7 @@ These practices come from Christopher Allen's write-up of a running passkey syst
 * **Identity separate from permission.** The library answers only which principal is presenting. Roles, suspension and member names belong to the application tier. Authorization policy can change without touching credential checks.
 * **Plural passkeys from the first registration.** A person can enrol more passkeys at any time, and the last one cannot be removed. Each passkey gets its own label of three Bytewords (such as `able-acid-also`), shown in the password manager beside the member name, so a person can tell their passkeys apart.
 * **No fallback to a weaker credential.** Recovery uses a single-use code and a new passkey, in one transaction. No password, email or SMS path exists.
-* **Recovery codes are stored only as hashes.** A code is shown once and checked by its hash. Input is liberal: a code is accepted as a UR, as words, or as its bare 16 bytes.
+* **Recovery codes are stored only as hashes.** A code is shown once and checked by its hash. Input is liberal: a code is accepted as a UR, as Bytewords, as its 12 BIP39 words, or as its bare 16 bytes.
 * **Step-up for what can lock the owner out.** Adding or revoking a passkey, rotating recovery codes, and ending other sessions each need a fresh passkey check, not only a live session.
 * **A new user handle for every ceremony.** The WebAuthn user handle is random each time, presented to the authenticator, and never stored, so it cannot link one person's passkeys to each other.
 * **One refusal for every failure.** A ceremony that fails for any reason gets the same response, sent no sooner than a timing floor measured on a deployed Worker. Only an internal ceremony failure log records the cause.
@@ -43,6 +43,7 @@ These practices come from Christopher Allen's write-up of a running passkey syst
 
 * **[UR](https://developer.blockchaincommons.com/ur/) and [dCBOR](https://developer.blockchaincommons.com/dcbor/).** Each recovery code is 128 random bits typed as a Gordian seed (dCBOR tag 40300) and shown as a `ur:seed` UR. That is the text form [Gordian Seed Tool](https://github.com/BlockchainCommons/GordianSeedTool-iOS) imports, so a person can keep their codes there.
 * **[Bytewords](https://developer.blockchaincommons.com/bytewords/)** spell each passkey's label, and offer a words form of each recovery code for reading aloud or writing by hand.
+* **[BIP39](https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki) words** offer a second words form: a recovery code's 128-bit secret is exactly the entropy of a 12-word BIP39 mnemonic, the form most wallets and Gordian Seed Tool show a seed in. The words recover the account; they are not a wallet.
 * **Hand-written encoders, checked against the reference implementations.** The library's dCBOR, Bytewords and simple [Gordian Envelope](https://developer.blockchaincommons.com/envelope/) encoders take no Blockchain Commons package as a dependency. Their tests hard-code vectors made with the Blockchain Commons Rust and TypeScript libraries. The Envelope encoder is tested but not yet used by a ceremony.
 
 ### Planned
@@ -65,7 +66,7 @@ Checked by hand on the deployed demo, September 2026:
 - Safari on macOS and on iOS. Neither reports immediate mediation, so register and recover show from the start.
 - Chrome on macOS, with its access to passkeys in Apple Passwords both on and off. On macOS, Chrome reads passkeys from Apple Passwords for the whole machine, so a new Chrome profile still finds them. With access on, Continue signs in with an existing passkey. With access off, Continue finds no passkey and reveals register and recover without showing a passkey sheet.
 
-The automated tests use a software authenticator (ES256 and Ed25519) inside the Workers runtime, and Playwright's Chromium with a virtual authenticator. The library's own dCBOR, Bytewords and Envelope encoders, the `ur:seed` text of recovery codes, and passkey labels are checked against test vectors made with Blockchain Commons' reference implementations. The base64url and CBOR helpers of `@simplewebauthn/server`, the WebAuthn library used for verification, are covered only indirectly, by the ceremony tests.
+The automated tests use a software authenticator (ES256 and Ed25519) inside the Workers runtime, and Playwright's Chromium with a virtual authenticator. The library's own dCBOR, Bytewords and Envelope encoders, the `ur:seed` text of recovery codes, and passkey labels are checked against test vectors made with Blockchain Commons' reference implementations, and its BIP39 words against the published BIP39 wordlist and the Trezor reference vectors. The base64url and CBOR helpers of `@simplewebauthn/server`, the WebAuthn library used for verification, are covered only indirectly, by the ceremony tests.
 
 Not tested: Windows (including Windows Hello), Android, Linux and Firefox. Passkey autofill has been checked by hand only in Safari on macOS, on the deployed demo; Playwright checks only that it starts and is aborted, in Chromium with Safari's capabilities stubbed. Registration offers only ES256 and EdDSA, so an authenticator that supports only RS256, such as some older Windows Hello setups, may be unable to register. Registration asks for no attestation, so a deployment cannot limit which authenticator models may register.
 
@@ -91,7 +92,7 @@ Toward 0.1.0, we are tightening verification and refusal handling, running a sec
 - `packages/passkey-cloudflare`: the library. It deploys inside an application's own Worker. It has four entry points:
   - the main entry point: `createPasskeys`, which runs the ceremonies, the Durable Object classes an application binds (listed in `PASSKEY_DURABLE_OBJECTS`), and the building blocks around them, such as rate limits, member names, passkey labels, session cookies and the uniform refusal.
   - `/browser`: the browser half of each ceremony. It turns the options JSON the application fetched into a WebAuthn call and returns the response JSON to post back, and makes no requests of its own.
-  - `/gordian`: hand-written dCBOR, Bytewords and Envelope encoders, and the `ur:seed` form recovery codes take.
+  - `/gordian`: hand-written dCBOR, Bytewords and Envelope encoders, the `ur:seed` form recovery codes take, and their BIP39 words.
   - `/testing`: a software authenticator for tests, which must never be used as a real authenticator.
 - `apps/demo`: the demo Worker, deployed at https://passkeydemo.gordianstack.com: a placeholder app with sign-in and settings in panes over it.
 - [`CONTEXT.md`](CONTEXT.md): Vocabulary
