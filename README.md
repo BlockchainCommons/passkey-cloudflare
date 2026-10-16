@@ -13,6 +13,8 @@ WebAuthn verification itself is done by [`@simplewebauthn/server`](https://githu
 
 A [live demo](https://passkeydemo.gordianstack.com) is built alongside the library to show it in use. It is a placeholder today. It will become a shared canvas of cards that members edit together, with software agents acting for members under permissions they grant.
 
+[Open Integrity Forge](https://github.com/OpenIntegrityProject/open-integrity-forge) ([live demo](https://forgedemo.gordianstack.com)) is an application built on the library: a Git platform for agents in which only a person's passkey can promote a change to `main`. It reuses this library's sign-in, account settings and operator tools, and goes further than the demo here: the person's passkey signs each commit of `main` itself, as an OpenSSH `webauthn-sk` signature that stock `git verify-commit` checks. For that it needs a P-256 passkey, so its copy of the library offers ES256 first at registration, the change proposed in #20.
+
 ## Design Practices
 
 These practices come from Christopher Allen's write-up of a running passkey system ([the gist](https://gist.github.com/ChristopherA/dfb0f82a1223a95fa199837142e0f989)) and from the WebAuthn Level 3 credential record.
