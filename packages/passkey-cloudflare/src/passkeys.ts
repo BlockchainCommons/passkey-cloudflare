@@ -7,6 +7,7 @@ import { memberNameRegistry } from "./app-tier/member-names.ts";
 import { isValidMemberName, memberNameKey } from "./member-name-rules.ts";
 import { DEFAULT_RATE_LIMITS, rateLimiters, type Limit, type RateLimits } from "./app-tier/rate-limit.ts";
 import { credentialBinding } from "./credential-binding.ts";
+import type { CeremonyFailure } from "./failures.ts";
 import type { PasskeyBindings } from "./durable-objects.ts";
 import { sha256Hex, toBase64Url } from "./encoding.ts";
 import { credentialIndex } from "./identity/credential-index.ts";
@@ -173,21 +174,47 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
     throw new CeremonyRefusal("rp-id-changed");
   }
 
-  /** Run `run` within a per-source limit. Past the limit, the uniform refusal. */
-  async function withinSourceLimit<T>(
+  /**
+   * Record a refused ceremony's cause, on the record once `trail` names one,
+   * otherwise globally. A failure to record is logged, never thrown.
+   */
+  async function recordFailure(trail: Trail, failure: CeremonyFailure) {
+    try {
+      if (trail.recordId) await record(trail.recordId).recordFailure(failure);
+      else await failures().record(failure);
+    } catch (error) {
+      console.error("passkey ceremony failure not recorded", error);
+    }
+  }
+
+  /**
+   * Issue a ceremony's options, within a per-source limit when given one.
+   * Past the limit, the uniform refusal, unrecorded: options are what a flood
+   * hits first, and recording each would add a write per flood request. Any
+   * unexpected error is recorded as `options-internal-error` (on the record
+   * once `run` has named one in `trail`) and becomes the uniform refusal too,
+   * no sooner than the refusal floor. A PasskeyError passes through.
+   */
+  async function issueOptions<T>(
     ctx: RequestContext,
-    bucket: string,
-    limit: Limit,
-    run: () => Promise<T>,
+    ceremony: Ceremony,
+    sourceLimit: { bucket: string; limit: Limit } | null,
+    run: (trail: Trail) => Promise<T>,
   ): Promise<CeremonyOutcome<T>> {
     const sourceHash = await sha256Hex(`source:${ctx.sourceIp}`);
+    const trail: Trail = {};
     try {
-      await throttle(`${bucket}:${sourceHash}`, limit, ctx.now);
+      // Not `throttle`, whose refusal would be recorded below.
+      if (sourceLimit && !(await limiter(`${sourceLimit.bucket}:${sourceHash}`).hit(sourceLimit.limit, ctx.now))) {
+        return { ok: false, response: await uniformRefusal(ctx.startedAt, config.refusalFloorMs) };
+      }
+      return { ok: true, value: await run(trail) };
     } catch (error) {
-      if (!(error instanceof CeremonyRefusal)) throw error;
-      return { ok: false, response: await uniformRefusal(ctx.startedAt, config.refusalFloorMs) };
+      if (error instanceof PasskeyError) throw error;
+      console.error(`passkey ${ceremony} options failed; refusing them`, error);
     }
-    return { ok: true, value: await run() };
+    await recordFailure(trail, { ceremony, cause: "options-internal-error", at: ctx.now, sourceHash });
+    return { ok: false, response: await uniformRefusal(ctx.startedAt, config.refusalFloorMs) };
   }
 
   /**
@@ -224,19 +251,17 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
         cause = "internal-error";
       }
     }
-    const failure = { ceremony, cause, at: ctx.now, sourceHash };
-    try {
-      if (trail.recordId) await record(trail.recordId).recordFailure(failure);
-      else await failures().record(failure);
-    } catch (error) {
-      console.error("passkey ceremony failure not recorded", error);
-    }
+    await recordFailure(trail, { ceremony, cause, at: ctx.now, sourceHash });
     return { ok: false, response: await uniformRefusal(ctx.startedAt, config.refusalFloorMs) };
   }
 
   /** Issue options for an anonymous ceremony, within the per-source limit. */
-  function anonymousOptions<T>(ctx: RequestContext, issue: () => Promise<T>): Promise<CeremonyOutcome<T>> {
-    return withinSourceLimit(ctx, "options", limits.optionsPerSource, issue);
+  function anonymousOptions<T>(
+    ctx: RequestContext,
+    ceremony: Ceremony,
+    issue: () => Promise<T>,
+  ): Promise<CeremonyOutcome<T>> {
+    return issueOptions(ctx, ceremony, { bucket: "options", limit: limits.optionsPerSource }, issue);
   }
 
   /**
@@ -362,10 +387,10 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
 
     /**
      * Whether a member name is free to register, within the per-source limit.
-     * Past the limit, the uniform refusal.
+     * Past the limit, or on a server failure, the uniform refusal.
      */
     async checkMemberName(ctx: RequestContext, name: string): Promise<CeremonyOutcome<boolean>> {
-      return withinSourceLimit(ctx, "name-check", limits.nameCheckPerSource, () =>
+      return issueOptions(ctx, "register", { bucket: "name-check", limit: limits.nameCheckPerSource }, () =>
         isMemberNameAvailable(name, ctx.now),
       );
     },
@@ -376,7 +401,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
 
     /** Options for registering a member name, within the per-source limit. */
     async registrationOptions(ctx: RequestContext, typedName: string) {
-      return anonymousOptions(ctx, async () => {
+      return anonymousOptions(ctx, "register", async () => {
         if (!(await isMemberNameAvailable(typedName, ctx.now))) throw new PasskeyError("member-name-unavailable");
         const memberName = typedName.normalize("NFC");
         const label = randomLabel();
@@ -423,7 +448,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
 
     /** Options for logging in, within the per-source limit. */
     async loginOptions(ctx: RequestContext) {
-      return anonymousOptions(ctx, async () => {
+      return anonymousOptions(ctx, "login", async () => {
         const challenge = await issueChallenge("login", {}, ctx.now);
         return requestOptions({ rp: config.rp, challenge });
       });
@@ -487,15 +512,18 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
     },
 
     async stepUpOptions(ctx: RequestContext, sessionValue: string | null | undefined) {
-      const presented = await presentedSession(sessionValue);
-      const found = await record(presented.recordId).credentialDescriptors(presented.tokenHash, ctx.now, "live");
-      if (!found.ok) throw new PasskeyError(found.cause);
-      const challenge = await issueChallenge(
-        "step-up",
-        { recordId: presented.recordId, sessionId: found.sessionId },
-        ctx.now,
-      );
-      return requestOptions({ rp: config.rp, challenge, allowCredentials: found.descriptors });
+      return issueOptions(ctx, "step-up", null, async (trail) => {
+        const presented = await presentedSession(sessionValue);
+        const found = await record(presented.recordId).credentialDescriptors(presented.tokenHash, ctx.now, "live");
+        if (!found.ok) throw new PasskeyError(found.cause);
+        trail.recordId = presented.recordId;
+        const challenge = await issueChallenge(
+          "step-up",
+          { recordId: presented.recordId, sessionId: found.sessionId },
+          ctx.now,
+        );
+        return requestOptions({ rp: config.rp, challenge, allowCredentials: found.descriptors });
+      });
     },
 
     /** Prove control of one of the record's passkeys again, on this session. */
@@ -529,25 +557,32 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
      * steers where the browser offers to save it.
      */
     async enrolOptions(ctx: RequestContext, sessionValue: string | null | undefined, hint?: PublicKeyCredentialHint) {
-      const presented = await presentedSession(sessionValue);
-      // The record gates first, so that a refused session mints no label.
-      const found = await record(presented.recordId).credentialDescriptors(presented.tokenHash, ctx.now, "stepped-up");
-      if (!found.ok) throw new PasskeyError(found.cause);
-      const [label, memberName] = await Promise.all([
-        labels(presented.recordId).mint(ctx.now),
-        names().nameOf(presented.recordId),
-      ]);
-      const challenge = await issueChallenge(
-        "enrol",
-        { recordId: presented.recordId, sessionId: found.sessionId, label },
-        ctx.now,
-      );
-      return creationOptions({
-        rp: config.rp,
-        challenge,
-        userName: passkeyName(memberName ?? presented.recordId, label),
-        excludeCredentials: found.descriptors,
-        hint,
+      return issueOptions(ctx, "enrol", null, async (trail) => {
+        const presented = await presentedSession(sessionValue);
+        // The record gates first, so that a refused session mints no label.
+        const found = await record(presented.recordId).credentialDescriptors(
+          presented.tokenHash,
+          ctx.now,
+          "stepped-up",
+        );
+        if (!found.ok) throw new PasskeyError(found.cause);
+        trail.recordId = presented.recordId;
+        const [label, memberName] = await Promise.all([
+          labels(presented.recordId).mint(ctx.now),
+          names().nameOf(presented.recordId),
+        ]);
+        const challenge = await issueChallenge(
+          "enrol",
+          { recordId: presented.recordId, sessionId: found.sessionId, label },
+          ctx.now,
+        );
+        return creationOptions({
+          rp: config.rp,
+          challenge,
+          userName: passkeyName(memberName ?? presented.recordId, label),
+          excludeCredentials: found.descriptors,
+          hint,
+        });
       });
     },
 
@@ -657,7 +692,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
      * nothing, as at registration.
      */
     async recoverOptions(ctx: RequestContext, memberName: string) {
-      return anonymousOptions(ctx, async () => {
+      return anonymousOptions(ctx, "recover", async () => {
         if (!isValidMemberName(memberName)) throw new PasskeyError("not-found");
         const recordId = await names().resolve(memberName);
         const label = randomLabel();
@@ -771,7 +806,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
      * given a second (ADR 0008).
      */
     async rebindOptions(ctx: RequestContext, link: string) {
-      return anonymousOptions(ctx, async () => {
+      return anonymousOptions(ctx, "rebind", async () => {
         const parsed = await parseRecordToken(typeof link === "string" ? link : "");
         const descriptors = parsed ? await record(parsed.recordId).rebindDescriptors(parsed.tokenHash, ctx.now) : null;
         const memberName = parsed && descriptors ? await names().nameOf(parsed.recordId) : null;

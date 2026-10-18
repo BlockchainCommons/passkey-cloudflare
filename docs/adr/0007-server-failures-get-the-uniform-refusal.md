@@ -2,10 +2,13 @@
 
 A ceremony ends in success or in the uniform refusal, and nothing else. When the server itself fails partway through one (a Durable Object call throws), the library logs the error, records a failure with the cause `internal-error`, undoes what it can, and returns the uniform refusal no sooner than the refusal floor. When undoing a refused ceremony's earlier writes fails, the library logs that error, runs the remaining undo steps, and records the failure with the ceremony's original cause, which says why it was refused. Each ceremony method applies this itself, so an application cannot get a 500 out of a ceremony by forgetting a wrapper.
 
+Issuing a ceremony's options is part of the ceremony, and so is checking whether a member name is free. A server failure in any options method (registration, login, recovery, rebind, step-up and enrolment) or in the member-name check is logged and gets the uniform refusal no sooner than the floor, recorded under the ceremony it belongs to with the cause `options-internal-error`: registration options and the name check as `register`, login options as `login`, and so on. It goes on the record once the options have proved one (step-up and enrolment options, after the session is checked), and in the global log otherwise. When recording the failure itself fails, that error is logged and the uniform refusal still follows, as for any ceremony. Errors the person is meant to see, such as an unavailable member name, a rebind link that names no record, or a session that is not logged in or not stepped up, still reach the application as they did. Options and name checks refused by their per-source rate limit get the uniform refusal but are not recorded: options are the request a flood hits first, and recording each refusal would add a Durable Object write, mostly on the one global log object, to every request in the flood.
+
 ## Considered Options
 
 - **A distinct "try again later" (503), sent after the same floor.** Rejected: a second response shape tells a caller that the request got past the checks that come before the failing call, which is what the uniform refusal exists to hide.
 - **Leave server errors as 500s.** Rejected: an unfloored 500 differs from a refusal in both status and timing.
+- **Leave options outside the ceremony.** Rejected: an options request that fails with a 500 tells a caller the server failed at a point an ordinary refusal would hide, and an application would have to remember to wrap each options call itself.
 
 ## Consequences
 

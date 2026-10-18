@@ -132,7 +132,7 @@ function routes(roles: OperatorRolesFor): Routes {
     ...operatorRoutes(roles),
 
     "/auth/step-up/options": async ({ passkeys, ctx, request }) =>
-      json(await passkeys.stepUpOptions(ctx, sessionValueFrom(request))),
+      optionsResponse(await passkeys.stepUpOptions(ctx, sessionValueFrom(request))),
 
     "/auth/step-up/verify": async ({ passkeys, ctx, request, body }) => {
       const outcome = await passkeys.stepUp(ctx, sessionValueFrom(request), body.response);
@@ -140,7 +140,7 @@ function routes(roles: OperatorRolesFor): Routes {
     },
 
     "/me/credentials/enrol/options": async ({ passkeys, ctx, request, body }) =>
-      json(await passkeys.enrolOptions(ctx, sessionValueFrom(request), body.hint)),
+      optionsResponse(await passkeys.enrolOptions(ctx, sessionValueFrom(request), body.hint)),
 
     "/me/credentials/enrol/verify": async ({ passkeys, ctx, request, body }) => {
       const outcome = await passkeys.enrol(ctx, sessionValueFrom(request), body.response);
