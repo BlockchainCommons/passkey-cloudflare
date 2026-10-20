@@ -116,7 +116,10 @@ export interface CredentialListing {
   label: string;
   createdAt: number;
   lastUsedAt: number | null;
-  /** The password manager that holds the passkey, where its AAGUID is known. */
+  /**
+   * What holds the passkey: the password manager its AAGUID names, else
+   * `SECURITY_KEY` when its transports are all roaming ones.
+   */
   provider: string | null;
   backupEligible: boolean;
   backedUp: boolean;
@@ -125,7 +128,7 @@ export interface CredentialListing {
 export interface RevokedPasskey {
   /** The entry the password manager still shows for the revoked passkey. */
   passkeyName: string;
-  /** The password manager that holds that entry, where its AAGUID is known. */
+  /** What holds that entry, as `CredentialListing.provider` names it. */
   provider: string | null;
   /** The revoked credential's ID, base64url, for the browser to signal as unknown. */
   credentialId: string;
@@ -632,7 +635,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
         label: byCredential[row.id]!,
         createdAt: row.createdAt,
         lastUsedAt: row.lastUsedAt,
-        provider: providerName(row.aaguid),
+        provider: providerName(row.aaguid, row.transports),
         backupEligible: row.backupEligible,
         backedUp: row.backedUp,
       }));
@@ -641,9 +644,9 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
     /**
      * Revoke the passkey with this label, typed in any form `parseLabel`
      * reads. The last passkey cannot be revoked. Returns the dead entry as
-     * the password manager shows it, that password manager where its AAGUID
-     * is known, and the credential ID and RP ID the browser needs to tell the
-     * password manager the passkey is gone.
+     * the password manager shows it, what holds it where that is known, and
+     * the credential ID and RP ID the browser needs to tell the password
+     * manager the passkey is gone.
      */
     async revokeCredential(
       ctx: RequestContext,
@@ -666,7 +669,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       await labels(session.recordId).retire(label, ctx.now);
       return {
         passkeyName: passkeyName(memberName ?? session.recordId, label),
-        provider: providerName(done.aaguid),
+        provider: providerName(done.aaguid, done.transports),
         credentialId,
         rpId: config.rp.id,
       };

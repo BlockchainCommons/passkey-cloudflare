@@ -59,11 +59,17 @@ export interface RecordSummary {
   rebindLinkOutstanding: boolean;
 }
 
+/** A credential's transports, as its `transports` column stores them. */
+function parseTransports(stored: string): string[] {
+  return JSON.parse(stored) as string[];
+}
+
 export interface CredentialSummary {
   id: string;
   createdAt: number;
   lastUsedAt: number | null;
   aaguid: string;
+  transports: string[];
   backupEligible: boolean;
   backedUp: boolean;
 }
@@ -350,7 +356,7 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
     return this.sql
       .exec<{ id: string; transports: string }>("SELECT id, transports FROM credentials ORDER BY created_at")
       .toArray()
-      .map((r) => ({ id: r.id, transports: JSON.parse(r.transports) as string[] }));
+      .map((r) => ({ id: r.id, transports: parseTransports(r.transports) }));
   }
 
   /** Complete a step-up on the session that asked for it. */
@@ -396,15 +402,19 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
         created_at: number;
         last_used_at: number | null;
         aaguid: string;
+        transports: string;
         registration_flags: number;
         last_flags: number | null;
-      }>("SELECT id, created_at, last_used_at, aaguid, registration_flags, last_flags FROM credentials ORDER BY created_at")
+      }>(
+        "SELECT id, created_at, last_used_at, aaguid, transports, registration_flags, last_flags FROM credentials ORDER BY created_at",
+      )
       .toArray()
       .map((row) => ({
         id: row.id,
         createdAt: row.created_at,
         lastUsedAt: row.last_used_at,
         aaguid: row.aaguid,
+        transports: parseTransports(row.transports),
         backupEligible: (row.registration_flags & FLAG_BACKUP_ELIGIBLE) !== 0,
         backedUp: ((row.last_flags ?? row.registration_flags) & FLAG_BACKED_UP) !== 0,
       }));
@@ -412,25 +422,29 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
   }
 
   /**
-   * Revoke a credential for a stepped-up session, returning its AAGUID. The
-   * last credential is never revoked.
+   * Revoke a credential for a stepped-up session, returning its AAGUID and
+   * stored transports. The last credential is never revoked.
    */
   revokeCredential(input: {
     tokenHash: string;
     credentialId: string;
     now: number;
-  }): RecordResult<{ aaguid: string }, SessionCause | "not-found" | "last-credential"> {
+  }): RecordResult<{ aaguid: string; transports: string[] }, SessionCause | "not-found" | "last-credential"> {
     const gate = this.gate(input.tokenHash, input.now, "stepped-up");
     if (!gate.ok) return gate;
-    return this.ctx.storage.transactionSync((): RecordResult<{ aaguid: string }, "not-found" | "last-credential"> => {
+    type Revoked = RecordResult<{ aaguid: string; transports: string[] }, "not-found" | "last-credential">;
+    return this.ctx.storage.transactionSync((): Revoked => {
       const [row] = this.sql
-        .exec<{ aaguid: string }>("SELECT aaguid FROM credentials WHERE id = ?", input.credentialId)
+        .exec<{ aaguid: string; transports: string }>(
+          "SELECT aaguid, transports FROM credentials WHERE id = ?",
+          input.credentialId,
+        )
         .toArray();
       if (!row) return { ok: false, cause: "not-found" };
       const count = this.sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM credentials").one().n;
       if (count <= 1) return { ok: false, cause: "last-credential" };
       this.sql.exec("DELETE FROM credentials WHERE id = ?", input.credentialId);
-      return { ok: true, aaguid: row.aaguid };
+      return { ok: true, aaguid: row.aaguid, transports: parseTransports(row.transports) };
     });
   }
 

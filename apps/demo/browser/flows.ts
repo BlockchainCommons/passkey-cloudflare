@@ -10,6 +10,7 @@ import {
   findPasskey,
   formatRecoveryCodes,
   recoveryCodesHeader,
+  SECURITY_KEY,
   signalRevokedPasskey,
   usePasskey,
   type PublicKeyCredentialCreationOptionsJSON,
@@ -204,9 +205,8 @@ export class Flows {
     // Where the password manager takes the signal it drops the passkey; the message covers those that do not,
     // and does not wait on it.
     void signalRevokedPasskey(revoked);
-    return told(
-      `Revoked ${label}. Delete '${passkeyName}' from ${provider ?? "your password manager"} too; it no longer logs in.`,
-    );
+    const holder = provider === SECURITY_KEY ? "your security key" : (provider ?? "your password manager");
+    return told(`Revoked ${label}. Delete '${passkeyName}' from ${holder} too; it no longer logs in.`);
   }
 
   /** Replace the record's recovery codes with a fresh set. */

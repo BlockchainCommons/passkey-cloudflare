@@ -170,4 +170,22 @@ describe("the demo's flows", () => {
     expect(found).toMatchObject({ result: "member", member: { memberName: personName, recordId: personId }, note: "" });
     expect(await flowsOn(operator).lookUpMember(uniqueName())).toEqual({ result: "noted", note: "No such member" });
   });
+
+  it("tell a revoked passkey's holder to delete it from their security key, or else their password manager", async () => {
+    const revokeFrom = async (browser: Browser) => {
+      await browser.register(uniqueName());
+      await browser.stepUp();
+      await browser.enrol();
+      const label = (await browser.client.credentials())[0]!.label;
+      return flowsOn(browser).revoke(label);
+    };
+    const app = testApp();
+
+    expect(await revokeFrom(app.browser({ transports: ["usb"] }))).toMatchObject({
+      message: expect.stringMatching(/^Revoked .+\. Delete '.+' from your security key too; it no longer logs in\.$/),
+    });
+    expect(await revokeFrom(app.browser())).toMatchObject({
+      message: expect.stringMatching(/ from your password manager too; /),
+    });
+  });
 });

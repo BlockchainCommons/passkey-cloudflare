@@ -29,6 +29,7 @@ export { RateLimiter, rateLimiters, DEFAULT_RATE_LIMITS, type Limit, type RateLi
 export { CeremonyFailures, ceremonyFailures } from "./app-tier/ceremony-failures.ts";
 export type { CeremonyFailure } from "./failures.ts";
 export { REFUSAL_BODY, REFUSAL_STATUS, type Ceremony } from "./refusal.ts";
+export { SECURITY_KEY } from "./security-key.ts";
 export { SESSION_COOKIE, clearedSessionCookie, sessionCookie, sessionValueFrom } from "./http.ts";
 
 // The Durable Objects an application binds, and the prefix on their instance names

@@ -22,6 +22,7 @@ export {
   needsCapitalNudge,
 } from "../member-name-rules.ts";
 export { formatRecoveryCodes, recoveryCodesHeader, type RecoveryCodesText } from "./recovery-codes.ts";
+export { SECURITY_KEY } from "../security-key.ts";
 export type {
   AuthenticationResponseJSON,
   PublicKeyCredentialCreationOptionsJSON,
