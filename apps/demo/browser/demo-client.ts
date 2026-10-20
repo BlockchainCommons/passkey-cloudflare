@@ -102,10 +102,15 @@ export class DemoClient {
 
   // --- ceremonies -----------------------------------------------------------
 
-  async register(memberName: string): Promise<Ok<Registered> | { result: "name-unavailable" } | NoPasskey | Refused> {
+  /** The registration's verify request, with a passkey made for it. */
+  async registerRequest(memberName: string): Promise<Prepared | { result: "name-unavailable" } | NoPasskey | Refused> {
     const options = await this.post("/auth/register/options", { memberName });
     if (options.status === 409) return { result: "name-unavailable" };
-    const prepared = await this.created(options, "/auth/register/verify", (response) => ({ response }));
+    return this.created(options, "/auth/register/verify", (response) => ({ response }));
+  }
+
+  async register(memberName: string): Promise<Ok<Registered> | { result: "name-unavailable" } | NoPasskey | Refused> {
+    const prepared = await this.registerRequest(memberName);
     return prepared.result === "prepared" ? this.send<Registered>(prepared) : prepared;
   }
 
