@@ -4,6 +4,7 @@ import { CHALLENGE_LIFETIME_MS, challengeStores } from "./app-tier/challenges.ts
 import { providerName } from "./app-tier/aaguid-names.ts";
 import { credentialLabels, parseLabel, randomLabel } from "./app-tier/labels.ts";
 import { memberNameRegistry } from "./app-tier/member-names.ts";
+import { missingSourceWarning } from "./app-tier/missing-source-warning.ts";
 import { isValidMemberName, memberNameKey } from "./member-name-rules.ts";
 import { DEFAULT_RATE_LIMITS, rateLimiters, type Limit, type RateLimits } from "./app-tier/rate-limit.ts";
 import { credentialBinding } from "./credential-binding.ts";
@@ -65,6 +66,15 @@ export interface PasskeyConfig {
    * var or secret, so a deploy setting cannot point the app at other storage.
    */
   storagePrefix?: string;
+  /**
+   * The source address of a request, which every per-source rate limit keys
+   * on. Defaults to the `CF-Connecting-IP` header, which Cloudflare's edge
+   * sets. Set it when that header does not reach the app, such as behind a
+   * Worker that rebuilds the request or on self-hosted workerd behind a
+   * reverse proxy. When it returns null or an empty string, every ceremony and
+   * every options request is refused.
+   */
+  sourceOf?: (request: Request) => string | null;
 }
 
 export interface RevocationEvent {
@@ -77,7 +87,8 @@ export interface RevocationEvent {
 export interface RequestContext {
   startedAt: number;
   now: number;
-  sourceIp: string;
+  /** The request's source address, or null when `sourceOf` named none. */
+  sourceIp: string | null;
   userAgent: string;
 }
 
@@ -138,6 +149,7 @@ export interface RevokedPasskey {
 
 export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig) {
   const clock = config.clock ?? Date.now;
+  const sourceOf = config.sourceOf ?? ((request: Request) => request.headers.get("CF-Connecting-IP"));
   const limits: RateLimits = { ...DEFAULT_RATE_LIMITS, ...config.rateLimits };
   const revoked = async (event: RevocationEvent) => {
     await config.onRevoke?.(event);
@@ -178,6 +190,22 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
   }
 
   /**
+   * Whether the request has a source address. When it has none, every
+   * per-source limit would be shared by every caller, so the request is to be
+   * refused; the first such request on each isolate logs why.
+   */
+  function sourceKnown(ctx: RequestContext, ceremony: Ceremony): boolean {
+    if (ctx.sourceIp) return true;
+    if (!missingSourceWarning.logged) {
+      missingSourceWarning.logged = true;
+      console.error(
+        `passkey ${ceremony} refused: the request has no source address, so every ceremony and options request is refused; set sourceOf in the passkey config to read it`,
+      );
+    }
+    return false;
+  }
+
+  /**
    * Record a refused ceremony's cause, on the record once `trail` names one,
    * otherwise globally. A failure to record is logged, never thrown.
    */
@@ -193,7 +221,9 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
   /**
    * Issue a ceremony's options, within a per-source limit when given one.
    * Past the limit, the uniform refusal, unrecorded: options are what a flood
-   * hits first, and recording each would add a write per flood request. Any
+   * hits first, and recording each would add a write per flood request. With
+   * no source address, the uniform refusal, unrecorded too, since every
+   * request on such a deployment is refused the same way. Any
    * unexpected error is recorded as `options-internal-error` (on the record
    * once `run` has named one in `trail`) and becomes the uniform refusal too,
    * no sooner than the refusal floor. A PasskeyError passes through.
@@ -204,6 +234,9 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
     sourceLimit: { bucket: string; limit: Limit } | null,
     run: (trail: Trail) => Promise<T>,
   ): Promise<CeremonyOutcome<T>> {
+    if (!sourceKnown(ctx, ceremony)) {
+      return { ok: false, response: await uniformRefusal(ctx.startedAt, config.refusalFloorMs) };
+    }
     const sourceHash = await sha256Hex(`source:${ctx.sourceIp}`);
     const trail: Trail = {};
     try {
@@ -232,11 +265,14 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
     ceremony: Ceremony,
     run: (trail: Trail, sourceHash: string) => Promise<T>,
   ): Promise<CeremonyOutcome<T>> {
-    const sourceHash = await sha256Hex(`source:${ctx.sourceIp}`);
+    // With no source address, the hash of an empty one, which the refusal is recorded under.
+    const sourceHash = await sha256Hex(`source:${ctx.sourceIp ?? ""}`);
     const trail: Trail = {};
     let cause: string;
     try {
-      // First, so that a ceremony refused for its RP ID writes nothing but its failure.
+      // Before any Durable Object call, since every per-source throttle needs the source.
+      if (!sourceKnown(ctx, ceremony)) throw new CeremonyRefusal("source-unknown");
+      // First of the calls, so that a ceremony refused for its RP ID writes nothing but its failure.
       await checkRelyingParty(ceremony);
       await throttle(`ceremony:${sourceHash}`, limits.ceremonyPerSource, ctx.now);
       if (ANONYMOUS_CEREMONIES.has(ceremony)) await throttle("ceremony:global", limits.ceremonyGlobal, ctx.now);
@@ -380,7 +416,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       return {
         startedAt: Date.now(),
         now,
-        sourceIp: request.headers.get("CF-Connecting-IP") ?? "unknown",
+        sourceIp: sourceOf(request) || null,
         userAgent: (request.headers.get("User-Agent") ?? "").slice(0, 256),
       };
     },

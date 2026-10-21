@@ -32,6 +32,11 @@ export interface AppOptions {
    */
   storagePrefix?: string;
   /**
+   * Where a request's source address comes from, for tests. Absent in
+   * production, where the library reads CF-Connecting-IP.
+   */
+  sourceOf?: (request: Request) => string | null;
+  /**
    * Who holds the operator role. Defaults to the `OPERATOR_RECORD_IDS` secret,
    * the only source the production entry uses.
    */
@@ -215,6 +220,7 @@ export function createApp(options: AppOptions = {}) {
         onRevoke: options.onRevoke,
         rateLimits: options.rateLimits,
         storagePrefix: options.storagePrefix,
+        sourceOf: options.sourceOf,
       });
       const ctx = passkeys.context(request);
       try {

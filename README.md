@@ -129,6 +129,8 @@ Every refused ceremony waits until the timing floor, `REFUSAL_FLOOR_MS`, has pas
 
 Every passkey is bound to the relying party ID, the `RP_ID` var. When a deployment binds its first passkey, the library stores that RP ID, and keeps it while any passkey is bound. If `RP_ID` is changed after that, every ceremony ends in the uniform refusal: browsers offer none of the existing passkeys, and no new one can be registered. The Worker logs an error naming both RP IDs, and the ceremony failure log records the cause `rp-id-changed` (unlike `wrong-rp-id`, which is one passkey response made for another RP ID). Passkeys cannot be moved to a new RP ID. Either restore the old value, or deploy on fresh storage and register again.
 
+Every per-source rate limit keys on the request's source address, which the library reads from the `CF-Connecting-IP` header that Cloudflare's edge sets. Where that header does not reach the application, such as behind a Worker that rebuilds the request or on self-hosted workerd behind a reverse proxy, pass `sourceOf` to `createPasskeys`: a function that returns the request's source address, for example from the proxy's `X-Forwarded-For`. When it returns no address, every ceremony and every options request ends in the uniform refusal, rather than all callers sharing one set of limits. The Worker logs an error once per isolate, and a refused ceremony records the cause `source-unknown` in the ceremony failure log.
+
 Operators are listed by identity record id, separated by commas, in the `OPERATOR_RECORD_IDS` secret: `npx wrangler secret put OPERATOR_RECORD_IDS`. Locally, put it in `apps/demo/.dev.vars`.
 
 A deployment on fresh storage starts with no operator, since record ids are new. To set one up:
