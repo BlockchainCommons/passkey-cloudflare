@@ -2,6 +2,7 @@ import {
   clearedSessionCookie,
   createPasskeys,
   PasskeyError,
+  SESSION_COOKIE,
   sessionCookie,
   sessionValueFrom,
   type CeremonyOutcome,
@@ -65,95 +66,127 @@ function authed(handler: AuthedHandler): Handler {
   };
 }
 
+/**
+ * A POST route, and whether it acts only on the caller's own session. The
+ * Origin check guards against cross-site request forgery, which rides on the
+ * cookie a browser attaches by itself. A browser never attaches a bearer header
+ * on its own, so a bearer-only request to an own-session route skips the check;
+ * on every other route it is checked like a cookie request.
+ */
+interface PostRoute {
+  handler: Handler;
+  ownSession: boolean;
+}
+
+/** A route a bearer-only request reaches only from the site's origin, like any other. */
+function originChecked(handler: Handler): PostRoute {
+  return { handler, ownSession: false };
+}
+
+/** A route that acts on the caller's own session, which a bearer-only request reaches without an Origin. */
+function ownSession(handler: Handler): PostRoute {
+  return { handler, ownSession: true };
+}
+
 interface Routes {
-  POST: Record<string, Handler>;
+  POST: Record<string, PostRoute>;
   GET: Record<string, Handler>;
 }
 
 /** Every route the app answers, given who holds the operator role. */
 function routes(roles: OperatorRolesFor): Routes {
-  const POST: Record<string, Handler> = {
-    "/auth/register/options": async ({ passkeys, ctx, body }) =>
+  const POST: Record<string, PostRoute> = {
+    "/auth/register/options": originChecked(async ({ passkeys, ctx, body }) =>
       optionsResponse(await passkeys.registrationOptions(ctx, body.memberName)),
+    ),
 
-    "/auth/register/verify": async ({ passkeys, ctx, body }) => {
+    "/auth/register/verify": originChecked(async ({ passkeys, ctx, body }) => {
       const outcome = await passkeys.register(ctx, body.response);
       if (!outcome.ok) return outcome.response;
       const { recordId, session, ...codes } = outcome.value;
       return json({ recordId, ...(await withWords(codes)) } satisfies Registered, {
         headers: { "Set-Cookie": sessionCookie(session) },
       });
-    },
+    }),
 
-    "/auth/login/options": async ({ passkeys, ctx }) => optionsResponse(await passkeys.loginOptions(ctx)),
+    "/auth/login/options": originChecked(async ({ passkeys, ctx }) =>
+      optionsResponse(await passkeys.loginOptions(ctx)),
+    ),
 
-    "/auth/login/verify": async ({ passkeys, ctx, body }) => {
+    "/auth/login/verify": originChecked(async ({ passkeys, ctx, body }) => {
       const outcome = await passkeys.login(ctx, body.response);
       if (!outcome.ok) return outcome.response;
       const { recordId, session } = outcome.value;
       return json({ recordId }, { headers: { "Set-Cookie": sessionCookie(session) } });
-    },
+    }),
 
-    "/auth/logout": async ({ passkeys, request }) => {
+    "/auth/logout": ownSession(async ({ passkeys, request }) => {
       await passkeys.logout(sessionValueFrom(request));
       return json({ ok: true }, { headers: { "Set-Cookie": clearedSessionCookie() } });
-    },
+    }),
 
-    "/auth/logout-everywhere": async ({ passkeys, request }) => {
+    "/auth/logout-everywhere": ownSession(async ({ passkeys, request }) => {
       await passkeys.logoutEverywhere(sessionValueFrom(request));
       return json({ ok: true }, { headers: { "Set-Cookie": clearedSessionCookie() } });
-    },
+    }),
 
-    "/auth/logout-elsewhere": async ({ passkeys, request }) => {
+    "/auth/logout-elsewhere": ownSession(async ({ passkeys, request }) => {
       await passkeys.logoutElsewhere(sessionValueFrom(request));
       return json({ ok: true });
-    },
+    }),
 
-    "/auth/recover/options": async ({ passkeys, ctx, body }) =>
+    "/auth/recover/options": originChecked(async ({ passkeys, ctx, body }) =>
       optionsResponse(await passkeys.recoverOptions(ctx, body.memberName)),
+    ),
 
-    "/auth/recover": async ({ passkeys, ctx, body }) => {
+    "/auth/recover": originChecked(async ({ passkeys, ctx, body }) => {
       const outcome = await passkeys.recover(ctx, body.memberName, body.code, body.response);
       if (!outcome.ok) return outcome.response;
       const { recordId, session, codesLeft } = outcome.value;
       return json({ recordId, codesLeft } satisfies Recovered, { headers: { "Set-Cookie": sessionCookie(session) } });
-    },
+    }),
 
-    "/auth/rebind/options": async ({ passkeys, ctx, body }) =>
+    "/auth/rebind/options": originChecked(async ({ passkeys, ctx, body }) =>
       optionsResponse(await passkeys.rebindOptions(ctx, body.link)),
+    ),
 
-    "/auth/rebind/verify": async ({ passkeys, ctx, body }) => {
+    "/auth/rebind/verify": originChecked(async ({ passkeys, ctx, body }) => {
       const outcome = await passkeys.rebind(ctx, body.link, body.response);
       if (!outcome.ok) return outcome.response;
       const { recordId, session } = outcome.value;
       return json({ recordId }, { headers: { "Set-Cookie": sessionCookie(session) } });
-    },
+    }),
 
-    ...operatorRoutes(roles),
+    ...Object.fromEntries(
+      Object.entries(operatorRoutes(roles)).map(([path, handler]) => [path, originChecked(handler)]),
+    ),
 
-    "/auth/step-up/options": async ({ passkeys, ctx, request }) =>
+    "/auth/step-up/options": ownSession(async ({ passkeys, ctx, request }) =>
       optionsResponse(await passkeys.stepUpOptions(ctx, sessionValueFrom(request))),
+    ),
 
-    "/auth/step-up/verify": async ({ passkeys, ctx, request, body }) => {
+    "/auth/step-up/verify": ownSession(async ({ passkeys, ctx, request, body }) => {
       const outcome = await passkeys.stepUp(ctx, sessionValueFrom(request), body.response);
       return outcome.ok ? json({ ok: true }) : outcome.response;
-    },
+    }),
 
-    "/me/credentials/enrol/options": async ({ passkeys, ctx, request, body }) =>
+    "/me/credentials/enrol/options": ownSession(async ({ passkeys, ctx, request, body }) =>
       optionsResponse(await passkeys.enrolOptions(ctx, sessionValueFrom(request), body.hint)),
+    ),
 
-    "/me/credentials/enrol/verify": async ({ passkeys, ctx, request, body }) => {
+    "/me/credentials/enrol/verify": ownSession(async ({ passkeys, ctx, request, body }) => {
       const outcome = await passkeys.enrol(ctx, sessionValueFrom(request), body.response);
       return outcome.ok ? json(outcome.value) : outcome.response;
-    },
+    }),
 
-    "/me/credentials/revoke": async ({ passkeys, ctx, request, body }) => {
+    "/me/credentials/revoke": ownSession(async ({ passkeys, ctx, request, body }) => {
       const revoked = await passkeys.revokeCredential(ctx, sessionValueFrom(request), body.label);
       return json({ ok: true, ...revoked } satisfies Revoked & { ok: true });
-    },
+    }),
 
-    "/me/recovery-codes/rotate": async ({ passkeys, ctx, request }) =>
+    "/me/recovery-codes/rotate": ownSession(async ({ passkeys, ctx, request }) =>
       json(await withWords(await passkeys.rotateRecoveryCodes(ctx, sessionValueFrom(request)))),
+    ),
   };
 
   const GET: Record<string, Handler> = {
@@ -188,6 +221,9 @@ const ROUTE_TABLE = routes(operatorRolesFromSecret);
 
 /** The paths the app answers a POST on, each a state-changing route. */
 export const POST_ROUTES: readonly string[] = Object.keys(ROUTE_TABLE.POST);
+
+/** The POST paths that act on the caller's own session, which a bearer-only request reaches with no Origin. */
+export const OWN_SESSION_ROUTES: readonly string[] = POST_ROUTES.filter((path) => ROUTE_TABLE.POST[path]!.ownSession);
 
 /** The paths the app answers a GET or HEAD on, each a read route. */
 export const GET_ROUTES: readonly string[] = Object.keys(ROUTE_TABLE.GET);
@@ -226,9 +262,14 @@ async function route(
   const url = new URL(request.url);
 
   if (request.method === "POST") {
-    const handler = POST[url.pathname];
-    if (!handler) return error(404, "not found");
-    if (request.headers.get("Origin") !== env.ORIGIN) return error(403, "origin not allowed");
+    const entry = POST[url.pathname];
+    if (!entry) return error(404, "not found");
+    const bearer = request.headers.get("Authorization")?.startsWith("Bearer ") ?? false;
+    // The library takes the bearer header over the cookie, so which session the caller meant is unclear.
+    if (bearer && hasSessionCookie(request)) return error(400, "bearer header and session cookie both sent");
+    if (!(bearer && entry.ownSession) && request.headers.get("Origin") !== env.ORIGIN) {
+      return error(403, "origin not allowed");
+    }
     let body: any;
     try {
       const text = await request.text();
@@ -237,7 +278,7 @@ async function route(
       return error(400, "malformed JSON");
     }
     if (typeof body !== "object" || body === null) return error(400, "malformed JSON");
-    return handler({ request, env, passkeys, ctx, body, log });
+    return entry.handler({ request, env, passkeys, ctx, body, log });
   }
   if (request.method === "GET" || request.method === "HEAD") {
     const handler = GET[url.pathname];
@@ -245,4 +286,9 @@ async function route(
     return handler({ request, env, passkeys, ctx, body: {}, log });
   }
   return error(405, "method not allowed");
+}
+
+function hasSessionCookie(request: Request): boolean {
+  const cookie = request.headers.get("Cookie") ?? "";
+  return cookie.split(";").some((part) => part.trim().split("=")[0] === SESSION_COOKIE);
 }
