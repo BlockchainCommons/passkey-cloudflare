@@ -14,7 +14,7 @@ import {
   type RevocationEvent,
 } from "passkey-cloudflare";
 import { seedBip39, seedWords } from "passkey-cloudflare/gordian";
-import { error, json, type Call, type Handler } from "./http.ts";
+import { error, json, originChecked, ownSession, type Call, type Handler, type PostRoute } from "./http.ts";
 import { operatorLog } from "./operator-log.ts";
 import type { IssuedCodes, Me, PasskeyListing, Recovered, Registered, Revoked, SessionListing } from "./responses.ts";
 import { operatorLogRoute, operatorRolesFromSecret, operatorRoutes, type OperatorRolesFor } from "./operator.ts";
@@ -64,28 +64,6 @@ function authed(handler: AuthedHandler): Handler {
     if (!principal) return error(401, "not logged in");
     return handler(call, principal);
   };
-}
-
-/**
- * A POST route, and whether it acts only on the caller's own session. The
- * Origin check guards against cross-site request forgery, which rides on the
- * cookie a browser attaches by itself. A browser never attaches a bearer header
- * on its own, so a bearer-only request to an own-session route skips the check;
- * on every other route it is checked like a cookie request.
- */
-interface PostRoute {
-  handler: Handler;
-  ownSession: boolean;
-}
-
-/** A route a bearer-only request reaches only from the site's origin, like any other. */
-function originChecked(handler: Handler): PostRoute {
-  return { handler, ownSession: false };
-}
-
-/** A route that acts on the caller's own session, which a bearer-only request reaches without an Origin. */
-function ownSession(handler: Handler): PostRoute {
-  return { handler, ownSession: true };
 }
 
 interface Routes {
@@ -157,9 +135,7 @@ function routes(roles: OperatorRolesFor): Routes {
       return json({ recordId }, { headers: { "Set-Cookie": sessionCookie(session) } });
     }),
 
-    ...Object.fromEntries(
-      Object.entries(operatorRoutes(roles)).map(([path, handler]) => [path, originChecked(handler)]),
-    ),
+    ...operatorRoutes(roles),
 
     "/auth/step-up/options": ownSession(async ({ passkeys, ctx, request }) =>
       optionsResponse(await passkeys.stepUpOptions(ctx, sessionValueFrom(request))),
