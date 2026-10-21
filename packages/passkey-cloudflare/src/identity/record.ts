@@ -136,6 +136,7 @@ CREATE TABLE IF NOT EXISTS recovery_codes (
   used_at INTEGER
 );
 CREATE TABLE IF NOT EXISTS recovery_attempts (
+  source_hash TEXT NOT NULL,
   at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS rebind_tokens (
@@ -452,17 +453,22 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
    * Check a recovery attempt before the ceremony binds anything: apply the
    * throttle, count the attempt, and check that the code is one of the
    * record's unused codes, without using it. Every attempt counts against the
-   * throttle, whatever its outcome.
+   * throttle for its source, whatever its outcome, so that one source's junk
+   * codes cannot keep the member from recovering from another.
    */
-  checkRecoveryAttempt(input: { codeHash: string; now: number }): RecordResult {
+  checkRecoveryAttempt(input: { codeHash: string; sourceHash: string; now: number }): RecordResult {
     const refused = this.unavailableCause();
     if (refused) return { ok: false, cause: refused };
     const recent = this.sql
-      .exec<{ n: number }>("SELECT COUNT(*) AS n FROM recovery_attempts WHERE at > ?", input.now - HOUR_MS)
+      .exec<{ n: number }>(
+        "SELECT COUNT(*) AS n FROM recovery_attempts WHERE source_hash = ? AND at > ?",
+        input.sourceHash,
+        input.now - HOUR_MS,
+      )
       .one().n;
     if (recent >= RECOVERY_ATTEMPTS_PER_HOUR) return { ok: false, cause: "recovery-throttled" };
     this.sql.exec("DELETE FROM recovery_attempts WHERE at <= ?", input.now - HOUR_MS);
-    this.sql.exec("INSERT INTO recovery_attempts (at) VALUES (?)", input.now);
+    this.sql.exec("INSERT INTO recovery_attempts (source_hash, at) VALUES (?, ?)", input.sourceHash, input.now);
     const unused = this.sql
       .exec("SELECT 1 FROM recovery_codes WHERE code_hash = ? AND used_at IS NULL", input.codeHash)
       .toArray();

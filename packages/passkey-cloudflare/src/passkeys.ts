@@ -230,7 +230,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
   async function runCeremony<T>(
     ctx: RequestContext,
     ceremony: Ceremony,
-    run: (trail: Trail) => Promise<T>,
+    run: (trail: Trail, sourceHash: string) => Promise<T>,
   ): Promise<CeremonyOutcome<T>> {
     const sourceHash = await sha256Hex(`source:${ctx.sourceIp}`);
     const trail: Trail = {};
@@ -240,11 +240,8 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       await checkRelyingParty(ceremony);
       await throttle(`ceremony:${sourceHash}`, limits.ceremonyPerSource, ctx.now);
       if (ANONYMOUS_CEREMONIES.has(ceremony)) await throttle("ceremony:global", limits.ceremonyGlobal, ctx.now);
-      if (ceremony === "recover") {
-        await throttle(`recover:${sourceHash}`, limits.recoverPerSource, ctx.now);
-        await throttle("recover:global", limits.recoverGlobal, ctx.now);
-      }
-      return { ok: true, value: await run(trail) };
+      if (ceremony === "recover") await throttle(`recover:${sourceHash}`, limits.recoverPerSource, ctx.now);
+      return { ok: true, value: await run(trail, sourceHash) };
     } catch (error) {
       if (error instanceof PasskeyError) throw error;
       if (error instanceof CeremonyRefusal) {
@@ -710,7 +707,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
      * request. Returns how many unused recovery codes the record has left.
      */
     async recover(ctx: RequestContext, memberName: string, code: string, response: RegistrationResponseJSON) {
-      return runCeremony(ctx, "recover", async (trail) => {
+      return runCeremony(ctx, "recover", async (trail, sourceHash) => {
         const { challenge, payload } = await consumeChallenge<{
           memberName: string;
           recordId: RecordId | null;
@@ -727,7 +724,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
         // Checked before the passkey is verified or bound, so that a throttled
         // or wrong-code attempt writes nothing but its count: binding first
         // would burn a label on the record for every refused attempt.
-        const checked = await record(recordId).checkRecoveryAttempt({ codeHash, now: ctx.now });
+        const checked = await record(recordId).checkRecoveryAttempt({ codeHash, sourceHash, now: ctx.now });
         if (!checked.ok) throw new CeremonyRefusal(checked.cause);
         const credential = await verifyRegistration(response, { rp: config.rp, challenge });
         return bindNewCredential({
