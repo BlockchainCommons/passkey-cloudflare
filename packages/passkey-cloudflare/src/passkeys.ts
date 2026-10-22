@@ -16,6 +16,7 @@ import { relyingPartyMatch, relyingPartyMatches } from "./identity/relying-party
 import { sessionCookie } from "./http.ts";
 import {
   identityRecords,
+  DAY_MS,
   MAX_SESSION_LIFETIME_MS,
   SESSION_LIFETIME_MS,
   type Principal,
@@ -162,7 +163,8 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
   const lifetimeAllowed = sessionLifetimeMs > 0 && sessionLifetimeMs <= MAX_SESSION_LIFETIME_MS;
   if (!Number.isSafeInteger(sessionLifetimeMs) || !lifetimeAllowed) {
     throw new RangeError(
-      `sessionLifetimeMs must be a whole number of milliseconds, above 0 and at most 30 days ` +
+      `sessionLifetimeMs must be a whole number of milliseconds, above 0 and at most ` +
+        `${MAX_SESSION_LIFETIME_MS / DAY_MS} days ` +
         `(${MAX_SESSION_LIFETIME_MS}), not ${sessionLifetimeMs}`,
     );
   }

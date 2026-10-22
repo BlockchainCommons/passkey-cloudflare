@@ -16,10 +16,11 @@ import { prefixedInstance } from "../storage-prefix.ts";
 // rows. It sees only ids and hashes: never a label, a member name, a session
 // token or a code.
 
+export const DAY_MS = 24 * 60 * 60 * 1000;
 /** How long a session lasts when the app sets no lifetime of its own. */
-export const SESSION_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
+export const SESSION_LIFETIME_MS = 7 * DAY_MS;
 /** The longest lifetime an app may set for its sessions. */
-export const MAX_SESSION_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000;
+export const MAX_SESSION_LIFETIME_MS = 30 * DAY_MS;
 export const STEP_UP_WINDOW_MS = 10 * 60 * 1000;
 export const RECOVERY_ATTEMPTS_PER_HOUR = 5;
 const HOUR_MS = 60 * 60 * 1000;

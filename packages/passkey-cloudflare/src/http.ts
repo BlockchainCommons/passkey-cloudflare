@@ -1,5 +1,3 @@
-import { SESSION_LIFETIME_MS } from "./identity/record.ts";
-
 // Session transport: the `__Host-session` cookie for browsers, or an equivalent
 // `Authorization: Bearer` header for other clients.
 
@@ -16,8 +14,11 @@ export function sessionValueFrom(request: Request): string | null {
   return null;
 }
 
-/** The cookie carrying a session that lasts `lifetimeMs`, by default the library's default lifetime. */
-export function sessionCookie(value: string, lifetimeMs: number = SESSION_LIFETIME_MS): string {
+/**
+ * The cookie carrying a session that lasts `lifetimeMs`. Apps reach it through
+ * `passkeys.sessionCookie`, which passes the configured lifetime.
+ */
+export function sessionCookie(value: string, lifetimeMs: number): string {
   return `${SESSION_COOKIE}=${value}; Secure; HttpOnly; SameSite=Lax; Path=/; Max-Age=${lifetimeMs / 1000}`;
 }
 
