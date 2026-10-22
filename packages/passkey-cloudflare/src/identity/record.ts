@@ -16,7 +16,10 @@ import { prefixedInstance } from "../storage-prefix.ts";
 // rows. It sees only ids and hashes: never a label, a member name, a session
 // token or a code.
 
+/** How long a session lasts when the app sets no lifetime of its own. */
 export const SESSION_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
+/** The longest lifetime an app may set for its sessions. */
+export const MAX_SESSION_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000;
 export const STEP_UP_WINDOW_MS = 10 * 60 * 1000;
 export const RECOVERY_ATTEMPTS_PER_HOUR = 5;
 const HOUR_MS = 60 * 60 * 1000;
@@ -28,6 +31,8 @@ export interface NewSession {
   userAgent: string;
   /** Whether the passkey ceremony that started the session was user-verified. */
   userVerified: boolean;
+  /** How long the session lasts from the ceremony that starts it, in milliseconds. */
+  lifetimeMs: number;
 }
 
 export interface Principal {
@@ -185,7 +190,7 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
       session.id,
       session.tokenHash,
       now,
-      now + SESSION_LIFETIME_MS,
+      now + session.lifetimeMs,
       session.userAgent,
       session.userVerified ? 1 : 0,
     );

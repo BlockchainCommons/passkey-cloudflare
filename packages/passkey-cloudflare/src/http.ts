@@ -16,8 +16,9 @@ export function sessionValueFrom(request: Request): string | null {
   return null;
 }
 
-export function sessionCookie(value: string): string {
-  return `${SESSION_COOKIE}=${value}; Secure; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_LIFETIME_MS / 1000}`;
+/** The cookie carrying a session that lasts `lifetimeMs`, by default the library's default lifetime. */
+export function sessionCookie(value: string, lifetimeMs: number = SESSION_LIFETIME_MS): string {
+  return `${SESSION_COOKIE}=${value}; Secure; HttpOnly; SameSite=Lax; Path=/; Max-Age=${lifetimeMs / 1000}`;
 }
 
 export function clearedSessionCookie(): string {

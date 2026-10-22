@@ -13,8 +13,11 @@ import type { PasskeyBindings } from "./durable-objects.ts";
 import { sha256Hex, toBase64Url } from "./encoding.ts";
 import { credentialIndex } from "./identity/credential-index.ts";
 import { relyingPartyMatch, relyingPartyMatches } from "./identity/relying-party-matches.ts";
+import { sessionCookie } from "./http.ts";
 import {
   identityRecords,
+  MAX_SESSION_LIFETIME_MS,
+  SESSION_LIFETIME_MS,
   type Principal,
   type RecordSummary,
   type SessionCause,
@@ -51,6 +54,12 @@ export interface PasskeyConfig {
   refusalFloorMs: number;
   /** Source of the current time. Defaults to `Date.now`. */
   clock?: () => number;
+  /**
+   * How long a session lasts from the ceremony that starts it, used or not, in
+   * whole milliseconds. Defaults to `SESSION_LIFETIME_MS` (7 days); at most
+   * `MAX_SESSION_LIFETIME_MS` (30 days). Nothing extends a session.
+   */
+  sessionLifetimeMs?: number;
   /** Overrides for the per-source and global rate limits. */
   rateLimits?: Partial<RateLimits>;
   /**
@@ -149,6 +158,14 @@ export interface RevokedPasskey {
 
 export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig) {
   const clock = config.clock ?? Date.now;
+  const sessionLifetimeMs = config.sessionLifetimeMs ?? SESSION_LIFETIME_MS;
+  const lifetimeAllowed = sessionLifetimeMs > 0 && sessionLifetimeMs <= MAX_SESSION_LIFETIME_MS;
+  if (!Number.isSafeInteger(sessionLifetimeMs) || !lifetimeAllowed) {
+    throw new RangeError(
+      `sessionLifetimeMs must be a whole number of milliseconds, above 0 and at most 30 days ` +
+        `(${MAX_SESSION_LIFETIME_MS}), not ${sessionLifetimeMs}`,
+    );
+  }
   const sourceOf = config.sourceOf ?? ((request: Request) => request.headers.get("CF-Connecting-IP"));
   const limits: RateLimits = { ...DEFAULT_RATE_LIMITS, ...config.rateLimits };
   const revoked = async (event: RevocationEvent) => {
@@ -406,6 +423,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
         tokenHash: minted.tokenHash,
         userAgent: ctx.userAgent,
         userVerified: isUserVerified(flags),
+        lifetimeMs: sessionLifetimeMs,
       },
     };
   }
@@ -419,6 +437,11 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
         sourceIp: sourceOf(request) || null,
         userAgent: (request.headers.get("User-Agent") ?? "").slice(0, 256),
       };
+    },
+
+    /** The cookie for a session this deployment minted, whose `Max-Age` is the configured session lifetime. */
+    sessionCookie(value: string): string {
+      return sessionCookie(value, sessionLifetimeMs);
     },
 
     /**

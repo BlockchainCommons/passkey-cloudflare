@@ -3,7 +3,6 @@ import {
   createPasskeys,
   PasskeyError,
   SESSION_COOKIE,
-  sessionCookie,
   sessionValueFrom,
   type CeremonyOutcome,
   type PasskeyErrorCode,
@@ -22,6 +21,8 @@ import { operatorLogRoute, operatorRolesFromSecret, operatorRoutes, type Operato
 export interface AppOptions {
   /** Source of the current time, for tests. Defaults to `Date.now`. */
   clock?: () => number;
+  /** How long sessions last, for tests. Defaults to the library's default lifetime. */
+  sessionLifetimeMs?: number;
   /** Overrides for the library's rate limits. */
   rateLimits?: Partial<RateLimits>;
   /** Called when sessions end. The demo has no live connections yet, so by default it does nothing. */
@@ -88,7 +89,7 @@ function routes(roles: OperatorRolesFor): Routes {
       if (!outcome.ok) return outcome.response;
       const { recordId, session, ...codes } = outcome.value;
       return json({ recordId, ...(await withWords(codes)) } satisfies Registered, {
-        headers: { "Set-Cookie": sessionCookie(session) },
+        headers: { "Set-Cookie": passkeys.sessionCookie(session) },
       });
     }),
 
@@ -100,7 +101,7 @@ function routes(roles: OperatorRolesFor): Routes {
       const outcome = await passkeys.login(ctx, body.response);
       if (!outcome.ok) return outcome.response;
       const { recordId, session } = outcome.value;
-      return json({ recordId }, { headers: { "Set-Cookie": sessionCookie(session) } });
+      return json({ recordId }, { headers: { "Set-Cookie": passkeys.sessionCookie(session) } });
     }),
 
     "/auth/logout": ownSession(async ({ passkeys, request }) => {
@@ -126,7 +127,9 @@ function routes(roles: OperatorRolesFor): Routes {
       const outcome = await passkeys.recover(ctx, body.memberName, body.code, body.response);
       if (!outcome.ok) return outcome.response;
       const { recordId, session, codesLeft } = outcome.value;
-      return json({ recordId, codesLeft } satisfies Recovered, { headers: { "Set-Cookie": sessionCookie(session) } });
+      return json({ recordId, codesLeft } satisfies Recovered, {
+        headers: { "Set-Cookie": passkeys.sessionCookie(session) },
+      });
     }),
 
     "/auth/rebind/options": originChecked(async ({ passkeys, ctx, body }) =>
@@ -137,7 +140,7 @@ function routes(roles: OperatorRolesFor): Routes {
       const outcome = await passkeys.rebind(ctx, body.link, body.response);
       if (!outcome.ok) return outcome.response;
       const { recordId, session } = outcome.value;
-      return json({ recordId }, { headers: { "Set-Cookie": sessionCookie(session) } });
+      return json({ recordId }, { headers: { "Set-Cookie": passkeys.sessionCookie(session) } });
     }),
 
     ...operatorRoutes(roles),
@@ -217,6 +220,7 @@ export function createApp(options: AppOptions = {}) {
         rp: { id: env.RP_ID, name: env.RP_NAME, origin: env.ORIGIN },
         refusalFloorMs: Number(env.REFUSAL_FLOOR_MS),
         clock: options.clock,
+        sessionLifetimeMs: options.sessionLifetimeMs,
         onRevoke: options.onRevoke,
         rateLimits: options.rateLimits,
         storagePrefix: options.storagePrefix,

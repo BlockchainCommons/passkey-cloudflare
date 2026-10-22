@@ -131,6 +131,8 @@ Every passkey is bound to the relying party ID, the `RP_ID` var. When a deployme
 
 Every per-source rate limit keys on the request's source address, which the library reads from the `CF-Connecting-IP` header that Cloudflare's edge sets. Where that header does not reach the application, such as behind a Worker that rebuilds the request or on self-hosted workerd behind a reverse proxy, pass `sourceOf` to `createPasskeys`: a function that returns the request's source address, for example from the proxy's `X-Forwarded-For`. When it returns no address, every ceremony and every options request ends in the uniform refusal, rather than all callers sharing one set of limits. The Worker logs an error once per isolate, and a refused ceremony records the cause `source-unknown` in the ceremony failure log.
 
+A session lasts 7 days from the ceremony that started it, used or not; nothing extends it. To change that, pass `sessionLifetimeMs` to `createPasskeys`, at most 30 days (`MAX_SESSION_LIFETIME_MS`): `createPasskeys` throws on a longer lifetime, or one that is not a positive whole number of milliseconds. Every session the deployment mints then lasts that long, and `passkeys.sessionCookie(value)` gives the session cookie a `Max-Age` that agrees. The step-up window stays 10 minutes whatever the session lifetime.
+
 Operators are listed by identity record id, separated by commas, in the `OPERATOR_RECORD_IDS` secret: `npx wrangler secret put OPERATOR_RECORD_IDS`. Locally, put it in `apps/demo/.dev.vars`.
 
 A deployment on fresh storage starts with no operator, since record ids are new. To set one up:

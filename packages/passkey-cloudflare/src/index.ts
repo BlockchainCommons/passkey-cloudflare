@@ -2,6 +2,7 @@
 export {
   IdentityRecord,
   identityRecords,
+  MAX_SESSION_LIFETIME_MS,
   REBIND_LINK_LIFETIME_MS,
   SESSION_LIFETIME_MS,
   type Principal,
