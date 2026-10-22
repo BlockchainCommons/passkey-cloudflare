@@ -41,6 +41,9 @@ const CANCELLED = told("Cancelled.", true);
 export const ALREADY_REGISTERED =
   "This device already has a passkey for you. Use it to log in, or add one on another device.";
 
+/** What a person is told when the page had no focus to ask for a passkey from: press `button` again. Not a decline. */
+const notFocused = (button: string) => told(`The page was not ready for a passkey. Press ${button} again.`);
+
 /**
  * What a person is told when an action did not go ahead: declined (a sheet
  * dismissed, a step-up declined, or no passkey to use), already registered on
@@ -162,6 +165,7 @@ export class Flows {
   async register(memberName: string): Promise<({ result: "registered" } & IssuedCodes) | Told> {
     const registered = await this.client.register(memberName);
     if (registered.result === "name-unavailable") return told(`The member name ${memberName} is not available.`);
+    if (registered.result === "not-focused") return notFocused("Register with a passkey");
     if (registered.result !== "ok") return notDone(registered, "Registration was refused.", "Registration cancelled.");
     return { ...registered, result: "registered" };
   }
@@ -169,6 +173,7 @@ export class Flows {
   /** Recover with a recovery code; `codesLeft` is how many unused codes the record has after this one. */
   async recover(memberName: string, code: string): Promise<{ result: "recovered"; codesLeft: number } | Told> {
     const recovered = await this.client.recover(memberName, code);
+    if (recovered.result === "not-focused") return notFocused("Recover with a new passkey");
     if (recovered.result !== "ok") return notDone(recovered, "Recovery was refused.", "Recovery cancelled.");
     return { result: "recovered", codesLeft: recovered.codesLeft };
   }
@@ -177,6 +182,7 @@ export class Flows {
   async rebind(link: string): Promise<{ result: "rebound" } | Told> {
     const rebound = await this.client.rebind(link);
     if (rebound.result === "invalid-link") return told("This link is not valid.");
+    if (rebound.result === "not-focused") return notFocused("Create a passkey");
     if (rebound.result !== "ok")
       return notDone(rebound, "This link was refused. It may have been used or have expired.");
     return { result: "rebound" };
@@ -193,6 +199,8 @@ export class Flows {
   /** Add a passkey, with a hint for where the browser should offer to save it. */
   async addPasskey(hint?: PublicKeyCredentialHint): Promise<Told> {
     const enrolled = await this.client.enrol(hint);
+    // What leaves the page without focus here is the step-up's sheet, just closed.
+    if (enrolled.result === "not-focused") return told("Step-up done. Press the Add a passkey button again.");
     if (enrolled.result !== "ok") return notDone(enrolled, "Adding the passkey was refused.");
     return told(`Added passkey ${enrolled.label}.`);
   }

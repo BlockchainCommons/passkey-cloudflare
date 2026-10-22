@@ -54,6 +54,8 @@ export interface Authenticator {
 export type Cancelled = { result: "cancelled" };
 /** The authenticator already holds a passkey for this record. */
 export type AlreadyRegistered = { result: "already-registered" };
+/** The page did not have focus, so no passkey was asked for; another press can make it. */
+export type NotFocused = { result: "not-focused" };
 /** Refused for a reason no caller tells apart; `response` is the server's answer, unread. */
 export type Refused = { result: "refused"; response: Response };
 /** A rebind link the server will not start a ceremony from; `response` is its answer. */
@@ -62,7 +64,7 @@ export type InvalidLink = { result: "invalid-link"; response: Response };
 export type Prepared = { result: "prepared"; path: string; body: unknown };
 
 type Ok<T = {}> = { result: "ok" } & T;
-type NoPasskey = Cancelled | AlreadyRegistered;
+type NoPasskey = Cancelled | AlreadyRegistered | NotFocused;
 
 export type OperatorAction = "rebind" | "suspend" | "resume" | "remove" | "allow-name";
 
@@ -287,6 +289,7 @@ export class DemoClient {
     const created = await this.authenticator.create(await read(options));
     if (created.result === "not-created") return CANCELLED;
     if (created.result === "already-registered") return { result: "already-registered" };
+    if (created.result === "not-focused") return { result: "not-focused" };
     return { result: "prepared", path, body: body(created.response) };
   }
 
