@@ -158,10 +158,15 @@
         <form id="operator-form">
           <label>
             Member name
-            <input name="memberName" required />
+            <input name="memberName" aria-describedby="operator-form-hint" />
           </label>
           <button type="submit">Look up</button>
+          <p id="operator-form-hint">Leave the name blank to list every member.</p>
         </form>
+        <table id="operator-members" hidden>
+          <thead><tr><th>Member</th><th>Status</th><th>Created</th><th>Passkeys</th><th></th></tr></thead>
+          <tbody id="operator-member-rows"></tbody>
+        </table>
         <div id="operator-member" hidden>
           <table>
             <tbody id="operator-summary"></tbody>

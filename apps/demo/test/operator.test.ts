@@ -613,3 +613,60 @@ describe("an operator action whose log entry cannot be written", () => {
     expect(member.entries.map((e: any) => e.action)).toEqual(["remove", "lookup"]);
   });
 });
+
+describe("operator member list", () => {
+  it("lists every member with state and counts, marks a retired name, and logs one entry naming the operator", async () => {
+    const now = Date.now();
+    const { app, operator, operatorId, personName, personId } = await deployment({ clock: () => now });
+    const removed = app.browser();
+    const removedName = uniqueName("removed");
+    const { recordId: removedId } = await removed.register(removedName);
+    await operator.json(operator.post("/operator/remove", { recordId: removedId }));
+
+    const { members } = await operator.json(operator.post("/operator/members"));
+
+    expect(members).toHaveLength(3);
+    expect(members.find((m: any) => m.recordId === personId)).toEqual({
+      memberName: personName,
+      recordId: personId,
+      retired: false,
+      summary: {
+        createdAt: now,
+        suspendedAt: null,
+        removedAt: null,
+        passkeys: 1,
+        sessions: 1,
+        recoveryCodesLeft: RECOVERY_CODE_COUNT,
+        rebindLinkOutstanding: false,
+      },
+    });
+    expect(members.find((m: any) => m.recordId === removedId)).toMatchObject({
+      memberName: removedName,
+      retired: true,
+      summary: { removedAt: now },
+    });
+    expect(members.some((m: any) => m.recordId === operatorId)).toBe(true);
+    const { entries } = await operator.json(operator.get("/operator/log"));
+    expect(entries.filter((e: any) => e.action === "list-members")).toEqual([
+      { operatorId, action: "list-members", targetId: operatorId, at: now },
+    ]);
+  });
+
+  it("is refused, like the other operator routes, to a non-operator and to an operator who has not stepped up, and logs nothing", async () => {
+    let now = Date.now();
+    const { operator, person } = await deployment({ clock: () => now });
+    await person.stepUp();
+    const log = async () => (await operator.json(operator.get("/operator/log"))).entries;
+
+    const byPerson = await person.post("/operator/members");
+    expect(byPerson.status).toBe(403);
+    expect(await byPerson.json()).toEqual({ error: "not an operator" });
+
+    now += 11 * 60 * 1000;
+    const stale = await operator.post("/operator/members");
+    expect(stale.status).toBe(403);
+    expect(await stale.json()).toEqual({ error: "step-up-required" });
+    await operator.stepUp();
+    expect(await log()).toEqual([]);
+  });
+});

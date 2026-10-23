@@ -65,7 +65,8 @@ export interface Revoked {
 /** One operator action, as the operator log keeps it. */
 export interface OperatorLogEntry {
   operatorId: string;
-  action: "lookup" | "create-rebind-link" | "suspend" | "resume" | "remove" | "allow-name";
+  /** A `list-members` entry names the operator who listed them as its target. */
+  action: "lookup" | "list-members" | "create-rebind-link" | "suspend" | "resume" | "remove" | "allow-name";
   targetId: string;
   at: number;
 }
@@ -88,6 +89,15 @@ export interface MemberView {
   entries: OperatorLogEntry[];
   /** Whether the name the operator gave was retired with its member, where the answer says. */
   retired?: boolean;
+}
+
+/** One member in an operator's list of every member: the name, its record, and the record's summary. */
+export interface ListedMember {
+  memberName: string;
+  recordId: string;
+  /** Whether the name was retired with its member. */
+  retired: boolean;
+  summary: MemberSummary;
 }
 
 /** An operator action's answer: the member as it now stands, and a rebind link where the action made one. */

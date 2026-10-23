@@ -19,6 +19,7 @@ import type {
 } from "passkey-cloudflare/browser";
 import type {
   IssuedCodes,
+  ListedMember,
   Me,
   MemberView,
   OperatorActed,
@@ -233,6 +234,13 @@ export class DemoClient {
     if (!(response instanceof Response)) return response;
     if (response.status === 404) return { result: "no-such-member" };
     return this.answer<MemberView>(response);
+  }
+
+  /** Every member, with each record's summary. */
+  async listMembers(): Promise<Ok<{ members: ListedMember[] }> | Cancelled | Refused> {
+    const response = await this.gated("/operator/members");
+    if (!(response instanceof Response)) return response;
+    return this.answer<{ members: ListedMember[] }>(response);
   }
 
   /** Act on a member a lookup found. An operator's own record cannot be removed: `operator-record`. */
