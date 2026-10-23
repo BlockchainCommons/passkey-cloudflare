@@ -25,9 +25,12 @@ const PANES = ["codes", "settings", "sign-in"] as const;
 
 export type PaneId = (typeof PANES)[number];
 
+/** The topmost open pane, or undefined when none is open. */
+export const frontPane = (): PaneId | undefined => PANES.find((id) => pane(id).open);
+
 /** Show a message in the topmost open pane, or in the app when none is open. */
 export function status(message: string) {
-  const open = PANES.find((id) => pane(id).open);
+  const open = frontPane();
   $(open ? `${open}-status` : "status").textContent = message;
 }
 

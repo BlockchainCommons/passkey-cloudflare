@@ -1440,18 +1440,14 @@ test("an action that answers quickly shows the progress cursor and never the bar
   expect(await takeBusyMarks(page)).toEqual(["", null]);
 });
 
-test("registering says a passkey comes next while it waits, and a refusal clears the busy mark", async ({
-  page,
-  browser,
-}) => {
-  const memberName = `BusyTaken${Date.now().toString(36)}`;
-  const { device } = await registerElsewhere(browser, memberName);
-  await device.close();
+test("registering says a passkey comes next while it waits, and a refusal clears the busy mark", async ({ page }) => {
   await addAuthenticator(page);
   await page.goto("/");
   await openSignIn(page);
   await page.getByRole("button", { name: "Continue with passkey" }).click();
-  await page.locator("#register-name").fill(memberName);
+  await page.locator("#register-name").fill(`BusyRefused${Date.now().toString(36)}`);
+  // Answer the ceremony's last request as a refused ceremony does.
+  await page.route("**/auth/register/verify", (route) => route.fulfill({ status: 400, json: { error: "refused" } }));
 
   const held = await holdRoute(page, "/auth/register/options");
   await page.getByRole("button", { name: "Register with a passkey" }).click();
@@ -1460,7 +1456,7 @@ test("registering says a passkey comes next while it waits, and a refusal clears
   await expect.poll(() => busyMark(page)).toEqual(BUSY);
   held.release();
 
-  await expect(page.locator("#sign-in-status")).toHaveText(`The member name ${memberName} is not available.`);
+  await expect(page.locator("#sign-in-status")).toHaveText("Registration was refused.");
   await expect.poll(() => busyMark(page)).toEqual(IDLE);
 });
 
@@ -1475,10 +1471,35 @@ test("an action in settings that steps up says it is asking for a passkey until 
   await page.getByRole("button", { name: "This device" }).click();
   await expect.poll(() => passkeyRequests(page)).toBeGreaterThan(before);
   await expect(page.locator("#settings-status")).toHaveText(STEPPING_UP);
+  // The panes are lent while the passkey request waits, so the mark is on the page, over them.
+  expect(await isModal(page, "settings")).toBe(false);
+  await expect.poll(() => busyMark(page)).toEqual(BUSY);
   await releasePasskeys(page);
 
   await expect(page.locator("#settings-status")).toHaveText(
     "This device already has a passkey for you. Use it to log in, or add one on another device.",
   );
   await expect.poll(() => busyMark(page)).toEqual(IDLE);
+});
+
+test("closing settings during a step-up leaves the step text out of the app's status line", async ({ page }) => {
+  await gatePasskeys(page);
+  await addAuthenticator(page);
+  await registerMember(page, `BusyClosed${Date.now().toString(36)}`);
+  await openSettings(page);
+  // Text the app's status line already shows, which a stray step message would replace.
+  const shown = "Shown before the action.";
+  await page.locator("#status").evaluate((line, shown) => (line.textContent = shown), shown);
+
+  await holdPasskeys(page);
+  const before = await passkeyRequests(page);
+  await page.getByRole("button", { name: "This device" }).click();
+  await expect.poll(() => passkeyRequests(page)).toBeGreaterThan(before);
+  await expect(page.locator("#settings-status")).toHaveText(STEPPING_UP);
+  await page.locator("#settings").getByRole("button", { name: "Close" }).click();
+  await expect(page.locator("#settings")).toBeHidden();
+  await releasePasskeys(page);
+
+  await expect.poll(() => busyMark(page)).toEqual(IDLE);
+  await expect(page.locator("#status")).toHaveText(shown);
 });

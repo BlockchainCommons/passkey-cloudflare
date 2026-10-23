@@ -9,7 +9,7 @@
 import type { PublicKeyCredentialHint } from "passkey-cloudflare/browser";
 import type { OperatorAction } from "./demo-client.ts";
 import { CodesPane } from "./codes-pane.ts";
-import { $, input, lendPage, pane, paneStatus, status, whileWorking, type PaneId } from "./dom.ts";
+import { $, frontPane, input, lendPage, pane, paneStatus, status, whileWorking, type PaneId } from "./dom.ts";
 import { pageFlows, type CodeForm, type Told } from "./flows.ts";
 import { OperatorPane } from "./operator-pane.ts";
 import { SettingsPane } from "./settings-pane.ts";
@@ -17,8 +17,11 @@ import { showApp } from "./shell.ts";
 import { SignInPane } from "./sign-in-pane.ts";
 
 const flows = pageFlows(location, lendPage);
-// The step an action is on shows in the pane in front until its outcome replaces it.
-flows.onStep = (message) => status(message);
+/** The pane in front when the running passkey action started, or undefined when none was open. */
+let actionPane: PaneId | undefined;
+// The step an action is on shows where the action started until its outcome
+// replaces it; once that pane closes, a later step writes nothing.
+flows.onStep = (message) => (actionPane ? paneStatus(actionPane, message) : ($("status").textContent = message));
 
 const signIn = new SignInPane();
 const codes = new CodesPane();
@@ -50,6 +53,7 @@ function passkeyAction<A extends unknown[]>(fn: (...args: A) => Promise<unknown>
   return guard(async (...args: A) => {
     if (passkeyActionRunning) return;
     passkeyActionRunning = true;
+    actionPane = frontPane();
     try {
       await whileWorking(() => fn(...args));
     } finally {
