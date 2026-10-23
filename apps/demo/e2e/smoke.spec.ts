@@ -1269,3 +1269,216 @@ test("an operator allows a retired name after confirming, and only a retired nam
   await expect(allow).toBeDisabled();
   for (const action of others) await expect(action).toBeDisabled();
 });
+
+const STEPPING_UP = "Asking for your passkey…";
+const MAKING_PASSKEY = "Your browser asks you to make a passkey next.";
+
+/**
+ * Hold every request to `path` until `release`, as a cold Durable Object holds
+ * the first call into it; `arrived` resolves when the first one reaches the hold.
+ */
+async function holdRoute(page: Page, path: string) {
+  let release!: () => void;
+  let arrive!: () => void;
+  const released = new Promise<void>((resolve) => (release = resolve));
+  const arrived = new Promise<void>((resolve) => (arrive = resolve));
+  await page.route(`**${path}`, async (route) => {
+    arrive();
+    await released;
+    await route.continue();
+  });
+  return { arrived, release };
+}
+
+/** The busy mark as drawn on the pane in front, or on the page when no pane is modal. */
+const busyMark = (page: Page) =>
+  page.evaluate(() => {
+    const front = [...document.querySelectorAll("dialog")].find((pane) => pane.matches(":modal")) ?? document.body;
+    const bar = getComputedStyle(front, "::before");
+    return { cursor: getComputedStyle(front).cursor, bar: bar.content !== "none", animation: bar.animationName };
+  });
+
+const BUSY = { cursor: "progress", bar: true, animation: "working-bar" };
+const IDLE = { cursor: "auto", bar: false, animation: "none" };
+
+/** Record each busy mark the page shows, so a test can tell whether a bar ever came and went. */
+async function recordBusyMarks(page: Page) {
+  await page.addInitScript(() => {
+    const marks: (string | null)[] = [];
+    (window as unknown as { busyMarks: typeof marks }).busyMarks = marks;
+    new MutationObserver(() => {
+      const mark = document.body.dataset.working ?? null;
+      if (marks.at(-1) !== mark) marks.push(mark);
+    }).observe(document, { subtree: true, attributeFilter: ["data-working"] });
+  });
+}
+
+/** The busy marks shown since the last call: "" for the cursor alone, "bar" for the bar, null for none. */
+const takeBusyMarks = (page: Page) =>
+  page.evaluate(() => (window as unknown as { busyMarks: (string | null)[] }).busyMarks.splice(0));
+
+/** The colour drawn mid-width on the page's second pixel row, and the accent's, as [r, g, b]. */
+async function topRowAndAccent(page: Page) {
+  const png = (await page.screenshot({ clip: { x: 0, y: 0, width: page.viewportSize()!.width, height: 3 } })).toString(
+    "base64",
+  );
+  return page.evaluate(async (png) => {
+    // From bytes, not a data: URL, which the page's Content Security Policy refuses.
+    const image = await createImageBitmap(new Blob([Uint8Array.from(atob(png), (c) => c.charCodeAt(0))]));
+    const canvas = document.createElement("canvas");
+    canvas.width = image.width;
+    canvas.height = image.height;
+    const context = canvas.getContext("2d")!;
+    context.drawImage(image, 0, 0);
+    const [r, g, b] = context.getImageData(Math.floor(image.width / 2), 1, 1, 1).data;
+    const probe = document.createElement("div");
+    probe.style.color = "var(--accent)";
+    document.body.append(probe);
+    const accent = getComputedStyle(probe).color.match(/\d+/g)!.slice(0, 3).map(Number);
+    probe.remove();
+    return { top: [r!, g!, b!], accent };
+  }, png);
+}
+
+const near = (a: number[], b: number[]) => a.every((value, i) => Math.abs(value - b[i]!) <= 4);
+
+test("an action that waits shows a progress cursor at once, a moving bar after a moment, and neither once it ends", async ({
+  page,
+}) => {
+  await recordBusyMarks(page);
+  await addAuthenticator(page);
+  const memberName = `Busy${Date.now().toString(36)}`;
+  await registerMember(page, memberName);
+  await logOut(page);
+  await openSignIn(page);
+  await takeBusyMarks(page);
+
+  const held = await holdRoute(page, "/auth/login/options");
+  await page.getByRole("button", { name: "Continue with passkey" }).click();
+  await held.arrived;
+  expect((await busyMark(page)).cursor).toBe("progress");
+  await expect.poll(() => busyMark(page)).toEqual(BUSY);
+  held.release();
+
+  await expectSignedIn(page, memberName);
+  await expect.poll(() => busyMark(page)).toEqual(IDLE);
+  expect(await takeBusyMarks(page)).toEqual(["", "bar", null]);
+});
+
+test("the busy mark shows over an open pane, with the bar drawn on top of it", async ({ page }) => {
+  await addAuthenticator(page);
+  await registerMember(page, `BusyPane${Date.now().toString(36)}`);
+  await openSettings(page);
+
+  const held = await holdRoute(page, "/me/credentials/enrol/options");
+  await page.getByRole("button", { name: "This device" }).click();
+  await held.arrived;
+  // busyMark reads the pane in front: settings, still modal while its options request waits.
+  expect(await isModal(page, "settings")).toBe(true);
+  await expect.poll(() => busyMark(page)).toEqual(BUSY);
+  await expect(page.locator("#settings")).toHaveCSS("cursor", "progress");
+  // Drawn still, the bar is a solid accent; the top row showing it means nothing, backdrop or pane, lies over it.
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const busy = await topRowAndAccent(page);
+  expect(near(busy.top, busy.accent), `top row ${busy.top} is the accent ${busy.accent}`).toBe(true);
+  held.release();
+
+  await expect(page.locator("#settings-status")).toHaveText(
+    "This device already has a passkey for you. Use it to log in, or add one on another device.",
+  );
+  await expect.poll(() => busyMark(page)).toEqual(IDLE);
+  const idle = await topRowAndAccent(page);
+  expect(near(idle.top, idle.accent), `top row ${idle.top} is not the accent once the action ends`).toBe(false);
+});
+
+test("Settings shows the busy mark while it loads", async ({ page }) => {
+  await recordBusyMarks(page);
+  await addAuthenticator(page);
+  await registerMember(page, `BusyLoad${Date.now().toString(36)}`);
+  await takeBusyMarks(page);
+
+  const held = await holdRoute(page, "/me");
+  await page.getByRole("button", { name: "Settings" }).click();
+  await held.arrived;
+  expect((await busyMark(page)).cursor).toBe("progress");
+  await expect.poll(() => busyMark(page)).toEqual(BUSY);
+  held.release();
+
+  await expect(page.locator("#settings")).toBeVisible();
+  await expect.poll(() => busyMark(page)).toEqual(IDLE);
+  expect(await takeBusyMarks(page)).toEqual(["", "bar", null]);
+});
+
+test("with reduced motion, the busy bar shows and stays still", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await addAuthenticator(page);
+  await page.goto("/");
+  await openSignIn(page);
+
+  const held = await holdRoute(page, "/auth/login/options");
+  await page.getByRole("button", { name: "Continue with passkey" }).click();
+  await held.arrived;
+  await expect.poll(() => busyMark(page)).toEqual({ ...BUSY, animation: "none" });
+  held.release();
+  await expect.poll(() => busyMark(page)).toEqual(IDLE);
+});
+
+test("an action that answers quickly shows the progress cursor and never the bar", async ({ page }) => {
+  await recordBusyMarks(page);
+  await addAuthenticator(page);
+  await registerMember(page, `BusyQuick${Date.now().toString(36)}`);
+  await takeBusyMarks(page);
+
+  const held = await holdRoute(page, "/me");
+  await page.getByRole("button", { name: "Settings" }).click();
+  await held.arrived;
+  await page.waitForTimeout(100);
+  held.release();
+
+  await expect(page.locator("#settings")).toBeVisible();
+  await expect.poll(() => busyMark(page)).toEqual(IDLE);
+  expect(await takeBusyMarks(page)).toEqual(["", null]);
+});
+
+test("registering says a passkey comes next while it waits, and a refusal clears the busy mark", async ({
+  page,
+  browser,
+}) => {
+  const memberName = `BusyTaken${Date.now().toString(36)}`;
+  const { device } = await registerElsewhere(browser, memberName);
+  await device.close();
+  await addAuthenticator(page);
+  await page.goto("/");
+  await openSignIn(page);
+  await page.getByRole("button", { name: "Continue with passkey" }).click();
+  await page.locator("#register-name").fill(memberName);
+
+  const held = await holdRoute(page, "/auth/register/options");
+  await page.getByRole("button", { name: "Register with a passkey" }).click();
+  await held.arrived;
+  await expect(page.locator("#sign-in-status")).toHaveText(MAKING_PASSKEY);
+  await expect.poll(() => busyMark(page)).toEqual(BUSY);
+  held.release();
+
+  await expect(page.locator("#sign-in-status")).toHaveText(`The member name ${memberName} is not available.`);
+  await expect.poll(() => busyMark(page)).toEqual(IDLE);
+});
+
+test("an action in settings that steps up says it is asking for a passkey until the step-up ends", async ({ page }) => {
+  await gatePasskeys(page);
+  await addAuthenticator(page);
+  await registerMember(page, `BusyStep${Date.now().toString(36)}`);
+  await openSettings(page);
+
+  await holdPasskeys(page);
+  const before = await passkeyRequests(page);
+  await page.getByRole("button", { name: "This device" }).click();
+  await expect.poll(() => passkeyRequests(page)).toBeGreaterThan(before);
+  await expect(page.locator("#settings-status")).toHaveText(STEPPING_UP);
+  await releasePasskeys(page);
+
+  await expect(page.locator("#settings-status")).toHaveText(
+    "This device already has a passkey for you. Use it to log in, or add one on another device.",
+  );
+  await expect.poll(() => busyMark(page)).toEqual(IDLE);
+});

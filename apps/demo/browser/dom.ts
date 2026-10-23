@@ -1,5 +1,6 @@
 // The DOM helpers the panes share: elements by id, the panes' dialogs, the
-// status line and table rows. No requests; lendPage runs one it is handed.
+// status line, the busy mark and table rows. No requests; lendPage and
+// whileWorking run one they are handed.
 
 export function $<T extends HTMLElement = HTMLElement>(id: string): T {
   const element = document.getElementById(id);
@@ -62,6 +63,32 @@ export async function lendPage<T>(request: () => Promise<T>): Promise<T> {
     }
     if (focused instanceof HTMLElement && lent.some((id) => pane(id).open && pane(id).contains(focused)))
       focused.focus();
+  }
+}
+
+/** How long an action runs before the busy bar shows, so a quick answer draws none. */
+export const BAR_DELAY_MS = 300;
+
+let working = 0;
+let barTimer: ReturnType<typeof setTimeout> | undefined;
+
+/**
+ * Mark the page busy while `run` runs, however it ends: a progress cursor at
+ * once, and a thin bar along the top after BAR_DELAY_MS. style.css draws both
+ * from body's data-working, over any open pane. Overlapping runs share one mark.
+ */
+export async function whileWorking<T>(run: () => Promise<T>): Promise<T> {
+  if (working++ === 0) {
+    document.body.dataset.working = "";
+    barTimer = setTimeout(() => (document.body.dataset.working = "bar"), BAR_DELAY_MS);
+  }
+  try {
+    return await run();
+  } finally {
+    if (--working === 0) {
+      clearTimeout(barTimer);
+      delete document.body.dataset.working;
+    }
   }
 }
 

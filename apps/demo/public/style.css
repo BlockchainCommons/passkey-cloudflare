@@ -297,3 +297,39 @@ td {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+
+/* While an action runs (whileWorking in browser/dom.ts): a progress cursor at once, and after a
+   moment a thin bar along the top. A modal pane sits in the top layer above body, so the bar is
+   drawn on it as well; panes lent non-modal for a passkey request sit at z-index 1, below body's. */
+body[data-working],
+body[data-working] *,
+body[data-working] dialog::backdrop {
+  cursor: progress;
+}
+body[data-working="bar"]::before,
+body[data-working="bar"] dialog:modal::before {
+  content: "";
+  position: fixed;
+  inset: 0 0 auto;
+  height: 3px;
+  z-index: 2;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent) 0 0 / 40% 100% no-repeat
+    color-mix(in srgb, var(--accent) 25%, transparent);
+  animation: working-bar 1.2s linear infinite;
+}
+@keyframes working-bar {
+  from {
+    background-position: -40% 0;
+  }
+  to {
+    background-position: 140% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  body[data-working="bar"]::before,
+  body[data-working="bar"] dialog:modal::before {
+    animation: none;
+    background: var(--accent);
+  }
+}

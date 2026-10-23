@@ -9,7 +9,7 @@
 import type { PublicKeyCredentialHint } from "passkey-cloudflare/browser";
 import type { OperatorAction } from "./demo-client.ts";
 import { CodesPane } from "./codes-pane.ts";
-import { $, input, lendPage, pane, paneStatus, status, type PaneId } from "./dom.ts";
+import { $, input, lendPage, pane, paneStatus, status, whileWorking, type PaneId } from "./dom.ts";
 import { pageFlows, type CodeForm, type Told } from "./flows.ts";
 import { OperatorPane } from "./operator-pane.ts";
 import { SettingsPane } from "./settings-pane.ts";
@@ -17,6 +17,8 @@ import { showApp } from "./shell.ts";
 import { SignInPane } from "./sign-in-pane.ts";
 
 const flows = pageFlows(location, lendPage);
+// The step an action is on shows in the pane in front until its outcome replaces it.
+flows.onStep = (message) => status(message);
 
 const signIn = new SignInPane();
 const codes = new CodesPane();
@@ -41,14 +43,15 @@ let passkeyActionRunning = false;
  * Guard a passkey action, and start it only when no other is running. A second
  * press while a passkey request waits on a picker would start a second
  * request, and a password manager may answer both, the one it was not picked
- * for with a refusal.
+ * for with a refusal. The page shows it is busy while the action runs; an
+ * ignored press marks nothing.
  */
 function passkeyAction<A extends unknown[]>(fn: (...args: A) => Promise<unknown>) {
   return guard(async (...args: A) => {
     if (passkeyActionRunning) return;
     passkeyActionRunning = true;
     try {
-      await fn(...args);
+      await whileWorking(() => fn(...args));
     } finally {
       passkeyActionRunning = false;
     }
@@ -198,7 +201,7 @@ async function operatorAction(action: OperatorAction) {
 $("open-sign-in").addEventListener("click", guard(openSignIn));
 $("open-settings").addEventListener("click", guard(async () => {
   settings.clearStatus();
-  await showSettings();
+  await whileWorking(showSettings);
 }));
 for (const close of document.querySelectorAll<HTMLButtonElement>("dialog .close")) {
   close.addEventListener("click", () => close.closest("dialog")!.close());
