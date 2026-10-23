@@ -1,7 +1,7 @@
 import { isRecordId, PasskeyError, sessionValueFrom, type RecordId } from "passkey-cloudflare";
 import { error, json, originChecked, type Call, type Handler, type PostRoute } from "./http.ts";
 import type { OperatorLogEntry } from "./operator-log.ts";
-import type { MemberView, OperatorActed } from "./responses.ts";
+import type { ListedMember, MemberView, OperatorActed } from "./responses.ts";
 
 /** An operator action's answer, as the routes send it. */
 type Acted = OperatorActed & { ok: true };
@@ -168,6 +168,30 @@ export function operatorRoutes(roles: OperatorRolesFor): Record<string, PostRout
       },
     }),
   };
+}
+
+/**
+ * Every member, for an operator who has stepped up: one log entry, which names
+ * the operator as its target, then each name with its record's summary. A
+ * name whose registration has not completed has no record yet, and is left out.
+ */
+export function operatorMembersRoute(roles: OperatorRolesFor): PostRoute {
+  return originChecked(async (call) => {
+    const operatorId = await steppedUpOperator(roles, call);
+    if (operatorId instanceof Response) return operatorId;
+    await call.log().append({ operatorId, action: "list-members", targetId: operatorId, at: call.ctx.now });
+    const listed = await Promise.all(
+      (await call.passkeys.memberNames()).map(async ({ memberName, recordId, retired }): Promise<ListedMember | null> => {
+        try {
+          return { memberName, recordId, retired, summary: await call.passkeys.recordSummary(recordId) };
+        } catch (e) {
+          if (e instanceof PasskeyError && e.code === "not-found") return null;
+          throw e;
+        }
+      }),
+    );
+    return json({ members: listed.filter((m) => m !== null) });
+  });
 }
 
 /** The operator log's recent entries, for an operator who has stepped up. */

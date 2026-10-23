@@ -130,6 +130,24 @@ export class MemberNameRegistry<Env = unknown> extends DurableObject<Env> {
     return row?.record_id ?? null;
   }
 
+  /**
+   * Every name that resolves to a record, retired names included, in name
+   * order. A name claimed by a registration that has not completed is here too;
+   * whether its record exists is the record's to say.
+   */
+  list(): { name: string; recordId: RecordId; retired: boolean }[] {
+    return this.sql
+      .exec<{ name: string; record_id: RecordId; retired: number }>(
+        `SELECT names.name, names.record_id, EXISTS (
+           SELECT 1 FROM name_history h
+           WHERE h.record_id = names.record_id AND h.name = names.name AND h.retired_at IS NOT NULL
+         ) AS retired
+         FROM names ORDER BY names.key`,
+      )
+      .toArray()
+      .map((row) => ({ name: row.name, recordId: row.record_id, retired: row.retired === 1 }));
+  }
+
   nameOf(recordId: RecordId): string | null {
     const row = this.sql
       .exec<{ name: string }>("SELECT name FROM names WHERE record_id = ?", recordId)

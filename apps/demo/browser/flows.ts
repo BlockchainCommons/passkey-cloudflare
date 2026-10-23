@@ -17,7 +17,7 @@ import {
   type PublicKeyCredentialHint,
   type PublicKeyCredentialRequestOptionsJSON,
 } from "passkey-cloudflare/browser";
-import type { IssuedCodes, Me, MemberView, PasskeyListing, SessionListing } from "../src/responses.ts";
+import type { IssuedCodes, ListedMember, Me, MemberView, PasskeyListing, SessionListing } from "../src/responses.ts";
 import {
   DemoClient,
   type AlreadyRegistered,
@@ -257,6 +257,14 @@ export class Flows {
     if (member.result !== "ok") return refusedNote(member);
     const { result: _, ...view } = member;
     return { result: "member", member: { ...view, memberName }, note: view.retired ? "Retired name" : "" };
+  }
+
+  /** Every member, for a lookup with no name. */
+  async listMembers(): Promise<{ result: "members"; members: ListedMember[] } | { result: "noted"; note: string } | Told> {
+    const listed = await this.client.listMembers();
+    if (listed.result === "cancelled") return CANCELLED;
+    if (listed.result !== "ok") return refusedNote(listed);
+    return { result: "members", members: listed.members };
   }
 
   /** Act on a member a lookup found. */
