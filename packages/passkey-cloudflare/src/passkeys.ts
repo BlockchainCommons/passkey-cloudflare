@@ -818,6 +818,11 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       return isValidMemberName(memberName) ? names().resolve(memberName) : null;
     },
 
+    /** Every member name that resolves to a record, retired names included, with the record and whether the name is retired. */
+    async memberNames(): Promise<{ memberName: string; recordId: RecordId; retired: boolean }[]> {
+      return (await names().list()).map(({ name, recordId, retired }) => ({ memberName: name, recordId, retired }));
+    },
+
     /** Whether a member name was retired when its member was removed. */
     async isRetiredMemberName(memberName: string): Promise<boolean> {
       return isValidMemberName(memberName) && names().isRetired(memberName);

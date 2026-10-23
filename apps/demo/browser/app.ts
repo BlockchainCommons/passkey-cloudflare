@@ -179,10 +179,29 @@ async function rotateCodes() {
   codes.show(await flows.codes(rotated));
 }
 
+/** Look up the member named in the form. With no name, list every member, each of which can be looked up from the list. */
 async function lookUpMember(event: SubmitEvent) {
   event.preventDefault();
-  const memberName = String(new FormData(event.target as HTMLFormElement).get("memberName"));
+  const memberName = String(new FormData(event.target as HTMLFormElement).get("memberName")).trim();
   operator.clear();
+  operator.hideList();
+  if (!memberName) {
+    const listed = await flows.listMembers();
+    if (!settings.isOpen) return;
+    if (listed.result === "told") return tellIn("settings", listed);
+    if (listed.result === "noted") return operator.acted(listed);
+    return operator.listed(listed.members, passkeyAction(lookUpListed));
+  }
+  await showMember(memberName);
+}
+
+/** Look up a member from the list of every member, which stays in view. */
+async function lookUpListed(memberName: string) {
+  operator.clear();
+  await showMember(memberName);
+}
+
+async function showMember(memberName: string) {
   const found = await flows.lookUpMember(memberName);
   if (!settings.isOpen) return;
   if (found.result === "told") return tellIn("settings", found);

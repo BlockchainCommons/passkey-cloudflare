@@ -1193,6 +1193,33 @@ test("an operator looks up a member, and the actions act on the member shown", a
   await device.context().close();
 });
 
+test("an operator lists every member with a blank name, and looks one up from the list", async ({ page, browser }) => {
+  const memberName = `Listed${Date.now().toString(36)}`;
+  const { device, recordId } = await registerElsewhere(browser, memberName);
+  await addAuthenticator(page);
+  await registerMember(page, OPERATORS.list);
+  const listings = postsTo(page, "/operator/members");
+  const lookups = postsTo(page, "/operator/lookup");
+  await openSettings(page);
+
+  await page.getByRole("button", { name: "Look up", exact: true }).click();
+  const list = page.locator("#operator-members");
+  await expect(list).toBeVisible();
+  await expect(list).toContainText(memberName);
+  await expect(list).toContainText(OPERATORS.list);
+  await expect(page.locator("#operator-result")).toHaveText(/^\d+ members?$/);
+  expect(listings).toEqual([{}]);
+
+  await page.getByRole("button", { name: `Look up ${memberName}`, exact: true }).click();
+  const member = page.locator("#operator-member");
+  await expect(member).toBeVisible();
+  await expect(member).toContainText(recordId);
+  // The list stays, so the operator can look up the next member from it.
+  await expect(list).toBeVisible();
+  expect(lookups).toEqual([{ memberName }]);
+  await device.context().close();
+});
+
 test("an operator removes a member after confirming, and the name then looks up as retired, read-only", async ({
   page,
   browser,

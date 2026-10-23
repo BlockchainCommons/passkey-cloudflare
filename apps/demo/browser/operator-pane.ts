@@ -1,7 +1,8 @@
-// The operator section of the settings pane: a member looked up by name, what
-// was done to them, and the actions an operator can take. No requests.
+// The operator section of the settings pane: a member looked up by name, or
+// every member when no name is given; what was done to them; and the actions
+// an operator can take. No requests.
 
-import type { MemberSummary } from "../src/responses.ts";
+import type { ListedMember, MemberSummary } from "../src/responses.ts";
 import { $, row, when } from "./dom.ts";
 import type { FoundMember, OperatorOutcome, Told } from "./flows.ts";
 
@@ -36,6 +37,28 @@ export class OperatorPane {
   acted(outcome: Exclude<OperatorOutcome, Told>) {
     if (outcome.result === "member") this.showMember(outcome.member);
     $("operator-result").textContent = outcome.note;
+  }
+
+  /** Show every member, each with a button that looks that member up. */
+  listed(members: ListedMember[], lookUp: (memberName: string) => void) {
+    $("operator-member-rows").replaceChildren(
+      ...members.map((m) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = "Look up";
+        button.setAttribute("aria-label", `Look up ${m.memberName}`);
+        button.addEventListener("click", () => lookUp(m.memberName));
+        const name = m.retired ? `${m.memberName} (retired)` : m.memberName;
+        return row([name, memberStatus(m.summary), when(m.summary.createdAt), String(m.summary.passkeys)], button);
+      }),
+    );
+    $("operator-members").hidden = false;
+    $("operator-result").textContent = members.length === 1 ? "1 member" : `${members.length} members`;
+  }
+
+  /** Hide the list of every member. */
+  hideList() {
+    $("operator-members").hidden = true;
   }
 
   clear() {

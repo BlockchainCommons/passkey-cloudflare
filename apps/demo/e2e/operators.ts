@@ -12,6 +12,7 @@ const run = process.env.E2E_OPERATOR_RUN;
 export const OPERATORS = {
   info: `Infoop${run}`,
   lookup: `Lookupop${run}`,
+  list: `Listop${run}`,
   remove: `Removeop${run}`,
   allow: `Allowop${run}`,
   layout: `Layoutop${run}`,

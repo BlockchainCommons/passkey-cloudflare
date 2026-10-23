@@ -16,7 +16,7 @@ import { seedBip39, seedWords } from "passkey-cloudflare/gordian";
 import { error, json, originChecked, ownSession, type Call, type Handler, type PostRoute } from "./http.ts";
 import { operatorLog } from "./operator-log.ts";
 import type { IssuedCodes, Me, PasskeyListing, Recovered, Registered, Revoked, SessionListing } from "./responses.ts";
-import { operatorLogRoute, operatorRolesFromSecret, operatorRoutes, type OperatorRolesFor } from "./operator.ts";
+import { operatorLogRoute, operatorMembersRoute, operatorRolesFromSecret, operatorRoutes, type OperatorRolesFor } from "./operator.ts";
 
 export interface AppOptions {
   /** Source of the current time, for tests. Defaults to `Date.now`. */
@@ -144,6 +144,7 @@ function routes(roles: OperatorRolesFor): Routes {
     }),
 
     ...operatorRoutes(roles),
+    "/operator/members": operatorMembersRoute(roles),
 
     "/auth/step-up/options": ownSession(async ({ passkeys, ctx, request }) =>
       optionsResponse(await passkeys.stepUpOptions(ctx, sessionValueFrom(request))),
