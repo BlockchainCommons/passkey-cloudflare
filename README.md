@@ -61,10 +61,10 @@ Because it is in alpha, `passkey-cloudflare` should not be used for production t
 
 ### What Has Been Tested
 
-Checked by hand on the deployed demo, September 2026:
+Checked by hand on the deployed demo, September and October 2026:
 
 - Safari on macOS and on iOS. Neither reports immediate mediation, so register and recover show from the start.
-- Chrome on macOS, with its access to passkeys in Apple Passwords both on and off. On macOS, Chrome reads passkeys from Apple Passwords for the whole machine, so a new Chrome profile still finds them. With access on, Continue signs in with an existing passkey. With access off, Continue finds no passkey and reveals register and recover without showing a passkey sheet.
+- Chrome on macOS, with its access to passkeys in Apple Passwords both on and off. On macOS, Chrome reads passkeys from Apple Passwords for the whole machine, so a new Chrome profile still finds them. With access on, Continue signs in with an existing passkey. With access off, Continue finds no passkey and reveals register and recover without showing a passkey sheet; pressing Continue again shows Chrome's sheet, which offers Apple Passwords, a phone or tablet, and a USB security key (checked October 2026).
 
 The automated tests use a software authenticator (ES256 and Ed25519) inside the Workers runtime, and Playwright's Chromium with a virtual authenticator. The library's own dCBOR, Bytewords and Envelope encoders, the `ur:seed` text of recovery codes, and passkey labels are checked against test vectors made with Blockchain Commons' reference implementations, and its BIP39 words against the published BIP39 wordlist and the Trezor reference vectors. The base64url and CBOR helpers of `@simplewebauthn/server`, the WebAuthn library used for verification, are covered only indirectly, by the ceremony tests.
 
