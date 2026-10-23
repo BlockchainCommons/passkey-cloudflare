@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DemoClient, type Authenticator, type GetMode } from "../browser/demo-client.ts";
-import { ALREADY_REGISTERED, Flows } from "../browser/flows.ts";
+import { ALREADY_REGISTERED, Flows, MAKING_PASSKEY, STEPPING_UP } from "../browser/flows.ts";
 import { softwareAuthenticator, type Browser } from "./browser.ts";
 import { testApp, uniqueName } from "./harness.ts";
 
@@ -228,5 +228,61 @@ describe("the demo's flows", () => {
     expect(await revokeFrom(app.browser())).toMatchObject({
       message: expect.stringMatching(/ from your password manager too; /),
     });
+  });
+
+  it("tell a step-up while it runs, from an action that needs one, and nothing once it ends", async () => {
+    const { person } = await signedIn();
+    const software = softwareAuthenticator(person.authenticator);
+    const told: string[] = [];
+    const toldAt: Record<string, string | undefined> = {};
+    const flows = flowsOn(person, {
+      get: (options, mode) => ((toldAt.get = told.at(-1)), software.get(options, mode)),
+      create: (options) => ((toldAt.create = told.at(-1)), software.create(options)),
+    });
+    flows.onStep = (message) => told.push(message);
+
+    expect(await flows.addPasskey()).toMatchObject({ message: expect.stringMatching(/^Added passkey /) });
+    // The step-up's passkey is asked for while the step is told; the new passkey is made after it ends.
+    expect(toldAt).toEqual({ get: STEPPING_UP, create: "" });
+    expect(told).toEqual([STEPPING_UP, ""]);
+
+    // Stepped up now, so the next action tells no step at all.
+    told.length = 0;
+    await flows.rotateCodes();
+    expect(told).toEqual([]);
+  });
+
+  it("end the step-up's step when the step-up is declined", async () => {
+    const { person } = await signedIn();
+    const flows = flowsOn(person, declining);
+    const told: string[] = [];
+    flows.onStep = (message) => told.push(message);
+
+    expect(await flows.logoutElsewhere()).toMatchObject({ message: "Cancelled." });
+    expect(told).toEqual([STEPPING_UP, ""]);
+  });
+
+  it("tell that a passkey is made next, before register, recover and rebind ask for one", async () => {
+    const app = testApp();
+    const operator = app.browser();
+    app.vars.OPERATOR_RECORD_IDS = (await operator.register(uniqueName("operator"))).recordId;
+    const personName = uniqueName("person");
+    const { recordId: personId, recoveryCodes } = await app.browser().register(personName);
+    await operator.stepUp();
+    const { link } = await operator.json(operator.post("/operator/rebind-links", { recordId: personId }));
+    const toldAtCreate = async (run: (flows: Flows) => Promise<unknown>) => {
+      const browser = app.browser();
+      const software = softwareAuthenticator(browser.authenticator);
+      let told: string | undefined;
+      let toldAt: string | undefined;
+      const flows = flowsOn(browser, { create: (options) => ((toldAt = told), software.create(options)) });
+      flows.onStep = (message) => (told = message);
+      await run(flows);
+      return toldAt;
+    };
+
+    expect(await toldAtCreate((flows) => flows.register(uniqueName()))).toBe(MAKING_PASSKEY);
+    expect(await toldAtCreate((flows) => flows.recover(personName, recoveryCodes[0]!))).toBe(MAKING_PASSKEY);
+    expect(await toldAtCreate((flows) => flows.rebind(new URL(link).hash.slice(1)))).toBe(MAKING_PASSKEY);
   });
 });

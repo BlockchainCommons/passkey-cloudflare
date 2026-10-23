@@ -54,6 +54,11 @@ function notDone(outcome: Cancelled | AlreadyRegistered | Refused, refused: stri
   return outcome.result === "cancelled" ? told(cancelled, true) : told(refused);
 }
 
+/** What the pane in front says while an action steps up. */
+export const STEPPING_UP = "Asking for your passkey…";
+/** What the pane in front says before register, recover and rebind ask the browser to make a passkey. */
+export const MAKING_PASSKEY = "Your browser asks you to make a passkey next.";
+
 /** A form the codes pane shows the codes in: the UR, the secret's BIP39 words, or the UR body in Bytewords. All name the same code. */
 export type CodeForm = "code" | "bip39" | "bytewords";
 
@@ -117,11 +122,18 @@ export class Flows {
    * manager, a phone and a security key.
    */
   private continueUsedNone = false;
+  /**
+   * Told each step an action takes before its outcome, for the pane in front:
+   * STEPPING_UP while a step-up runs and "" once it ends, MAKING_PASSKEY as
+   * register, recover and rebind start. The outcome's message replaces it.
+   */
+  onStep: (message: string) => void = () => {};
 
   constructor(client: DemoClient, site: string, autofillRequests = new AutofillRequests()) {
     this.client = client;
     this.site = site;
     this.autofillRequests = autofillRequests;
+    client.onStepUp = (running) => this.onStep(running ? STEPPING_UP : "");
   }
 
   /** Who is signed in, or null. */
@@ -173,6 +185,7 @@ export class Flows {
   }
 
   async register(memberName: string): Promise<({ result: "registered" } & IssuedCodes) | Told> {
+    this.onStep(MAKING_PASSKEY);
     const registered = await this.client.register(memberName);
     if (registered.result === "name-unavailable") return told(`The member name ${memberName} is not available.`);
     if (registered.result === "not-focused") return notFocused("Register with a passkey");
@@ -182,6 +195,7 @@ export class Flows {
 
   /** Recover with a recovery code; `codesLeft` is how many unused codes the record has after this one. */
   async recover(memberName: string, code: string): Promise<{ result: "recovered"; codesLeft: number } | Told> {
+    this.onStep(MAKING_PASSKEY);
     const recovered = await this.client.recover(memberName, code);
     if (recovered.result === "not-focused") return notFocused("Recover with a new passkey");
     if (recovered.result !== "ok") return notDone(recovered, "Recovery was refused.", "Recovery cancelled.");
@@ -190,6 +204,7 @@ export class Flows {
 
   /** Bind a new passkey with a rebind link's fragment. */
   async rebind(link: string): Promise<{ result: "rebound" } | Told> {
+    this.onStep(MAKING_PASSKEY);
     const rebound = await this.client.rebind(link);
     if (rebound.result === "invalid-link") return told("This link is not valid.");
     if (rebound.result === "not-focused") return notFocused("Create a passkey");

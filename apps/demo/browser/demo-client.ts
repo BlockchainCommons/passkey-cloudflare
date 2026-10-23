@@ -96,6 +96,8 @@ async function errorOf(response: Response): Promise<unknown> {
 export class DemoClient {
   readonly target: Target;
   readonly authenticator: Authenticator;
+  /** Told `true` when an action starts a step-up it needs, and `false` when that step-up ends, however it ended. */
+  onStepUp: (running: boolean) => void = () => {};
 
   constructor(target: Target, authenticator: Authenticator) {
     this.target = target;
@@ -302,7 +304,13 @@ export class DemoClient {
   private async gated(path: string, body: unknown = {}): Promise<Response | Cancelled | Refused> {
     const response = await this.post(path, body);
     if (response.status !== 403 || (await errorOf(response)) !== "step-up-required") return response;
-    const steppedUp = await this.stepUp();
+    this.onStepUp(true);
+    let steppedUp: Awaited<ReturnType<DemoClient["stepUp"]>>;
+    try {
+      steppedUp = await this.stepUp();
+    } finally {
+      this.onStepUp(false);
+    }
     return steppedUp.result === "ok" ? this.post(path, body) : steppedUp;
   }
 }
