@@ -100,7 +100,7 @@ dialog h2 {
   min-width: 44px;
   min-height: 44px;
 }
-#settings table {
+#settings table:not([hidden]) {
   /* Five columns of dates and names; scroll them on a narrow screen rather than squeeze them. */
   display: block;
   overflow-x: auto;

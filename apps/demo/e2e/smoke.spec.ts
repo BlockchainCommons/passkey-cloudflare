@@ -1201,9 +1201,11 @@ test("an operator lists every member with a blank name, and looks one up from th
   const listings = postsTo(page, "/operator/members");
   const lookups = postsTo(page, "/operator/lookup");
   await openSettings(page);
+  const list = page.locator("#operator-members");
+  await expect(list).toHaveCount(1);
+  await expect(list).toBeHidden();
 
   await page.getByRole("button", { name: "Look up", exact: true }).click();
-  const list = page.locator("#operator-members");
   await expect(list).toBeVisible();
   await expect(list).toContainText(memberName);
   await expect(list).toContainText(OPERATORS.list);
