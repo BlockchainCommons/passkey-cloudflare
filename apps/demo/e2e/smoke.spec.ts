@@ -1474,6 +1474,11 @@ test("an action in settings that steps up says it is asking for a passkey until 
   // The panes are lent while the passkey request waits, so the mark is on the page, over them.
   expect(await isModal(page, "settings")).toBe(false);
   await expect.poll(() => busyMark(page)).toEqual(BUSY);
+  // At phone height the lent pane reaches the top row, so the bar showing there means it is drawn above the pane.
+  await page.setViewportSize({ width: 375, height: 667 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const lent = await topRowAndAccent(page);
+  expect(near(lent.top, lent.accent), `top row ${lent.top} is the accent ${lent.accent}`).toBe(true);
   await releasePasskeys(page);
 
   await expect(page.locator("#settings-status")).toHaveText(

@@ -17,7 +17,7 @@ import { showApp } from "./shell.ts";
 import { SignInPane } from "./sign-in-pane.ts";
 
 const flows = pageFlows(location, lendPage);
-/** The pane in front when the running passkey action started, or undefined when none was open. */
+/** The pane in front when the running passkey action started; undefined when none was open, or no action runs. */
 let actionPane: PaneId | undefined;
 // The step an action is on shows where the action started until its outcome
 // replaces it; once that pane closes, a later step writes nothing.
@@ -58,6 +58,7 @@ function passkeyAction<A extends unknown[]>(fn: (...args: A) => Promise<unknown>
       await whileWorking(() => fn(...args));
     } finally {
       passkeyActionRunning = false;
+      actionPane = undefined;
     }
   });
 }
