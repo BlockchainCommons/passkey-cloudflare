@@ -112,6 +112,44 @@ test("the app opens signed out, with sign-in in a pane it can close", async ({ p
   await expect(page.locator("#sign-in")).toBeHidden();
 });
 
+test("the page is never stored, its script and stylesheet revalidate, and every path keeps the CSP", async ({
+  request,
+}) => {
+  // `/index.html` redirects to `/`; read the redirect itself, not the page it leads to.
+  for (const path of ["/", "/index.html", "/rebind"]) {
+    const response = await request.get(path, { maxRedirects: 0 });
+    expect(response.headers()["cache-control"], path).toContain("no-store");
+    expect(response.headers()["content-security-policy"], path).toContain("default-src 'self'");
+  }
+  for (const path of ["/app.js", "/style.css"]) {
+    const response = await request.get(path);
+    expect(response.headers()["cache-control"], path).not.toContain("no-store");
+    expect(response.headers()["cache-control"], path).toContain("must-revalidate");
+    expect(response.headers()["content-security-policy"], path).toContain("default-src 'self'");
+  }
+});
+
+test("a page restored from the back-forward cache reloads, and an ordinary page show does not", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByText("Sign in to try passkeys.")).toBeVisible();
+  let loads = 0;
+  page.on("load", () => loads++);
+
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: false })));
+  // A reload starts after the event returns, so give one time to arrive before saying none did.
+  await page.waitForTimeout(500);
+  expect(loads).toBe(0);
+
+  // Dispatched after `evaluate` returns, so the reload cannot destroy the context it runs in.
+  await Promise.all([
+    page.waitForEvent("load"),
+    page.evaluate(() => {
+      setTimeout(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })));
+    }),
+  ]);
+  expect(loads).toBe(1);
+});
+
 test("without immediate mode, the sign-in pane opens on the member-name field", async ({ page }) => {
   await page.addInitScript(() => {
     PublicKeyCredential.getClientCapabilities = async () => ({ immediateGet: false, conditionalGet: true });

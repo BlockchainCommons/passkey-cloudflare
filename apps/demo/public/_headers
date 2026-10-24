@@ -2,3 +2,15 @@
   Content-Security-Policy: default-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'
   X-Content-Type-Options: nosniff
   Referrer-Policy: no-referrer
+
+# The page is never stored at the paths the app sends people to, so history and a
+# restored tab fetch it afresh after a deploy. Its script and stylesheet keep the
+# default, which revalidates each load.
+/
+  Cache-Control: no-store
+
+/index.html
+  Cache-Control: no-store
+
+/rebind
+  Cache-Control: no-store

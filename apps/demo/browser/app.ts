@@ -264,6 +264,12 @@ for (const action of operator.actions()) {
   action.addEventListener("click", passkeyAction(() => operatorAction(action.value as OperatorAction)));
 }
 
+// A page restored from the back-forward cache runs the script it was stored with; reload it
+// so a deploy since then is shown. `no-store` keeps it out of that cache in some browsers only.
+window.addEventListener("pageshow", (event) => {
+  if (event.persisted) location.reload();
+});
+
 // A rebind link opens the sign-in pane at its passkey; anything else shows the app.
 if (location.pathname === "/rebind" && location.hash.length > 1) {
   guard(async () => {
