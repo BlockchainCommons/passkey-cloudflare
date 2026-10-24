@@ -1271,7 +1271,7 @@ test("an operator allows a retired name after confirming, and only a retired nam
 });
 
 const STEPPING_UP = "Asking for your passkey…";
-const MAKING_PASSKEY = "Your browser asks you to make a passkey next.";
+const MAKING_PASSKEY = "Getting ready to make your passkey…";
 
 /**
  * Hold every request to `path` until `release`, as a cold Durable Object holds

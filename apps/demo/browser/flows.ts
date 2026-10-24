@@ -57,7 +57,7 @@ function notDone(outcome: Cancelled | AlreadyRegistered | Refused, refused: stri
 /** What the pane in front says while an action steps up. */
 export const STEPPING_UP = "Asking for your passkey…";
 /** What the pane in front says before register, recover and rebind ask the browser to make a passkey. */
-export const MAKING_PASSKEY = "Your browser asks you to make a passkey next.";
+export const MAKING_PASSKEY = "Getting ready to make your passkey…";
 
 /** A form the codes pane shows the codes in: the UR, the secret's BIP39 words, or the UR body in Bytewords. All name the same code. */
 export type CodeForm = "code" | "bip39" | "bytewords";
