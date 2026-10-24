@@ -37,11 +37,11 @@ One WebAuthn exchange (registration, login, enrolment, step-up, recovery or rebi
 A bearer token proving a principal for a bounded time.
 
 **Operator**:
-Whoever runs a deployment. Can look up a member's state and counts, rebind a new passkey to an identity record after verifying the person out of band, suspend a principal, and remove a member for good, retiring their member name, with every lookup and action logged. An operator cannot be removed while they are one. An application role, unknown to the identity layer.
+Whoever runs a deployment. Can list every member name without a log entry, look up a member's state and counts one member at a time, rebind a new passkey to an identity record after verifying the person out of band, suspend a principal, and remove a member for good, retiring their member name, with every lookup and action logged. An operator cannot be removed while they are one. Device detail is never shown to an operator ([ADR 0010](docs/adr/0010-what-an-operator-sees.md)). An application role, unknown to the identity layer.
 _Avoid_: admin, moderator, staff
 
 **Operator log**:
-The record of every lookup and action an operator asks for, written before it is carried out, so nothing is done without an entry. An entry says what was asked and passed the checks; a failure after it can leave the action undone.
+The record of every member lookup and action an operator asks for (listing member names is not logged), written before it is carried out, so nothing is done without an entry. An entry says what was asked and passed the checks; a failure after it can leave the action undone.
 _Avoid_: audit log (when meaning a record of effects)
 
 ## Delegation
