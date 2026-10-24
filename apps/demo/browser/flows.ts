@@ -275,7 +275,9 @@ export class Flows {
   }
 
   /** Every member, for a lookup with no name. */
-  async listMembers(): Promise<{ result: "members"; members: ListedMember[] } | { result: "noted"; note: string } | Told> {
+  async listMembers(): Promise<
+    { result: "members"; members: ListedMember[] } | { result: "noted"; note: string } | Told
+  > {
     const listed = await this.client.listMembers();
     if (listed.result === "cancelled") return CANCELLED;
     if (listed.result !== "ok") return refusedNote(listed);

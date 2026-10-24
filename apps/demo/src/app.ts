@@ -16,7 +16,13 @@ import { seedBip39, seedWords } from "passkey-cloudflare/gordian";
 import { error, json, originChecked, ownSession, type Call, type Handler, type PostRoute } from "./http.ts";
 import { operatorLog } from "./operator-log.ts";
 import type { IssuedCodes, Me, PasskeyListing, Recovered, Registered, Revoked, SessionListing } from "./responses.ts";
-import { operatorLogRoute, operatorMembersRoute, operatorRolesFromSecret, operatorRoutes, type OperatorRolesFor } from "./operator.ts";
+import {
+  operatorLogRoute,
+  operatorMembersRoute,
+  operatorRolesFromSecret,
+  operatorRoutes,
+  type OperatorRolesFor,
+} from "./operator.ts";
 
 export interface AppOptions {
   /** Source of the current time, for tests. Defaults to `Date.now`. */
