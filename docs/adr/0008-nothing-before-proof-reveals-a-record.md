@@ -5,7 +5,7 @@ Nothing a caller can reach before proving an identity record may reveal that the
 The rule's other cases:
 
 - A refused login sends no signal to the password manager; only a confirmed revoke does (ADR 0006).
-- Every ceremony presents a fresh user handle that is never stored, so no handle a caller sees before proof can find or name a record.
+- Every passkey is created under a fresh user handle that is never stored, so no handle a caller sees before proof can find or name a record (ADR 0009).
 
 ## Considered Options
 

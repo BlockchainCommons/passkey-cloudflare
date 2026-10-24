@@ -96,7 +96,7 @@ export async function creationOptions(input: {
   const { hints: _, ...options } = await generateRegistrationOptions({
     rpName: input.rp.name,
     rpID: input.rp.id,
-    // A fresh user handle for every ceremony, presented and never stored.
+    // A fresh user handle for every passkey, presented and never stored (ADR 0009).
     userID: randomBytes(32),
     userName: input.userName,
     userDisplayName: input.userName,
