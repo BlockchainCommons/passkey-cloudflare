@@ -171,26 +171,18 @@ export function operatorRoutes(roles: OperatorRolesFor): Record<string, PostRout
 }
 
 /**
- * Every member, for an operator who has stepped up: one log entry, which names
- * the operator as its target, then each name with its record's summary. A
- * name whose registration has not completed has no record yet, and is left out.
+ * Every member name, for an operator who has stepped up, from one registry
+ * read: each name with its record and whether it is retired. Names are shown
+ * to others, so the listing writes no log entry and reads no record; a
+ * member's state and counts come only from a lookup, logged against their
+ * record. A name whose registration has not completed is listed too, and a
+ * lookup of it finds no member.
  */
 export function operatorMembersRoute(roles: OperatorRolesFor): PostRoute {
   return originChecked(async (call) => {
     const operatorId = await steppedUpOperator(roles, call);
     if (operatorId instanceof Response) return operatorId;
-    await call.log().append({ operatorId, action: "list-members", targetId: operatorId, at: call.ctx.now });
-    const listed = await Promise.all(
-      (await call.passkeys.memberNames()).map(async ({ memberName, recordId, retired }): Promise<ListedMember | null> => {
-        try {
-          return { memberName, recordId, retired, summary: await call.passkeys.recordSummary(recordId) };
-        } catch (e) {
-          if (e instanceof PasskeyError && e.code === "not-found") return null;
-          throw e;
-        }
-      }),
-    );
-    return json({ members: listed.filter((m) => m !== null) });
+    return json({ members: (await call.passkeys.memberNames()) satisfies ListedMember[] });
   });
 }
 

@@ -1207,6 +1207,9 @@ test("an operator lists every member with a blank name, and looks one up from th
   await expect(list).toBeVisible();
   await expect(list).toContainText(memberName);
   await expect(list).toContainText(OPERATORS.list);
+  // Names only: a member's state and counts come from a lookup.
+  await expect(list.locator("th")).toHaveText(["Member", ""]);
+  await expect(list).not.toContainText("Active");
   await expect(page.locator("#operator-result")).toHaveText(/^\d+ members?$/);
   expect(listings).toEqual([{}]);
 
@@ -1214,6 +1217,10 @@ test("an operator lists every member with a blank name, and looks one up from th
   const member = page.locator("#operator-member");
   await expect(member).toBeVisible();
   await expect(member).toContainText(recordId);
+  await expect(member).toContainText("Active");
+  await expect(page.locator("#operator-summary")).toContainText("Passkeys1");
+  await expect(page.locator("#operator-entries tr")).toHaveCount(1);
+  await expect(page.locator("#operator-entries")).toContainText("lookup");
   // The list stays, so the operator can look up the next member from it.
   await expect(list).toBeVisible();
   expect(lookups).toEqual([{ memberName }]);

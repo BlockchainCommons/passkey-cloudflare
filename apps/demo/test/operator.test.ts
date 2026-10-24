@@ -2,7 +2,7 @@ import { env, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { RECOVERY_CODE_COUNT, type RecordId, type RevocationEvent } from "passkey-cloudflare";
 import { operatorLog, type OperatorLog } from "../src/operator-log.ts";
-import { rejecting } from "./failing-namespaces.ts";
+import { counting, rejecting } from "./failing-namespaces.ts";
 import { refusal, testApp, uniqueName, type Browser, type HarnessOptions, type TestApp } from "./harness.ts";
 
 const HOUR = 60 * 60 * 1000;
@@ -484,7 +484,7 @@ describe("operator lookup", () => {
     expect(entries).toEqual([]);
   });
 
-  it("is refused, like the other operator routes, to a non-operator and to an operator who has not stepped up, and logs nothing", async () => {
+  it("is refused, like the other operator routes, to a non-operator and to an operator who has not stepped up", async () => {
     let now = Date.now();
     const { operator, operatorId, person, personName, personId } = await deployment({ clock: () => now });
     await person.stepUp();
@@ -615,44 +615,58 @@ describe("an operator action whose log entry cannot be written", () => {
 });
 
 describe("operator member list", () => {
-  it("lists every member with state and counts, marks a retired name, and logs one entry naming the operator", async () => {
-    const now = Date.now();
-    const { app, operator, operatorId, personName, personId } = await deployment({ clock: () => now });
+  it("lists every member name in name order, marks a retired name, and logs nothing", async () => {
+    const { app, operator, operatorId, personName, personId } = await deployment();
+    // Name order ignores case and accents: Zed sorts last, Élan before operator.
+    const zed = uniqueName("Zed");
+    const { recordId: zedId } = await app.browser().register(zed);
+    const elan = uniqueName("Élan");
     const removed = app.browser();
-    const removedName = uniqueName("removed");
-    const { recordId: removedId } = await removed.register(removedName);
-    await operator.json(operator.post("/operator/remove", { recordId: removedId }));
+    const { recordId: elanId } = await removed.register(elan);
+    await operator.json(operator.post("/operator/remove", { recordId: elanId }));
+    const logged = (await operator.json(operator.get("/operator/log"))).entries;
 
     const { members } = await operator.json(operator.post("/operator/members"));
 
-    expect(members).toHaveLength(3);
-    expect(members.find((m: any) => m.recordId === personId)).toEqual({
-      memberName: personName,
-      recordId: personId,
-      retired: false,
-      summary: {
-        createdAt: now,
-        suspendedAt: null,
-        removedAt: null,
-        passkeys: 1,
-        sessions: 1,
-        recoveryCodesLeft: RECOVERY_CODE_COUNT,
-        rebindLinkOutstanding: false,
-      },
-    });
-    expect(members.find((m: any) => m.recordId === removedId)).toMatchObject({
-      memberName: removedName,
-      retired: true,
-      summary: { removedAt: now },
-    });
-    expect(members.some((m: any) => m.recordId === operatorId)).toBe(true);
-    const { entries } = await operator.json(operator.get("/operator/log"));
-    expect(entries.filter((e: any) => e.action === "list-members")).toEqual([
-      { operatorId, action: "list-members", targetId: operatorId, at: now },
+    const operatorName = members[1].memberName;
+    expect(operatorName).toMatch(/^operator/);
+    expect(members).toEqual([
+      { memberName: elan, recordId: elanId, retired: true },
+      { memberName: operatorName, recordId: operatorId, retired: false },
+      { memberName: personName, recordId: personId, retired: false },
+      { memberName: zed, recordId: zedId, retired: false },
     ]);
+    expect((await operator.json(operator.get("/operator/log"))).entries).toEqual(logged);
   });
 
-  it("is refused, like the other operator routes, to a non-operator and to an operator who has not stepped up, and logs nothing", async () => {
+  it("reads no member record: it calls identity records only for the operator's own gate", async () => {
+    const { app, operator } = await deployment();
+    for (const name of ["a", "b", "c"]) await app.browser().register(uniqueName(name));
+    const gate = counting(env.IDENTITY_RECORDS);
+    app.vars.IDENTITY_RECORDS = gate.namespace;
+    expect((await operator.get("/operator/log")).status).toBe(200);
+    const listing = counting(env.IDENTITY_RECORDS);
+    app.vars.IDENTITY_RECORDS = listing.namespace;
+
+    expect((await operator.post("/operator/members")).status).toBe(200);
+
+    expect(listing.calls).toEqual(gate.calls);
+    expect(listing.calls).not.toContain("summary");
+  });
+
+  it("leaves a row's lookup to log against that member's record, as an ordinary lookup does", async () => {
+    const now = Date.now();
+    const { operator, operatorId, personId } = await deployment({ clock: () => now });
+    const { members } = await operator.json(operator.post("/operator/members"));
+    const listed = members.find((m: any) => m.recordId === personId);
+
+    const member = await operator.json(operator.post("/operator/lookup", { memberName: listed.memberName }));
+
+    expect(member).toMatchObject({ recordId: personId, retired: false });
+    expect(member.entries).toEqual([{ operatorId, action: "lookup", targetId: personId, at: now }]);
+  });
+
+  it("is refused, like the other operator routes, to a non-operator and to an operator who has not stepped up", async () => {
     let now = Date.now();
     const { operator, person } = await deployment({ clock: () => now });
     await person.stepUp();

@@ -39,7 +39,7 @@ export class OperatorPane {
     $("operator-result").textContent = outcome.note;
   }
 
-  /** Show every member, each with a button that looks that member up. */
+  /** Show every member name, retired ones marked, each with a button that looks that member up. */
   listed(members: ListedMember[], lookUp: (memberName: string) => void) {
     $("operator-member-rows").replaceChildren(
       ...members.map((m) => {
@@ -49,7 +49,7 @@ export class OperatorPane {
         button.setAttribute("aria-label", `Look up ${m.memberName}`);
         button.addEventListener("click", () => lookUp(m.memberName));
         const name = m.retired ? `${m.memberName} (retired)` : m.memberName;
-        return row([name, memberStatus(m.summary), when(m.summary.createdAt), String(m.summary.passkeys)], button);
+        return row([name], button);
       }),
     );
     $("operator-members").hidden = false;

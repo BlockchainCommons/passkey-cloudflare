@@ -238,7 +238,7 @@ export class DemoClient {
     return this.answer<MemberView>(response);
   }
 
-  /** Every member, with each record's summary. */
+  /** Every member name, with its record and whether it is retired. */
   async listMembers(): Promise<Ok<{ members: ListedMember[] }> | Cancelled | Refused> {
     const response = await this.gated("/operator/members");
     if (!(response instanceof Response)) return response;

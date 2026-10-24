@@ -818,7 +818,13 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       return isValidMemberName(memberName) ? names().resolve(memberName) : null;
     },
 
-    /** Every member name that resolves to a record, retired names included, with the record and whether the name is retired. */
+    /**
+     * Every member name that resolves to a record, retired names included, in
+     * name order, with the record and whether the name is retired. It reads the
+     * whole name registry in one call, with no paging, so its answer grows with
+     * the deployment. A name claimed by a registration that has not completed is
+     * listed too; `recordSummary` of its record answers `not-found`.
+     */
     async memberNames(): Promise<{ memberName: string; recordId: RecordId; retired: boolean }[]> {
       return (await names().list()).map(({ name, recordId, retired }) => ({ memberName: name, recordId, retired }));
     },

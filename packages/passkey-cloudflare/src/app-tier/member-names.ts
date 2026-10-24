@@ -132,8 +132,8 @@ export class MemberNameRegistry<Env = unknown> extends DurableObject<Env> {
 
   /**
    * Every name that resolves to a record, retired names included, in name
-   * order. A name claimed by a registration that has not completed is here too;
-   * whether its record exists is the record's to say.
+   * order, read whole with no paging. A name claimed by a registration that has
+   * not completed is here too; whether its record exists is the record's to say.
    */
   list(): { name: string; recordId: RecordId; retired: boolean }[] {
     return this.sql
