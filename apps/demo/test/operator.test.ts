@@ -484,7 +484,7 @@ describe("operator lookup", () => {
     expect(entries).toEqual([]);
   });
 
-  it("is refused, like the other operator routes, to a non-operator and to an operator who has not stepped up", async () => {
+  it("is refused, like the other operator routes, to a non-operator and to an operator who has not stepped up, and logs nothing", async () => {
     let now = Date.now();
     const { operator, operatorId, person, personName, personId } = await deployment({ clock: () => now });
     await person.stepUp();
