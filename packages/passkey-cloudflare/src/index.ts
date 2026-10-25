@@ -28,6 +28,32 @@ export {
 export { CredentialLabels, credentialLabels, parseLabel } from "./app-tier/labels.ts";
 export { RateLimiter, rateLimiters, DEFAULT_RATE_LIMITS, type Limit, type RateLimits } from "./app-tier/rate-limit.ts";
 export { CeremonyFailures, ceremonyFailures } from "./app-tier/ceremony-failures.ts";
+export {
+  OperatorLog,
+  operatorLog,
+  type AppPrefixed,
+  type BuiltInOperatorAction,
+  type OperatorActionName,
+  type OperatorLogEntry,
+  type OperatorTarget,
+  type OperatorTargetKind,
+} from "./app-tier/operator-log.ts";
+export {
+  createOperators,
+  OperatorActionRefused,
+  refuseAction,
+  type ListedMember,
+  type LoggedOperatorAction,
+  type MemberActed,
+  type MemberView,
+  type OperatorOutcome,
+  type OperatorRefusal,
+  type OperatorRoles,
+  type Operators,
+  type OperatorsConfig,
+  type Targeted,
+  type UnloggedOperatorRead,
+} from "./app-tier/operators.ts";
 export type { CeremonyFailure } from "./failures.ts";
 export { REFUSAL_BODY, REFUSAL_STATUS, type Ceremony } from "./refusal.ts";
 export { SECURITY_KEY } from "./security-key.ts";
