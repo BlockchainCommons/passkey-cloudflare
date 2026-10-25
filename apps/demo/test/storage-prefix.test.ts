@@ -7,12 +7,12 @@ import {
   DEFAULT_RATE_LIMITS,
   identityRecords,
   memberNameRegistry,
+  operatorLog,
   prefixedName,
   rateLimiters,
   type RecordId,
 } from "passkey-cloudflare";
 import { describe, expect, it } from "vitest";
-import { operatorLog } from "../src/operator-log.ts";
 import { Browser, testApp, uniqueName } from "./harness.ts";
 
 const recordId = crypto.randomUUID() as RecordId;

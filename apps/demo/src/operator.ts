@@ -1,21 +1,20 @@
-import { isRecordId, PasskeyError, sessionValueFrom, type RecordId } from "passkey-cloudflare";
+import {
+  createOperators,
+  sessionValueFrom,
+  type OperatorOutcome,
+  type OperatorRefusal,
+  type OperatorRoles,
+} from "passkey-cloudflare";
 import { error, json, originChecked, type Call, type Handler, type PostRoute } from "./http.ts";
-import type { OperatorLogEntry } from "./operator-log.ts";
-import type { ListedMember, MemberView, OperatorActed } from "./responses.ts";
+import type { ListedMember, MemberView, OperatorActed, OperatorLogEntry } from "./responses.ts";
 
 /** An operator action's answer, as the routes send it. */
 type Acted = OperatorActed & { ok: true };
 
-// Every operator request, end to end: the operator role, step-up, the target,
-// the action's checks, the log entry, then the action. The entry is written
-// before the action, so nothing is done without one; if it cannot be written,
-// the action is refused. The operator role belongs to this application, not
-// to the identity layer (ADR 0003), and so does the log.
-
-/** Who holds the operator role. */
-export interface OperatorRoles {
-  isOperator(recordId: RecordId): Promise<boolean>;
-}
+// The operator routes run the library's operator pipeline (operator role,
+// step-up, the target, the action's checks, the log entry, then the action)
+// and turn each outcome into the answer the demo sends. The operator role
+// belongs to this application, not to the identity layer (ADR 0003).
 
 /** Who holds the operator role for one request. */
 export type OperatorRolesFor = (call: Call) => OperatorRoles;
@@ -34,163 +33,96 @@ export function operatorRolesFromSecret({ env }: Call): OperatorRoles {
   return { isOperator: async (recordId) => ids.has(recordId) };
 }
 
-/** What an operator sees of a member: the record's state and counts, and the operator log entries that target it. */
-async function memberView(call: Call, recordId: RecordId): Promise<MemberView> {
-  return {
-    recordId,
-    summary: await call.passkeys.recordSummary(recordId),
-    entries: await call.log().listFor(recordId),
-  };
+/** Why an operator action was refused: the pipeline's refusals, and the built-in actions' own. */
+type Refused = OperatorRefusal | "operator-record" | "name-not-retired";
+
+/** The answer for each refusal, apart from `not-found`, whose message the route gives. */
+const REFUSED: Record<Exclude<Refused, "not-found">, [status: number, message: string]> = {
+  "not-logged-in": [401, "not logged in"],
+  "not-operator": [403, "not an operator"],
+  "not-stepped-up": [403, "step-up-required"],
+  "operator-record": [409, "operator record"],
+  "name-not-retired": [409, "name not retired"],
+};
+
+/** The answer for an outcome: the refusal's, or `answer` of its result. */
+function answered<Result>(
+  outcome: OperatorOutcome<Result, Refused>,
+  answer: (result: Result) => Response,
+  missing = "not found",
+): Response {
+  if (outcome.ok) return answer(outcome.value);
+  if (outcome.refusal === "not-found") return error(404, missing);
+  return error(...REFUSED[outcome.refusal]);
 }
 
-/** The record named by `recordId` in the body, if it is one that exists. */
-async function recordNamedById(call: Call): Promise<RecordId | null> {
-  const recordId = call.body.recordId;
-  if (!isRecordId(recordId)) return null;
-  try {
-    await call.passkeys.recordSummary(recordId);
-    return recordId;
-  } catch (e) {
-    if (e instanceof PasskeyError && e.code === "not-found") return null;
-    throw e;
-  }
+/** The library's operator actions for one request, with this app's roles and log. */
+function operatorsFor(roles: OperatorRolesFor, call: Call) {
+  return createOperators({ passkeys: call.passkeys, roles: roles(call), log: call.log });
 }
 
-/** How the actions that act only on a verified record name it. */
-const BY_RECORD_ID = { target: recordNamedById, missing: "not found" };
-
-/** The record holding the member name in the body, retired or not. */
-function recordNamedByMemberName(call: Call): Promise<RecordId | null> {
-  return call.passkeys.resolveMemberName(call.body.memberName);
-}
-
-interface Action {
-  /** How the request names its target. */
-  target: (call: Call) => Promise<RecordId | null>;
-  /** What a missing target is refused with. */
-  missing: string;
-  /** A refusal for this target, checked before anything is logged; null to go ahead. */
-  check?: (call: Call, targetId: RecordId) => Promise<Response | null>;
-  /** The action, carried out once its entry is logged, and its answer. */
-  act: (call: Call, targetId: RecordId) => Promise<Response>;
-}
-
-/** The caller's record id, if they hold the operator role and have stepped up; otherwise the refusal. */
-async function steppedUpOperator(roles: OperatorRolesFor, call: Call): Promise<RecordId | Response> {
-  const principal = await call.passkeys.authenticate(sessionValueFrom(call.request));
-  if (!principal) return error(401, "not logged in");
-  if (!(await roles(call).isOperator(principal.recordId))) return error(403, "not an operator");
-  await call.passkeys.requireStepUp(call.ctx, sessionValueFrom(call.request));
-  return principal.recordId;
-}
-
-/** A route that runs one operator action in order. Each step's refusal stops it before the log entry. */
-function operatorRoute(roles: OperatorRolesFor, logged: OperatorLogEntry["action"], action: Action): Handler {
-  return async (call) => {
-    const operatorId = await steppedUpOperator(roles, call);
-    if (operatorId instanceof Response) return operatorId;
-    const targetId = await action.target(call);
-    if (!targetId) return error(404, action.missing);
-    const refusal = await action.check?.(call, targetId);
-    if (refusal) return refusal;
-    await call.log().append({ operatorId, action: logged, targetId, at: call.ctx.now });
-    return action.act(call, targetId);
-  };
-}
-
-/** Answer an action with the member as it now stands, and anything else the action gives back. */
-async function withMember(call: Call, targetId: RecordId, extra: Record<string, unknown> = {}) {
-  return json({ ok: true, ...extra, member: await memberView(call, targetId) } satisfies Acted);
+/** An operator action's answer, with `ok` and the member as it now stands. */
+function acted(result: OperatorActed): Response {
+  return json({ ok: true, ...result } satisfies Acted);
 }
 
 /** The operator routes, each answering a POST, given who holds the operator role. */
 export function operatorRoutes(roles: OperatorRolesFor): Record<string, PostRoute> {
-  const route = (logged: OperatorLogEntry["action"], action: Action) =>
-    originChecked(operatorRoute(roles, logged, action));
+  const route = (handler: Handler) => originChecked(handler);
+  const session = (call: Call) => sessionValueFrom(call.request);
   return {
-    "/operator/lookup": route("lookup", {
-      target: recordNamedByMemberName,
-      missing: "no such member",
-      act: async (call, targetId) =>
-        json({
-          ...(await memberView(call, targetId)),
-          retired: await call.passkeys.isRetiredMemberName(call.body.memberName),
-        } satisfies MemberView),
-    }),
+    "/operator/lookup": route(async (call) =>
+      answered(
+        await operatorsFor(roles, call).lookup(session(call), call.ctx, call.body.memberName),
+        (member) => json(member satisfies MemberView),
+        "no such member",
+      ),
+    ),
 
-    "/operator/rebind-links": route("create-rebind-link", {
-      ...BY_RECORD_ID,
-      act: async (call, targetId) => {
-        const link = await call.passkeys.createRebindLink(call.ctx, targetId);
-        return withMember(call, targetId, { link: `${call.env.ORIGIN}/rebind#${link}` });
-      },
-    }),
+    "/operator/rebind-links": route(async (call) =>
+      answered(
+        await operatorsFor(roles, call).createRebindLink(session(call), call.ctx, call.body.recordId),
+        (result) => acted({ ...result, link: `${call.env.ORIGIN}/rebind#${result.link}` }),
+      ),
+    ),
 
-    "/operator/suspend": route("suspend", {
-      ...BY_RECORD_ID,
-      act: async (call, targetId) => {
-        await call.passkeys.suspend(call.ctx, targetId);
-        return withMember(call, targetId);
-      },
-    }),
+    "/operator/suspend": route(async (call) =>
+      answered(await operatorsFor(roles, call).suspend(session(call), call.ctx, call.body.recordId), acted),
+    ),
 
-    "/operator/resume": route("resume", {
-      ...BY_RECORD_ID,
-      act: async (call, targetId) => {
-        await call.passkeys.resume(targetId);
-        return withMember(call, targetId);
-      },
-    }),
+    "/operator/resume": route(async (call) =>
+      answered(await operatorsFor(roles, call).resume(session(call), call.ctx, call.body.recordId), acted),
+    ),
 
-    "/operator/remove": route("remove", {
-      ...BY_RECORD_ID,
-      // An operator is taken off the role before they can be removed.
-      check: async (call, targetId) =>
-        (await roles(call).isOperator(targetId)) ? error(409, "operator record") : null,
-      act: async (call, targetId) => {
-        await call.passkeys.remove(call.ctx, targetId);
-        // Removal retires the name the record holds, unless it was allowed again before.
-        const memberName = await call.passkeys.memberName(targetId);
-        const retired = memberName !== null && (await call.passkeys.isRetiredMemberName(memberName));
-        return json({ ok: true, member: { ...(await memberView(call, targetId)), retired } } satisfies Acted);
-      },
-    }),
+    "/operator/remove": route(async (call) =>
+      answered(await operatorsFor(roles, call).remove(session(call), call.ctx, call.body.recordId), acted),
+    ),
 
-    "/operator/allow-name": route("allow-name", {
-      target: recordNamedByMemberName,
-      missing: "not found",
-      check: async (call) =>
-        (await call.passkeys.isRetiredMemberName(call.body.memberName)) ? null : error(409, "name not retired"),
-      act: async (call, targetId) => {
-        // The name can stop being retired between the check and here; the entry then stands for an undone action.
-        if (!(await call.passkeys.allowRetiredMemberName(call.body.memberName))) return error(409, "name not retired");
-        return json({ ok: true, member: { ...(await memberView(call, targetId)), retired: false } } satisfies Acted);
-      },
-    }),
+    "/operator/allow-name": route(async (call) =>
+      answered(await operatorsFor(roles, call).allowName(session(call), call.ctx, call.body.memberName), acted),
+    ),
   };
 }
 
 /**
  * Every member name, for an operator who has stepped up, from one registry
- * read: each name with its record and whether it is retired. Names are shown
- * to others, so the listing writes no log entry and reads no record; a
- * member's state and counts come only from a lookup, logged against their
- * record. A name whose registration has not completed is listed too, and a
- * lookup of it finds no member.
+ * read: each name with its record and whether it is retired. The library
+ * declares it a tier-0 read, so it writes no log entry and reads no record. A
+ * name whose registration has not completed is listed too, and a lookup of it
+ * finds no member.
  */
 export function operatorMembersRoute(roles: OperatorRolesFor): PostRoute {
-  return originChecked(async (call) => {
-    const operatorId = await steppedUpOperator(roles, call);
-    if (operatorId instanceof Response) return operatorId;
-    return json({ members: (await call.passkeys.memberNames()) satisfies ListedMember[] });
-  });
+  return originChecked(async (call) =>
+    answered(await operatorsFor(roles, call).memberNames(sessionValueFrom(call.request), call.ctx), (members) =>
+      json({ members: members satisfies ListedMember[] }),
+    ),
+  );
 }
 
 /** The operator log's recent entries, for an operator who has stepped up. */
 export function operatorLogRoute(roles: OperatorRolesFor): Handler {
-  return async (call) => {
-    const caller = await steppedUpOperator(roles, call);
-    if (caller instanceof Response) return caller;
-    return json({ entries: await call.log().list() });
-  };
+  return async (call) =>
+    answered(await operatorsFor(roles, call).logEntries(sessionValueFrom(call.request), call.ctx), (entries) =>
+      json({ entries: entries satisfies OperatorLogEntry[] }),
+    );
 }

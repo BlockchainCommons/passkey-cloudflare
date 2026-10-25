@@ -1,5 +1,4 @@
-import type { Passkeys, RequestContext } from "passkey-cloudflare";
-import type { OperatorLog } from "./operator-log.ts";
+import type { OperatorLog, Passkeys, RequestContext } from "passkey-cloudflare";
 
 /** One request, as a route handler sees it. */
 export interface Call {

@@ -1,4 +1,5 @@
-import { listFrom, operatorRolesFromSecret, type OperatorRoles } from "./operator.ts";
+import type { OperatorRoles } from "passkey-cloudflare";
+import { listFrom, operatorRolesFromSecret } from "./operator.ts";
 import type { Call } from "./http.ts";
 
 // Operators named by member name, for Workers that are never the deployed

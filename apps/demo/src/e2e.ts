@@ -16,7 +16,6 @@ export {
   CredentialLabels,
   IdentityRecord,
   MemberNameRegistry,
+  OperatorLog,
   RateLimiter,
 } from "passkey-cloudflare";
-
-export { OperatorLog } from "./operator-log.ts";

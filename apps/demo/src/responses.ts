@@ -62,11 +62,13 @@ export interface Revoked {
   rpId: string;
 }
 
-/** One operator action, as the operator log keeps it. */
+/** One operator action, as the operator log keeps it: what it acted on, and the member it concerns where there is one. */
 export interface OperatorLogEntry {
   operatorId: string;
-  action: "lookup" | "create-rebind-link" | "suspend" | "resume" | "remove" | "allow-name";
-  targetId: string;
+  /** One of the library's actions, or an app's own, carrying its prefix and a colon. */
+  action: "lookup" | "create-rebind-link" | "suspend" | "resume" | "remove" | "allow-name" | `${string}:${string}`;
+  target: { kind: "record" | `${string}:${string}`; id: string };
+  recordId?: string;
   at: number;
 }
 

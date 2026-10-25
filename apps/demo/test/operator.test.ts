@@ -1,7 +1,12 @@
 import { env, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { RECOVERY_CODE_COUNT, type RecordId, type RevocationEvent } from "passkey-cloudflare";
-import { operatorLog, type OperatorLog } from "../src/operator-log.ts";
+import {
+  operatorLog,
+  RECOVERY_CODE_COUNT,
+  type OperatorLog,
+  type RecordId,
+  type RevocationEvent,
+} from "passkey-cloudflare";
 import { counting, rejecting } from "./failing-namespaces.ts";
 import { refusal, testApp, uniqueName, type Browser, type HarnessOptions, type TestApp } from "./harness.ts";
 
@@ -242,8 +247,8 @@ describe("removal", () => {
       retired: true,
       summary: { removedAt: now, sessions: 0, passkeys: 1 },
       entries: [
-        { operatorId, action: "remove", targetId: personId, at: now },
-        { operatorId, action: "lookup", targetId: personId, at: now },
+        { operatorId, action: "remove", target: { kind: "record", id: personId }, recordId: personId, at: now },
+        { operatorId, action: "lookup", target: { kind: "record", id: personId }, recordId: personId, at: now },
       ],
     });
   });
@@ -331,8 +336,8 @@ describe("allowing a retired name", () => {
         retired: false,
         summary: { removedAt: now },
         entries: [
-          { operatorId, action: "remove", targetId: personId, at: now },
-          { operatorId, action: "allow-name", targetId: personId, at: now },
+          { operatorId, action: "remove", target: { kind: "record", id: personId }, recordId: personId, at: now },
+          { operatorId, action: "allow-name", target: { kind: "record", id: personId }, recordId: personId, at: now },
         ],
       },
     });
@@ -440,9 +445,15 @@ describe("operator log", () => {
 
     const { entries } = await operator.json(operator.get("/operator/log"));
     expect(entries).toEqual([
-      { operatorId, action: "create-rebind-link", targetId: personId, at: now },
-      { operatorId, action: "suspend", targetId: personId, at: now },
-      { operatorId, action: "resume", targetId: personId, at: now },
+      {
+        operatorId,
+        action: "create-rebind-link",
+        target: { kind: "record", id: personId },
+        recordId: personId,
+        at: now,
+      },
+      { operatorId, action: "suspend", target: { kind: "record", id: personId }, recordId: personId, at: now },
+      { operatorId, action: "resume", target: { kind: "record", id: personId }, recordId: personId, at: now },
     ]);
   });
 });
@@ -468,7 +479,9 @@ describe("operator lookup", () => {
         rebindLinkOutstanding: false,
       },
       // A lookup is logged before it reads, so it shows its own entry.
-      entries: [{ operatorId, action: "lookup", targetId: personId, at: now }],
+      entries: [
+        { operatorId, action: "lookup", target: { kind: "record", id: personId }, recordId: personId, at: now },
+      ],
     });
   });
 
@@ -504,7 +517,9 @@ describe("operator lookup", () => {
     expect(await log()).toEqual([]);
     // A lookup that is let through is logged.
     await operator.json(operator.post("/operator/lookup", { memberName: personName }));
-    expect(await log()).toEqual([{ operatorId, action: "lookup", targetId: personId, at: now }]);
+    expect(await log()).toEqual([
+      { operatorId, action: "lookup", target: { kind: "record", id: personId }, recordId: personId, at: now },
+    ]);
   });
 
   it("logs each lookup once, and shows every earlier entry for that member, however old", async () => {
@@ -515,9 +530,16 @@ describe("operator lookup", () => {
     await operator.post("/operator/lookup", { memberName: personName });
     // Enough later entries for other members to push this member's out of the recent list.
     const floodTargets = Array.from({ length: 200 }, () => crypto.randomUUID() as RecordId);
-    await runInDurableObject(operatorLog(env.OPERATOR_LOG, app.storagePrefix)(), async (log: OperatorLog) => {
-      for (const targetId of floodTargets) {
-        log.append({ operatorId: operatorId as RecordId, action: "suspend", targetId, at: first });
+    await runInDurableObject(operatorLog(env.OPERATOR_LOG, app.storagePrefix)(), async (instance) => {
+      const log = instance as OperatorLog;
+      for (const recordId of floodTargets) {
+        log.append({
+          operatorId: operatorId as RecordId,
+          action: "suspend",
+          target: { kind: "record", id: recordId },
+          recordId,
+          at: first,
+        });
       }
     });
     now += 1000;
@@ -525,13 +547,13 @@ describe("operator lookup", () => {
     const { entries } = await operator.json(operator.post("/operator/lookup", { memberName: personName }));
 
     expect(entries).toEqual([
-      { operatorId, action: "suspend", targetId: personId, at: first },
-      { operatorId, action: "lookup", targetId: personId, at: first },
-      { operatorId, action: "lookup", targetId: personId, at: now },
+      { operatorId, action: "suspend", target: { kind: "record", id: personId }, recordId: personId, at: first },
+      { operatorId, action: "lookup", target: { kind: "record", id: personId }, recordId: personId, at: first },
+      { operatorId, action: "lookup", target: { kind: "record", id: personId }, recordId: personId, at: now },
     ]);
     const recent = (await operator.json(operator.get("/operator/log"))).entries;
-    expect(recent.filter((e: any) => e.targetId === personId)).toEqual([
-      { operatorId, action: "lookup", targetId: personId, at: now },
+    expect(recent.filter((e: any) => e.recordId === personId)).toEqual([
+      { operatorId, action: "lookup", target: { kind: "record", id: personId }, recordId: personId, at: now },
     ]);
   });
 });
@@ -551,15 +573,27 @@ describe("operator actions on a looked-up member", () => {
     const resumed = await operator.json(operator.post("/operator/resume", { recordId: personId }));
     expect(resumed.member.summary).toMatchObject({ suspendedAt: null });
     expect(resumed.member.entries).toEqual([
-      { operatorId, action: "create-rebind-link", targetId: personId, at: now },
-      { operatorId, action: "suspend", targetId: personId, at: now },
-      { operatorId, action: "resume", targetId: personId, at: now },
+      {
+        operatorId,
+        action: "create-rebind-link",
+        target: { kind: "record", id: personId },
+        recordId: personId,
+        at: now,
+      },
+      { operatorId, action: "suspend", target: { kind: "record", id: personId }, recordId: personId, at: now },
+      { operatorId, action: "resume", target: { kind: "record", id: personId }, recordId: personId, at: now },
     ]);
 
     const removed = await operator.json(operator.post("/operator/remove", { recordId: personId }));
     // Removing retires the name, which the operator can then allow again.
     expect(removed.member).toMatchObject({ recordId: personId, retired: true, summary: { removedAt: now } });
-    expect(removed.member.entries.at(-1)).toEqual({ operatorId, action: "remove", targetId: personId, at: now });
+    expect(removed.member.entries.at(-1)).toEqual({
+      operatorId,
+      action: "remove",
+      target: { kind: "record", id: personId },
+      recordId: personId,
+      at: now,
+    });
   });
 });
 
@@ -663,7 +697,9 @@ describe("operator member list", () => {
     const member = await operator.json(operator.post("/operator/lookup", { memberName: listed.memberName }));
 
     expect(member).toMatchObject({ recordId: personId, retired: false });
-    expect(member.entries).toEqual([{ operatorId, action: "lookup", targetId: personId, at: now }]);
+    expect(member.entries).toEqual([
+      { operatorId, action: "lookup", target: { kind: "record", id: personId }, recordId: personId, at: now },
+    ]);
   });
 
   it("is refused, like the other operator routes, to a non-operator and to an operator who has not stepped up", async () => {
