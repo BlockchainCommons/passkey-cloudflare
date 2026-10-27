@@ -34,12 +34,12 @@ recovery codes, operator tools, rate limits, and the uniform refusal.
 
 ### Demos & Applications
 
-A [live demo](https://passkeydemo.gordianstack.com) is built alongside
+**Live demo:** A [live demo](https://passkeydemo.gordianstack.com) is built alongside
 the library to show it in use. It is a placeholder today. It will
 become a shared canvas of cards that members edit together, with
 software agents acting for members under permissions they grant.
 
-[Open Integrity
+**Forge:** [Open Integrity
 Forge](https://github.com/OpenIntegrityProject/open-integrity-forge)
 ([live demo](https://forgedemo.gordianstack.com)) is an application
 built on the library. It's a Git platform for agents in which only a
@@ -248,4 +248,8 @@ You can import a key by running the following command with that individual's fin
 
 ## License
 
-Unless otherwise noted (either in this [/README.md](./README.md) or in the file's header comments) the contents of this repository are Copyright © 2026 by Blockchain Commons, LLC, and are [licensed](./LICENSE) under the [spdx:BSD-2-Clause Plus Patent License](https://spdx.org/licenses/BSD-2-Clause-Patent.html).
+Unless otherwise noted (either in this [/README.md](./README.md) or in
+the file's header comments) the contents of this repository are
+Copyright © 2026 by Blockchain Commons, LLC, and are
+[licensed](./LICENSE) under the [spdx:BSD-2-Clause Plus Patent
+License](https://spdx.org/licenses/BSD-2-Clause-Patent.html).
