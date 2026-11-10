@@ -45,5 +45,5 @@
       ]
     }
   ],
-  "observability": { "enabled": true }
+  "observability": { "enabled": true, "traces": { "enabled": true } }
 }
