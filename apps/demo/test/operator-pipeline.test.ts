@@ -133,7 +133,7 @@ describe("an app's own operator action", () => {
     ]);
   });
 
-  it("takes only prefixed names for an app's own actions and target kinds", () => {
+  it("takes only prefixed names in an action defined for no app's prefix in particular", () => {
     const unprefixedAction: LoggedOperatorAction<string> = {
       // @ts-expect-error An app's action carries its prefix and a colon.
       action: "delete-project",
@@ -199,6 +199,18 @@ describe("an app's own operator action", () => {
     for (const [action, kind] of cases) {
       await expect(named(action, kind), `${action} on ${kind}`).rejects.toThrow(/prefix/);
     }
+    // A check that changes the target after it was found cannot get another kind into the entry.
+    await expect(
+      operators.run(operator.session, ctx(operator), {
+        action: "forge:delete-project",
+        target: async () => ({ target: { kind: "forge:project", id: "project-1" } }),
+        check: async (found) => {
+          (found.target as { kind: string }).kind = "demo:project";
+          return null;
+        },
+        act,
+      }),
+    ).rejects.toThrow(/prefix/);
     expect(worked).toBe(0);
     expect(await log().list()).toEqual([]);
   });

@@ -141,6 +141,8 @@ export interface OperatorsConfig<Prefix extends string = string> {
   /**
    * The prefix the application's own action names and target kinds carry: a
    * lowercase letter, then lowercase letters, digits or hyphens (`forge`).
+   * Give it as a literal, so the types hold an action to it; a prefix typed as
+   * `string` is still checked when each action runs, before its entry.
    */
   appPrefix: Prefix;
 }
@@ -170,7 +172,7 @@ export function createOperators<const Prefix extends string>({
     return name.startsWith(`${appPrefix}:`) && name.length > appPrefix.length + 1;
   }
 
-  /** Refuse a name the types should have kept out, such as one cast past them, before anything is logged. */
+  /** Refuse a name the types should have kept out, such as one cast past them, before its entry is written. */
   function notAppName(what: string, name: string): TypeError {
     return new TypeError(
       `An app's operator ${what} carries its prefix "${appPrefix}:" and a name: ${JSON.stringify(name)}`,
@@ -200,6 +202,7 @@ export function createOperators<const Prefix extends string>({
     sessionValue: string | null | undefined,
     ctx: RequestContext,
     definition: PipelineAction<Result, Refusal, OperatorActionName, OperatorTargetKind> | UnloggedOperatorRead<Result>,
+    checkNames?: (action: string, kind: string) => void,
   ): Promise<OperatorOutcome<Result, Refusal>> {
     const operator = await steppedUpOperator(sessionValue, ctx);
     if (!operator.ok) return operator;
@@ -209,10 +212,14 @@ export function createOperators<const Prefix extends string>({
     if (!found) return { ok: false, refusal: "not-found" };
     const refusal = await definition.check?.(found);
     if (refusal) return { ok: false, refusal };
+    // Read the names once, check them, and log what was checked.
+    const action = definition.action;
+    const target = { kind: found.target.kind, id: found.target.id };
+    checkNames?.(action, target.kind);
     await log().append({
       operatorId,
-      action: definition.action,
-      target: found.target,
+      action,
+      target,
       ...(found.recordId ? { recordId: found.recordId } : {}),
       at: ctx.now,
     });
@@ -238,16 +245,9 @@ export function createOperators<const Prefix extends string>({
     definition: LoggedOperatorAction<Result, Refusal, Prefix> | UnloggedOperatorRead<Result>,
   ): Promise<OperatorOutcome<Result, Refusal>> {
     if ("unlogged" in definition) return pipeline(sessionValue, ctx, definition);
-    if (!isAppName(definition.action)) throw notAppName("action", definition.action);
-    return pipeline(sessionValue, ctx, {
-      ...definition,
-      target: async () => {
-        const found = await definition.target();
-        if (found && found.target.kind !== "record" && !isAppName(found.target.kind)) {
-          throw notAppName("target kind", found.target.kind);
-        }
-        return found;
-      },
+    return pipeline(sessionValue, ctx, definition, (action, kind) => {
+      if (!isAppName(action)) throw notAppName("action", action);
+      if (kind !== "record" && !isAppName(kind)) throw notAppName("target kind", kind);
     });
   }
 

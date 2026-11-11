@@ -7,7 +7,7 @@ import { prefixedInstance } from "../storage-prefix.ts";
 // operator role belongs to the application (ADR 0003); the log is the record
 // of what its operators did, which the library keeps for it.
 
-/** A name an application gives its own operator actions and target kinds: its prefix, a colon, then the name (`forge:delete-project`). */
+/** Any application's own operator action or target kind as the log stores it: a prefix, a colon, then the name (`forge:delete-project`). */
 export type AppPrefixed = `${string}:${string}`;
 
 /** The operator actions the library carries out itself. */
