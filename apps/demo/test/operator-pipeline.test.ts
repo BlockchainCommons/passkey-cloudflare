@@ -39,13 +39,14 @@ async function deployment() {
     passkeys,
     roles: { isOperator: async (recordId) => recordId === operatorId || recordId === unsteppedId },
     log,
+    appPrefix: "forge",
   });
   /** The request context for one browser's request, as the app would build it. */
   const ctx = (browser: Browser) =>
     passkeys.context(
       new Request(ORIGIN, { headers: { "CF-Connecting-IP": browser.ip, "User-Agent": browser.userAgent } }),
     );
-  return { operator, operatorId, unsteppedOperator, person, personName, personId, operators, log, ctx };
+  return { operator, operatorId, unsteppedOperator, person, personName, personId, passkeys, operators, log, ctx };
 }
 
 describe("an app's own operator action", () => {
@@ -77,7 +78,7 @@ describe("an app's own operator action", () => {
   it("writes no entry and runs no work when any step refuses", async () => {
     const { operator, unsteppedOperator, person, personId, operators, log, ctx } = await deployment();
     let worked = 0;
-    type Action = LoggedOperatorAction<string, "forge:project-locked">;
+    type Action = LoggedOperatorAction<string, "forge:project-locked", "forge">;
     const action = (overrides: Partial<Action> = {}): Action => ({
       action: "forge:delete-project",
       target: async () => ({ target: { kind: "forge:project", id: "project-1" }, recordId: personId }),
@@ -146,6 +147,69 @@ describe("an app's own operator action", () => {
       act: async () => "deleted",
     };
     expect([unprefixedAction, unprefixedKind]).toHaveLength(2);
+  });
+
+  it("takes only its own prefix, and the library's record kind, once the app has named its prefix", async () => {
+    const { operator, personId, operators, ctx } = await deployment();
+    const [session, context] = [operator.session, ctx(operator)];
+    const project = async () => ({ target: { kind: "forge:project" as const, id: "project-1" } });
+    const act = async () => "deleted";
+
+    // @ts-expect-error A library action's name is not the app's to log.
+    void (() => operators.run(session, context, { action: "suspend", target: project, act }));
+    // @ts-expect-error Another app's prefix is not this app's.
+    void (() => operators.run(session, context, { action: "demo:delete-project", target: project, act }));
+    void (() =>
+      operators.run(session, context, {
+        // @ts-expect-error Another app's target kind is not this app's (an overloaded call reports it at the first property).
+        action: "forge:delete-project",
+        target: async () => ({ target: { kind: "demo:project", id: "project-1" } }),
+        act,
+      }));
+    const onRecord = await operators.run(session, context, {
+      action: "forge:transfer-projects",
+      target: async () => ({ target: { kind: "record", id: personId }, recordId: personId }),
+      act,
+    });
+    expect(onRecord).toEqual({ ok: true, value: "deleted" });
+  });
+
+  it("refuses a name outside its prefix at run time, before the entry and the work", async () => {
+    const { operator, personId, operators, log, ctx } = await deployment();
+    let worked = 0;
+    const act = async () => {
+      worked++;
+      return "deleted";
+    };
+    const named = (action: string, kind: string) =>
+      operators.run(operator.session, ctx(operator), {
+        action: action as "forge:x",
+        target: async () => ({ target: { kind: kind as "forge:x", id: "project-1" }, recordId: personId }),
+        act,
+      });
+
+    const cases: [string, string][] = [
+      ["suspend", "forge:project"],
+      ["demo:delete-project", "forge:project"],
+      ["forge:", "forge:project"],
+      ["forge:delete-project", "demo:project"],
+      ["forge:delete-project", "forge:"],
+      ["forge:delete-project", "project"],
+    ];
+    for (const [action, kind] of cases) {
+      await expect(named(action, kind), `${action} on ${kind}`).rejects.toThrow(/prefix/);
+    }
+    expect(worked).toBe(0);
+    expect(await log().list()).toEqual([]);
+  });
+
+  it("refuses an app prefix that is not a short lowercase name", async () => {
+    const { passkeys, log } = await deployment();
+    const roles = { isOperator: async () => false };
+    for (const appPrefix of ["", "Forge", "forge:", "for ge", "1forge"]) {
+      expect(() => createOperators({ passkeys, roles, log, appPrefix }), JSON.stringify(appPrefix)).toThrow(/prefix/);
+    }
+    expect(() => createOperators({ passkeys, roles, log, appPrefix: "my-forge2" })).not.toThrow();
   });
 });
 

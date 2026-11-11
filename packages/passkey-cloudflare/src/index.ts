@@ -41,6 +41,7 @@ export {
 export {
   createOperators,
   OperatorActionRefused,
+  type AppName,
   refuseAction,
   type ListedMember,
   type LoggedOperatorAction,
