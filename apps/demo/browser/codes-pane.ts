@@ -1,6 +1,6 @@
-// The codes pane: a fresh set of recovery codes, shown once, as codes, as
-// BIP39 words or as Bytewords, until the person says they saved them. No
-// requests.
+// The codes pane: a fresh set of recovery codes, shown once, as codes, as BIP39
+// words or as Bytewords, until the person says they saved them. No requests.
+// What it needs from the page is in codes-pane.contract.ts.
 
 import { $, button, closePane, input, openPane, pane } from "./dom.ts";
 import type { CodeForm, CodesView } from "./flows.ts";

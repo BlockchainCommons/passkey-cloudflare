@@ -1,6 +1,7 @@
 // The sign-in pane: Continue, then register and recover when Continue ends
 // without a passkey, or a rebind link's passkey. No requests: the member-name
-// check is the caller's, handed in.
+// check is the caller's, handed in. What it needs from the page is in
+// sign-in-pane.contract.ts.
 
 import {
   CAPITAL_NUDGE_MESSAGE,
@@ -22,7 +23,7 @@ export class SignInPane {
     // No maxLength: it counts a decomposed name before the input handler composes
     // it, and would cut a pasted name short. The pattern holds the upper bound.
     input("register-name").pattern = MEMBER_NAME_RULES.pattern;
-    $("name-rules").textContent = MEMBER_NAME_RULES.description;
+    $("name-info").textContent = MEMBER_NAME_RULES.description;
   }
 
   /**

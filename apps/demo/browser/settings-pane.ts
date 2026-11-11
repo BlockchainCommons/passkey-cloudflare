@@ -1,6 +1,7 @@
 // The settings pane: the signed-in record's passkeys and sessions, its record
 // id, the suggestion to add a passkey while every one is device-bound, and the
-// prompt to replace recovery codes after a recovery. No requests.
+// prompt to replace recovery codes after a recovery. No requests. What it needs
+// from the page is in settings-pane.contract.ts.
 
 import { $, closePane, openPane, pane, row, when } from "./dom.ts";
 import type { Settings } from "./flows.ts";

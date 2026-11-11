@@ -1,5 +1,6 @@
 // The app shell: a placeholder where an app built on the library would go,
-// drawn for whoever is signed in. No requests.
+// drawn for whoever is signed in. No requests. What it needs from the page is
+// in shell.contract.ts.
 
 import type { Me } from "../src/responses.ts";
 import { $ } from "./dom.ts";

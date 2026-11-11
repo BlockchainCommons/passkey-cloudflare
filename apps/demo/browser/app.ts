@@ -4,11 +4,13 @@
 //
 // This file connects events to flows and flows to panes. The flows (flows.ts)
 // make the requests and touch no DOM; the panes render and make no requests.
-// One passkey action runs at a time.
+// One passkey action runs at a time. What it needs from the page is in
+// app.contract.ts.
 
 import type { PublicKeyCredentialHint } from "passkey-cloudflare/browser";
 import type { OperatorAction } from "./demo-client.ts";
 import { CodesPane } from "./codes-pane.ts";
+import { ADD_PASSKEY_HINTS, INFO_TOPICS } from "./app.contract.ts";
 import { $, frontPane, input, lendPage, pane, paneStatus, status, whileWorking, type PaneId } from "./dom.ts";
 import { pageFlows, type CodeForm, type Told } from "./flows.ts";
 import { OperatorPane } from "./operator-pane.ts";
@@ -234,10 +236,9 @@ pane("codes").addEventListener("cancel", (event) => event.preventDefault());
 pane("codes").addEventListener("close", () => codes.closed());
 pane("sign-in").addEventListener("close", () => flows.stopAutofill());
 $("continue").addEventListener("click", passkeyAction(continueWithPasskey));
-for (const toggle of document.querySelectorAll<HTMLButtonElement>(".info-toggle")) {
-  const controls = toggle.getAttribute("aria-controls");
-  if (!controls) throw new Error(`#${toggle.id} names no aria-controls`);
-  const info = $(controls);
+for (const topic of INFO_TOPICS) {
+  const toggle = $(`${topic}-info-toggle`);
+  const info = $(`${topic}-info`);
   toggle.addEventListener("click", () => {
     const open = info.hidden;
     info.hidden = !open;
@@ -261,7 +262,7 @@ $("copy-record-id").addEventListener("click", guard(async () => {
   await navigator.clipboard.writeText(settings.recordId);
   status("Copied your record id.");
 }));
-for (const hint of ["client-device", "hybrid", "security-key"] as const) {
+for (const hint of ADD_PASSKEY_HINTS) {
   $(`add-passkey-${hint}`).addEventListener("click", passkeyAction(() => addPasskey(hint)));
 }
 $("rotate-codes").addEventListener("click", passkeyAction(rotateCodes));

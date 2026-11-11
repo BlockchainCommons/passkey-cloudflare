@@ -79,7 +79,6 @@
   }
   /* Explanations and hints, beside what they explain. */
   [id$="-info"],
-  #name-rules,
   #operator-form-hint {
     color: var(--muted-text);
   }

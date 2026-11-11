@@ -1,6 +1,9 @@
 // The DOM helpers the panes share: elements by id, the panes' dialogs, the
 // status line, the busy mark and table rows. No requests; lendPage and
-// whileWorking run one they are handed.
+// whileWorking run one they are handed. What they need from the page is in
+// dom.contract.ts.
+
+import { PANES, type PaneId } from "./dom.contract.ts";
 
 export function $<T extends HTMLElement = HTMLElement>(id: string): T {
   const element = document.getElementById(id);
@@ -11,19 +14,17 @@ export function $<T extends HTMLElement = HTMLElement>(id: string): T {
 export const input = (id: string) => $<HTMLInputElement>(id);
 export const button = (id: string) => $<HTMLButtonElement>(id);
 
-export const pane = (id: string) => $<HTMLDialogElement>(id);
+export const pane = (id: PaneId) => $<HTMLDialogElement>(id);
 
-export function openPane(id: string) {
+export function openPane(id: PaneId) {
   if (!pane(id).open) pane(id).showModal();
 }
 
-export function closePane(id: string) {
+export function closePane(id: PaneId) {
   if (pane(id).open) pane(id).close();
 }
 
-const PANES = ["codes", "settings", "sign-in"] as const;
-
-export type PaneId = (typeof PANES)[number];
+export type { PaneId };
 
 /** The topmost open pane, or undefined when none is open. */
 export const frontPane = (): PaneId | undefined => PANES.find((id) => pane(id).open);
@@ -31,7 +32,7 @@ export const frontPane = (): PaneId | undefined => PANES.find((id) => pane(id).o
 /** Show a message in the topmost open pane, or in the app when none is open. */
 export function status(message: string) {
   const open = frontPane();
-  $(open ? `${open}-status` : "status").textContent = message;
+  (open ? $(`${open}-status`) : $("status")).textContent = message;
 }
 
 /** Show a message in pane `id` while it is open: a result that comes back after the pane closed writes nothing. */

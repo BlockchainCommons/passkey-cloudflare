@@ -1,6 +1,7 @@
 // The operator section of the settings pane: a member looked up by name, or
-// every member when no name is given; what was done to them; and the actions
-// an operator can take. No requests.
+// every member when no name is given; what was done to them; and the actions an
+// operator can take. No requests. What it needs from the page is in
+// operator-pane.contract.ts.
 
 import type { ListedMember, MemberSummary } from "../src/responses.ts";
 import { $, row, when } from "./dom.ts";
