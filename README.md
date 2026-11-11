@@ -144,12 +144,13 @@ Toward 0.1.0, we are tightening verification and refusal handling, running a sec
   - `/browser`: the browser half of each ceremony. It turns the options-JSON that the application fetched into a WebAuthn call and returns the response JSON to post back, and makes no requests of its own.
   - `/gordian`: hand-written dCBOR, Bytewords and Envelope encoders, the `ur:seed` form recovery codes take, and their BIP39 words.
   - `/testing`: a software authenticator for tests, which must never be used as a real authenticator.
-- `apps/demo`: the demo Worker, deployed at https://passkeydemo.gordianstack.com: a placeholder app with sign-in and settings in panes over it.
+- `apps/demo`: the demo Worker, deployed at https://passkeydemo.gordianstack.com: a placeholder app with sign-in and settings in panes over it. An app can copy those panes and restyle them: see [`docs/demo-panes.md`](docs/demo-panes.md).
 
 Docs include:
 
 - [`CONTEXT.md`](CONTEXT.md): Vocabulary
 - [`docs/adr/`](docs/adr/): Architectural decisions
+- [`docs/demo-panes.md`](docs/demo-panes.md): Copying and restyling the demo's panes
 - [`docs/refusal-floor.md`](docs/refusal-floor.md): How the refusal timing floor is measured
 - [`docs/workers-free.md`](docs/workers-free.md): CPU time per request, and why Workers Free is not enough
 
