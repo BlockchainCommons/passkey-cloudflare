@@ -1,335 +1,399 @@
-:root {
-  color-scheme: light dark;
-  font-family: system-ui, sans-serif;
-  line-height: 1.5;
-}
-body {
-  margin: 0;
-}
-.app-bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem 1rem;
-  padding: 0.75rem 1rem;
-  border-bottom: 1px solid color-mix(in srgb, currentColor 20%, transparent);
-}
-.app-bar h1 {
-  margin: 0;
-  font-size: 1.25rem;
-}
-#signed-in:not([hidden]) {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem 0.75rem;
-}
-.app-bar-actions {
-  /* Settings and Log out wrap as a pair. */
-  display: flex;
-  gap: 0.75rem;
-}
-#member-name {
-  /* A long member name wraps rather than push the buttons off a narrow screen. */
-  overflow-wrap: anywhere;
-}
-main {
-  max-width: 44rem;
-  margin: 2rem auto;
-  padding: 0 1rem;
-}
-.placeholder {
-  padding: 3rem 1rem;
-  text-align: center;
-  border: 1px dashed color-mix(in srgb, currentColor 35%, transparent);
-  border-radius: 0.5rem;
-}
-
-/* Panes open over the app as modal dialogs. */
-dialog {
-  width: min(28rem, calc(100vw - 2rem));
-  max-height: calc(100dvh - 2rem);
-  padding: 1rem 1.25rem 1.25rem;
-  color: CanvasText;
-  background: Canvas;
-  border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
-  border-radius: 0.75rem;
-}
-#settings {
-  width: min(44rem, calc(100vw - 2rem));
-}
-dialog::backdrop {
-  background: rgb(0 0 0 / 0.45);
-}
-/* While a passkey request runs, the panes are not modal (lendPage in browser/dom.ts): keep them where they were. */
-dialog[open]:not(:modal) {
-  position: fixed;
-  inset: 0;
-  height: fit-content;
-  /* The cap the browser puts on a modal dialog. */
-  max-width: calc(100% - 6px - 2em);
-  margin: auto;
-  overflow: auto;
-  z-index: 1;
-}
-dialog h2 {
-  margin: 0;
-}
-.pane-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-}
-.close {
-  border-color: transparent;
-  font-size: 1.4rem;
-  line-height: 1;
-  padding: 0.2rem 0.5rem;
-}
-/* Small and often-used buttons take a click over at least 44 x 44 px (WCAG 2.5.5);
-   padding grows the target, and the glyph or word keeps its size. */
-.close,
-.info-toggle,
-#copy-record-id,
-.app-bar button:not([hidden]) {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 44px;
-  min-height: 44px;
-}
-#settings table:not([hidden]) {
-  /* Five columns of dates and names; scroll them on a narrow screen rather than squeeze them. */
-  display: block;
-  overflow-x: auto;
-}
-#account-details {
-  margin-bottom: 0.75rem;
-}
-#account-details summary {
-  cursor: pointer;
-}
-#record-id {
-  /* A 36-character UUID; let it wrap on a narrow screen. */
-  overflow-wrap: anywhere;
-}
-/* Buttons draw no native look, so they read the same in every browser.
-   A view's main action is .primary; every other button is secondary. */
-:root {
-  --accent: #1f5fcc;
-  --accent-hover: #184ea8;
-  --on-accent: #fff;
-  --disabled: color-mix(in srgb, currentColor 35%, transparent);
-  --danger: #b3261e;
-}
-@media (prefers-color-scheme: dark) {
+/* The demo's look. Every rule sits in the passkey-demo cascade layer, so a page's own unlayered rules win
+   over any rule here, id selectors included. The custom properties below are what an app sets to restyle
+   the panes; docs/demo-panes.md in the repository lists them. Those that read currentColor resolve on
+   each element that uses them. */
+@layer passkey-demo {
   :root {
-    --accent: #5b9bff;
-    --accent-hover: #7fb1ff;
-    --on-accent: #0b1a33;
-    --danger: #ff8a80;
+    /* Page and pane. */
+    --surface: Canvas;
+    --pane-surface: Canvas;
+    --text: CanvasText;
+    --muted-text: currentColor;
+    --font: system-ui, sans-serif;
+    --mono-font: ui-monospace, monospace;
+    /* Lines. */
+    --border: color-mix(in srgb, currentColor 20%, transparent);
+    --pane-border: color-mix(in srgb, currentColor 25%, transparent);
+    --control-border: color-mix(in srgb, currentColor 45%, transparent);
+    --hover: color-mix(in srgb, currentColor 10%, transparent);
+    --placeholder-border: color-mix(in srgb, currentColor 35%, transparent);
+    --notice-border: currentColor;
+    --radius-small: 0.25rem;
+    --radius: 0.375rem;
+    --radius-large: 0.5rem;
+    --pane-radius: 0.75rem;
+    --shadow: none;
+    --backdrop: rgb(0 0 0 / 0.45);
+    /* Actions. */
+    --accent: #1f5fcc;
+    --accent-hover: #184ea8;
+    --on-accent: #fff;
+    --danger: #b3261e;
+    --disabled: color-mix(in srgb, currentColor 35%, transparent);
+    --focus-ring: 2px solid var(--accent);
+    /* Working: the bar while an action runs, and the status lines that say each step. */
+    --working-bar: var(--accent);
+    --working-bar-track: color-mix(in srgb, var(--working-bar) 25%, transparent);
+    --status-text: currentColor;
+    --status-font: var(--font);
   }
-}
-button {
-  font: inherit;
-  padding: 0.4rem 0.9rem;
-  cursor: pointer;
-  color: inherit;
-  background: transparent;
-  border: 1px solid color-mix(in srgb, currentColor 45%, transparent);
-  border-radius: 0.375rem;
-}
-button:hover:enabled {
-  background: color-mix(in srgb, currentColor 10%, transparent);
-}
-button:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-button.primary {
-  color: var(--on-accent);
-  background: var(--accent);
-  border-color: var(--accent);
-}
-button.primary:hover:enabled {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
-}
-/* An action that cannot be undone reads as one. */
-button.danger {
-  color: var(--danger);
-  border-color: var(--danger);
-}
-button:disabled,
-button.primary:disabled,
-button.danger:disabled {
-  color: var(--disabled);
-  background: transparent;
-  border-color: var(--disabled);
-  cursor: not-allowed;
-}
-#continue {
-  font-size: 1.2rem;
-  padding: 0.7rem 1.4rem;
-}
-form {
-  margin: 1.5rem 0;
-  display: grid;
-  gap: 0.5rem;
-  max-width: 24rem;
-}
-label {
-  display: grid;
-  gap: 0.2rem;
-}
-input {
-  font: inherit;
-  padding: 0.3rem;
-}
-table {
-  border-collapse: collapse;
-  width: 100%;
-  margin-bottom: 0.75rem;
-}
-th,
-td {
-  text-align: left;
-  padding: 0.25rem 0.5rem;
-  border-bottom: 1px solid color-mix(in srgb, currentColor 20%, transparent);
-}
-#code-list {
-  font-family: ui-monospace, monospace;
-  /* A code as a UR is one 54-character token; let it wrap on a narrow screen. */
-  overflow-wrap: anywhere;
-}
-#code-list li + li {
-  margin-top: 0.25rem;
-}
-#codes-header {
-  /* One line each for the site, the member name and the issue time. */
-  white-space: pre-line;
-}
-/* An info button toggles the paragraph its aria-controls names. */
-.info-toggle {
-  justify-self: start;
-  padding: 0 0.5rem;
-  border-color: transparent;
-}
-.button-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.5rem;
-}
-.section-heading {
-  display: flex;
-  align-items: baseline;
-  gap: 0.5rem;
-}
-#operator-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-/* Remove cannot be undone: last, and set well apart from the actions a miss would land on. */
-#operator-actions [value="remove"] {
-  margin-inline-start: auto;
-}
-#operator-form {
-  grid-template-columns: 1fr;
-}
-.notice {
-  padding: 0.5rem 0.75rem;
-  border: 1px solid currentColor;
-  border-radius: 0.25rem;
-}
-#codes label {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  margin: 1rem 0;
-}
-/* One choice of several, drawn as joined buttons: the form the codes show in. */
-.segmented {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-.segmented legend {
-  float: left;
-  margin-inline-end: 0.5rem;
-  padding: 0;
-}
-#codes .segmented label {
-  margin: 0;
-  padding: 0.25rem 0.75rem;
-  cursor: pointer;
-  border: 1px solid color-mix(in srgb, currentColor 45%, transparent);
-}
-.segmented label + label {
-  border-inline-start-width: 0;
-}
-.segmented label:first-of-type {
-  border-start-start-radius: 0.375rem;
-  border-end-start-radius: 0.375rem;
-}
-.segmented label:last-of-type {
-  border-start-end-radius: 0.375rem;
-  border-end-end-radius: 0.375rem;
-}
-.segmented input {
-  position: absolute;
-  opacity: 0;
-  pointer-events: none;
-}
-.segmented label:has(input:checked) {
-  color: var(--on-accent);
-  background: var(--accent);
-  border-color: var(--accent);
-}
-.segmented label:has(input:focus-visible) {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --surface: Canvas;
+      --pane-surface: Canvas;
+      --text: CanvasText;
+      --muted-text: currentColor;
+      --border: color-mix(in srgb, currentColor 20%, transparent);
+      --pane-border: color-mix(in srgb, currentColor 25%, transparent);
+      --control-border: color-mix(in srgb, currentColor 45%, transparent);
+      --hover: color-mix(in srgb, currentColor 10%, transparent);
+      --placeholder-border: color-mix(in srgb, currentColor 35%, transparent);
+      --notice-border: currentColor;
+      --shadow: none;
+      --backdrop: rgb(0 0 0 / 0.45);
+      --accent: #5b9bff;
+      --accent-hover: #7fb1ff;
+      --on-accent: #0b1a33;
+      --danger: #ff8a80;
+      --disabled: color-mix(in srgb, currentColor 35%, transparent);
+      --focus-ring: 2px solid var(--accent);
+      --working-bar: var(--accent);
+      --working-bar-track: color-mix(in srgb, var(--working-bar) 25%, transparent);
+      --status-text: currentColor;
+    }
+  }
+  :root {
+    color-scheme: light dark;
+    font-family: var(--font);
+    line-height: 1.5;
+  }
+  body {
+    margin: 0;
+    color: var(--text);
+    background: var(--surface);
+  }
+  /* The status lines: the app's, and each pane's. */
+  [role="status"] {
+    color: var(--status-text);
+    font-family: var(--status-font);
+  }
+  /* Explanations and hints, beside what they explain. */
+  [id$="-info"],
+  #name-rules,
+  #operator-form-hint {
+    color: var(--muted-text);
+  }
+  .app-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem 1rem;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .app-bar h1 {
+    margin: 0;
+    font-size: 1.25rem;
+  }
+  #signed-in:not([hidden]) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+  }
+  .app-bar-actions {
+    /* Settings and Log out wrap as a pair. */
+    display: flex;
+    gap: 0.75rem;
+  }
+  #member-name {
+    /* A long member name wraps rather than push the buttons off a narrow screen. */
+    overflow-wrap: anywhere;
+  }
+  main {
+    max-width: 44rem;
+    margin: 2rem auto;
+    padding: 0 1rem;
+  }
+  .placeholder {
+    padding: 3rem 1rem;
+    text-align: center;
+    border: 1px dashed var(--placeholder-border);
+    border-radius: var(--radius-large);
+  }
 
-/* While an action runs (whileWorking in browser/dom.ts): a progress cursor at once, and after a
+  /* Panes open over the app as modal dialogs. */
+  dialog {
+    width: min(28rem, calc(100vw - 2rem));
+    max-height: calc(100dvh - 2rem);
+    padding: 1rem 1.25rem 1.25rem;
+    color: var(--text);
+    background: var(--pane-surface);
+    border: 1px solid var(--pane-border);
+    border-radius: var(--pane-radius);
+    box-shadow: var(--shadow);
+  }
+  #settings {
+    width: min(44rem, calc(100vw - 2rem));
+  }
+  dialog::backdrop {
+    background: var(--backdrop);
+  }
+  /* While a passkey request runs, the panes are not modal (lendPage in browser/dom.ts): keep them where they were. */
+  dialog[open]:not(:modal) {
+    position: fixed;
+    inset: 0;
+    height: fit-content;
+    /* The cap the browser puts on a modal dialog. */
+    max-width: calc(100% - 6px - 2em);
+    margin: auto;
+    overflow: auto;
+    z-index: 1;
+  }
+  dialog h2 {
+    margin: 0;
+  }
+  .pane-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+  .close {
+    border-color: transparent;
+    font-size: 1.4rem;
+    line-height: 1;
+    padding: 0.2rem 0.5rem;
+  }
+  /* Small and often-used buttons take a click over at least 44 x 44 px (WCAG 2.5.5);
+   padding grows the target, and the glyph or word keeps its size. */
+  .close,
+  .info-toggle,
+  #copy-record-id,
+  .app-bar button:not([hidden]) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+  }
+  #settings table:not([hidden]) {
+    /* Five columns of dates and names; scroll them on a narrow screen rather than squeeze them. */
+    display: block;
+    overflow-x: auto;
+  }
+  #account-details {
+    margin-bottom: 0.75rem;
+  }
+  #account-details summary {
+    cursor: pointer;
+  }
+  #record-id {
+    /* A 36-character UUID; let it wrap on a narrow screen. */
+    overflow-wrap: anywhere;
+  }
+  /* Buttons draw no native look, so they read the same in every browser.
+   A view's main action is .primary; every other button is secondary. */
+  button {
+    font: inherit;
+    padding: 0.4rem 0.9rem;
+    cursor: pointer;
+    color: inherit;
+    background: transparent;
+    border: 1px solid var(--control-border);
+    border-radius: var(--radius);
+  }
+  button:hover:enabled {
+    background: var(--hover);
+  }
+  button:focus-visible {
+    outline: var(--focus-ring);
+    outline-offset: 2px;
+  }
+  button.primary {
+    color: var(--on-accent);
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  button.primary:hover:enabled {
+    background: var(--accent-hover);
+    border-color: var(--accent-hover);
+  }
+  /* An action that cannot be undone reads as one. */
+  button.danger {
+    color: var(--danger);
+    border-color: var(--danger);
+  }
+  button:disabled,
+  button.primary:disabled,
+  button.danger:disabled {
+    color: var(--disabled);
+    background: transparent;
+    border-color: var(--disabled);
+    cursor: not-allowed;
+  }
+  #continue {
+    font-size: 1.2rem;
+    padding: 0.7rem 1.4rem;
+  }
+  form {
+    margin: 1.5rem 0;
+    display: grid;
+    gap: 0.5rem;
+    max-width: 24rem;
+  }
+  label {
+    display: grid;
+    gap: 0.2rem;
+  }
+  input {
+    font: inherit;
+    padding: 0.3rem;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin-bottom: 0.75rem;
+  }
+  th,
+  td {
+    text-align: left;
+    padding: 0.25rem 0.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+  #code-list {
+    font-family: var(--mono-font);
+    /* A code as a UR is one 54-character token; let it wrap on a narrow screen. */
+    overflow-wrap: anywhere;
+  }
+  #code-list li + li {
+    margin-top: 0.25rem;
+  }
+  #codes-header {
+    /* One line each for the site, the member name and the issue time. */
+    white-space: pre-line;
+  }
+  /* An info button toggles the paragraph its aria-controls names. */
+  .info-toggle {
+    justify-self: start;
+    padding: 0 0.5rem;
+    border-color: transparent;
+  }
+  .button-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.5rem;
+  }
+  .section-heading {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+  }
+  #operator-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  /* Remove cannot be undone: last, and set well apart from the actions a miss would land on. */
+  #operator-actions [value="remove"] {
+    margin-inline-start: auto;
+  }
+  #operator-form {
+    grid-template-columns: 1fr;
+  }
+  .notice {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--notice-border);
+    border-radius: var(--radius-small);
+  }
+  #codes label {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 1rem 0;
+  }
+  /* One choice of several, drawn as joined buttons: the form the codes show in. */
+  .segmented {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+  .segmented legend {
+    float: left;
+    margin-inline-end: 0.5rem;
+    padding: 0;
+  }
+  #codes .segmented label {
+    margin: 0;
+    padding: 0.25rem 0.75rem;
+    cursor: pointer;
+    border: 1px solid var(--control-border);
+  }
+  .segmented label + label {
+    border-inline-start-width: 0;
+  }
+  .segmented label:first-of-type {
+    border-start-start-radius: var(--radius);
+    border-end-start-radius: var(--radius);
+  }
+  .segmented label:last-of-type {
+    border-start-end-radius: var(--radius);
+    border-end-end-radius: var(--radius);
+  }
+  .segmented input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .segmented label:has(input:checked) {
+    color: var(--on-accent);
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  .segmented label:has(input:focus-visible) {
+    outline: var(--focus-ring);
+    outline-offset: 2px;
+  }
+
+  /* While an action runs (whileWorking in browser/dom.ts): a progress cursor at once, and after a
    moment a thin bar along the top. A modal pane sits in the top layer above body, so the bar is
    drawn on it as well; panes lent non-modal for a passkey request sit at z-index 1, below body's. */
-body[data-working],
-body[data-working] *,
-body[data-working] dialog::backdrop {
-  cursor: progress;
-}
-body[data-working="bar"]::before,
-body[data-working="bar"] dialog:modal::before {
-  content: "";
-  position: fixed;
-  inset: 0 0 auto;
-  height: 3px;
-  z-index: 2;
-  pointer-events: none;
-  background: linear-gradient(90deg, transparent, var(--accent), transparent) 0 0 / 40% 100% no-repeat
-    color-mix(in srgb, var(--accent) 25%, transparent);
-  animation: working-bar 1.2s linear infinite;
-}
-@keyframes working-bar {
-  from {
-    background-position: -40% 0;
+  body[data-working],
+  body[data-working] *,
+  body[data-working] dialog::backdrop {
+    cursor: progress;
   }
-  to {
-    background-position: 140% 0;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
   body[data-working="bar"]::before,
   body[data-working="bar"] dialog:modal::before {
-    animation: none;
-    background: var(--accent);
+    content: "";
+    position: fixed;
+    inset: 0 0 auto;
+    height: 3px;
+    z-index: 2;
+    pointer-events: none;
+    background: linear-gradient(90deg, transparent, var(--working-bar), transparent) 0 0 / 40% 100% no-repeat
+      var(--working-bar-track);
+    animation: working-bar 1.2s linear infinite;
+  }
+  @keyframes working-bar {
+    from {
+      background-position: -40% 0;
+    }
+    to {
+      background-position: 140% 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    body[data-working="bar"]::before,
+    body[data-working="bar"] dialog:modal::before {
+      animation: none;
+      background: var(--working-bar);
+    }
   }
 }

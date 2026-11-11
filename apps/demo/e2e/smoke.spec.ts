@@ -1377,6 +1377,29 @@ test("the panes look as they did, in light and dark", async ({ page }) => {
   }
 });
 
+test("a page's own unlayered rules win over the demo's, even its id rules, without matching an id", async ({
+  page,
+}) => {
+  // An app's own stylesheet, loaded after the demo's; the page's Content Security Policy refuses an inline one.
+  await page.route("**/app-theme.css", (route) =>
+    route.fulfill({ contentType: "text/css", body: "button { font-size: 10px; } dialog { color: rgb(1, 2, 3); }" }),
+  );
+  await page.goto("/");
+  await page.evaluate(
+    () =>
+      new Promise((resolve, reject) => {
+        const link = Object.assign(document.createElement("link"), { rel: "stylesheet", href: "/app-theme.css" });
+        link.onload = resolve;
+        link.onerror = reject;
+        document.head.append(link);
+      }),
+  );
+  await openSignIn(page);
+  // The demo sets #continue's font size and every pane's colour; the app's rules name only element types.
+  await expect(page.locator("#continue")).toHaveCSS("font-size", "10px");
+  await expect(page.locator("#sign-in")).toHaveCSS("color", "rgb(1, 2, 3)");
+});
+
 const STEPPING_UP = "Asking for your passkey…";
 const MAKING_PASSKEY = "Getting ready to make your passkey…";
 
