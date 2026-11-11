@@ -17,4 +17,5 @@ export const OPERATORS = {
   allow: `Allowop${run}`,
   layout: `Layoutop${run}`,
   rebind: `Rebindop${run}`,
+  look: `Lookop${run}`,
 };

@@ -1344,6 +1344,39 @@ test("an operator allows a retired name after confirming, and only a retired nam
   for (const action of others) await expect(action).toBeDisabled();
 });
 
+/**
+ * The look of the panes at phone width, in light and dark, against baselines on this machine: Settings as an operator,
+ * every section open, with the busy bar showing, and the sign-in pane's choices.
+ */
+test("the panes look as they did, in light and dark", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 1700 });
+  await addAuthenticator(page);
+  await registerMember(page, OPERATORS.look);
+  await openSettings(page);
+  await openAccountDetails(page);
+  // Names, labels, ids and times differ per run, and set the tables' column widths: draw the same text each run.
+  await page.evaluate(() => {
+    document.getElementById("member-name")!.textContent = "Lookop";
+    document.getElementById("record-id")!.textContent = "00000000-0000-4000-8000-000000000000";
+    for (const cell of document.querySelectorAll("#credential-rows td:not(:last-child), #session-rows td"))
+      cell.textContent = "fixed";
+    document.body.dataset.working = "bar";
+  });
+  for (const colorScheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme });
+    await expect(page).toHaveScreenshot(`settings-${colorScheme}.png`, { animations: "disabled" });
+  }
+  await page.evaluate(() => delete document.body.dataset.working);
+  await logOut(page);
+  await page.goto("/");
+  await openSignIn(page);
+  await page.locator("#choices").evaluate((choices) => (choices.hidden = false));
+  for (const colorScheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme });
+    await expect(page).toHaveScreenshot(`sign-in-${colorScheme}.png`, { animations: "disabled" });
+  }
+});
+
 const STEPPING_UP = "Asking for your passkey…";
 const MAKING_PASSKEY = "Getting ready to make your passkey…";
 
