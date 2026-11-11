@@ -41,7 +41,7 @@ Whoever runs a deployment. Can list every member name without a log entry, look 
 _Avoid_: admin, moderator, staff
 
 **Operator log**:
-The record of every member lookup and action an operator asks for (listing member names is not logged), written before it is carried out, so nothing is done without an entry. An entry says what was asked and passed the checks; a failure after it can leave the action undone.
+The record of every member lookup and action an operator asks for (listing member names is not logged), written before it is carried out, so nothing is done without an entry. An entry names what was acted on and, where there is one, the member it concerns, so an application's action on its own data still shows in that member's history. An entry says what was asked and passed the checks; a failure after it can leave the action undone.
 _Avoid_: audit log (when meaning a record of effects)
 
 ## Delegation
