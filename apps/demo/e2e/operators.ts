@@ -18,4 +18,5 @@ export const OPERATORS = {
   layout: `Layoutop${run}`,
   rebind: `Rebindop${run}`,
   look: `Lookop${run}`,
+  slot: `Slotop${run}`,
 };

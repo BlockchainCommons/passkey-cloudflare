@@ -1193,6 +1193,36 @@ test("an operator looks up a member, and the actions act on the member shown", a
   await device.context().close();
 });
 
+test("an app's markup in the operator slot stays as it was while Settings opens, looks up a member and closes", async ({
+  page,
+  browser,
+}) => {
+  const memberName = `Slotted${Date.now().toString(36)}`;
+  const { device } = await registerElsewhere(browser, memberName);
+  await addAuthenticator(page);
+  await registerMember(page, OPERATORS.slot);
+  const slot = page.locator("#operator > #operator-app-section:last-child");
+  await slot.evaluate((section) => {
+    section.innerHTML = '<h3>Projects</h3><p id="app-projects">An app\'s own section.</p>';
+  });
+  const placed = await slot.evaluate((section) => section.outerHTML);
+  expect(placed).toContain("app-projects");
+
+  await openSettings(page);
+  await expect(page.locator("#app-projects")).toBeVisible();
+  expect(await slot.evaluate((section) => section.outerHTML)).toBe(placed);
+
+  await page.getByRole("textbox", { name: "Member name" }).fill(memberName);
+  await page.getByRole("button", { name: "Look up" }).click();
+  await expect(page.locator("#operator-member")).toBeVisible();
+  expect(await slot.evaluate((section) => section.outerHTML)).toBe(placed);
+
+  await page.locator("#settings").getByRole("button", { name: "Close" }).click();
+  await expect(page.locator("#settings")).toBeHidden();
+  expect(await slot.evaluate((section) => section.outerHTML)).toBe(placed);
+  await device.context().close();
+});
+
 test("an operator lists every member with a blank name, and looks one up from the list", async ({ page, browser }) => {
   const memberName = `Listed${Date.now().toString(36)}`;
   const { device, recordId } = await registerElsewhere(browser, memberName);
