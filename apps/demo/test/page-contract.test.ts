@@ -23,6 +23,11 @@ describe("missingFromPage", () => {
     expect(missingFromPage(page, { ids: ["settings", "name", "topic-info", "single"], selectors: [] })).toEqual([]);
   });
 
+  it("decodes character references in attribute values, and leaves one it cannot decode as written", () => {
+    const html = `<p id="&#X41;&#x62;&#99;"></p><p id="&#99999999;"></p><p id="&#x110000;"></p>`;
+    expect(missingFromPage(html, { ids: ["Abc", "&#99999999;", "&#x110000;"], selectors: [] })).toEqual([]);
+  });
+
   it("names each id the page lacks, and does not read ids in comments", () => {
     expect(missingFromPage(page, { ids: ["settings", "absent", "commented"], selectors: [] })).toEqual([
       "#absent",

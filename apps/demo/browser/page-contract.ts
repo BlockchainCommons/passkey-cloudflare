@@ -20,7 +20,8 @@ export interface PageContract {
 /**
  * The entries of `contracts` that `html` lacks: each id as `#id`, each selector
  * as written, in order, each once. Expects markup that closes every element
- * that is not void; a comment's markup is not read.
+ * that is not void; a comment's markup is not read. Markup inside `<textarea>`,
+ * `<title>` or `<template>` is read as if it were in the page.
  */
 export function missingFromPage(html: string, ...contracts: PageContract[]): string[] {
   const elements = parse(html);
@@ -88,8 +89,10 @@ const ENTITIES: Record<string, string> = { amp: "&", quot: '"', apos: "'", lt: "
 
 function decode(value: string): string {
   return value.replace(/&(#x[0-9a-f]+|#\d+|\w+);/gi, (entity, name: string) => {
-    if (name[0] === "#") return String.fromCodePoint(Number(name[1] === "x" ? `0${name.slice(1)}` : name.slice(1)));
-    return ENTITIES[name] ?? entity;
+    if (name[0] !== "#") return ENTITIES[name] ?? entity;
+    const hex = name[1]!.toLowerCase() === "x";
+    const point = Number.parseInt(name.slice(hex ? 2 : 1), hex ? 16 : 10);
+    return point <= 0x10ffff ? String.fromCodePoint(point) : entity;
   });
 }
 
