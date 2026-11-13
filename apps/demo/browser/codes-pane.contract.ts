@@ -6,6 +6,10 @@ import type { PageContract } from "./page-contract.ts";
 /** The forms the codes pane shows the codes in, each a radio button `codes-form-<form>`. */
 export const CODE_FORMS = ["code", "bip39", "bytewords"] as const satisfies readonly CodeForm[];
 
+// Every CodeForm has a radio button: this fails to compile when one is left out.
+const everyForm: [Exclude<CodeForm, (typeof CODE_FORMS)[number]>] extends [never] ? true : never = true;
+void everyForm;
+
 export const contract: PageContract = {
   ids: [
     "codes-header",

@@ -2,6 +2,7 @@
 // pane's close button, and the info toggles; see page-contract.ts.
 
 import type { PublicKeyCredentialHint } from "passkey-cloudflare/browser";
+import type { PaneId } from "./dom.contract.ts";
 import type { PageContract } from "./page-contract.ts";
 
 /** The hints Settings can add a passkey with, each a button `add-passkey-<hint>`. */
@@ -16,6 +17,12 @@ export const ADD_PASSKEY_HINTS = [
  * `info-toggle` that controls the text `<topic>-info`, hidden until pressed.
  */
 export const INFO_TOPICS = ["name", "passkeys", "codes", "sessions", "record-id", "operator"] as const;
+
+/**
+ * The panes with a close button. The codes pane has none: it closes only once
+ * the member says the codes are saved (`codes-done`).
+ */
+export const CLOSABLE_PANES = ["sign-in", "settings"] as const satisfies readonly PaneId[];
 
 export const contract: PageContract = {
   ids: [
@@ -44,6 +51,7 @@ export const contract: PageContract = {
   selectors: [
     "dialog",
     "dialog .close",
+    ...CLOSABLE_PANES.map((pane) => `dialog#${pane} .close`),
     ...INFO_TOPICS.map((topic) => `#${topic}-info-toggle.info-toggle[aria-controls="${topic}-info"]`),
   ],
 };
