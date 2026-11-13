@@ -20,7 +20,7 @@ export const INFO_TOPICS = ["name", "passkeys", "codes", "sessions", "record-id"
 
 /**
  * The panes with a close button. The codes pane has none: it closes only once
- * the member says the codes are saved (`codes-done`).
+ * the person says the codes are saved (`codes-done`).
  */
 export const CLOSABLE_PANES = ["sign-in", "settings"] as const satisfies readonly PaneId[];
 

@@ -47,16 +47,26 @@ function mask(source: string): { code: string; bare: string } {
   };
   let i = 0;
   let last = ""; // The last character outside whitespace and comments, to tell a regular expression from a division.
-  const DIVIDES = /[\w$)\]]/;
-  const KEYWORD_BEFORE = /\b(?:return|typeof|case|do|else|in|of|void|yield|await)$/;
-  const regexHere = () => !DIVIDES.test(last) || KEYWORD_BEFORE.test(source.slice(0, i).trimEnd());
+  // After a value, `/` divides: a name, a number, a closing bracket, a string or template, or `++`/`--`.
+  const DIVIDES = /[\w$)\]"'`]/;
+  const KEYWORD_BEFORE = /(?<![\w$.])(?:return|typeof|case|do|else|in|of|void|yield|await)$/;
+  const regexHere = () => {
+    const before = source.slice(0, i).trimEnd();
+    if (/(?:\+\+|--)$/.test(before)) return false;
+    return !DIVIDES.test(last) || KEYWORD_BEFORE.test(before);
+  };
+  const unclosed = (what: string, at: number) => {
+    throw new Error(`the scan cannot read an unclosed ${what} at line ${source.slice(0, at).split("\n").length}`);
+  };
 
   /** From the opening quote at `i`, past its closing quote; a template's `${}` is read as code. */
   function string() {
     const quote = source[i]!;
+    const opened = i;
     i++;
     let from = i;
-    while (i < source.length && source[i] !== quote) {
+    while (source[i] !== quote) {
+      if (i >= source.length || (quote !== "`" && source[i] === "\n")) unclosed("string", opened);
       if (source[i] === "\\") i += 2;
       else if (quote === "`" && source.startsWith("${", i)) {
         blank(from, i, bare);
@@ -87,10 +97,12 @@ function mask(source: string): { code: string; bare: string } {
         i = to;
       } else if (c === '"' || c === "'" || c === "`") string();
       else if (c === "/" && regexHere()) {
+        const opened = i;
         i++;
         const from = i;
         let inClass = false;
-        while (i < source.length && (inClass || source[i] !== "/")) {
+        while (inClass || source[i] !== "/") {
+          if (i >= source.length || source[i] === "\n") unclosed("regular expression", opened);
           if (source[i] === "\\") i++;
           else if (source[i] === "[") inClass = true;
           else if (source[i] === "]") inClass = false;
@@ -113,6 +125,8 @@ function mask(source: string): { code: string; bare: string } {
   }
 
   codeUntilBrace();
+  if (i < source.length)
+    throw new Error(`the scan found an unopened } at line ${source.slice(0, i).split("\n").length}`);
   return { code: code.join(""), bare: bare.join("") };
 }
 
@@ -236,6 +250,19 @@ describe("the source scan", () => {
       { kind: "id", argument: '"nested-generic"' },
       { kind: "selector", argument: "selector" },
     ]);
+  });
+  it("reads a division after a value as a division, not a regular expression", () => {
+    for (const division of ['"a" / 2', "`a` / 2", "i++ / 2", "i-- / 2", "obj.return / 2", "(a) / 2", "a[0] / 2"]) {
+      expect(lookups(`const n = ${division}; $("after");`), division).toEqual([{ kind: "id", argument: '"after"' }]);
+    }
+    expect(lookups('const r = x ? /a"b/ : 0; $("after");')).toEqual([{ kind: "id", argument: '"after"' }]);
+  });
+
+  it("refuses a source it cannot read to the end, rather than skip the rest", () => {
+    expect(() => lookups('const s = "open;\n$("after");')).toThrow(/unclosed string at line 1/);
+    expect(() => lookups('const r = (/open;\n$("after");')).toThrow(/unclosed regular expression at line 1/);
+    expect(() => lookups("const t = `open;")).toThrow(/unclosed string/);
+    expect(() => lookups('}\n$("after");')).toThrow(/unopened \} at line 1/);
   });
 });
 
