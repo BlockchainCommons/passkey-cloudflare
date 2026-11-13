@@ -6,7 +6,9 @@ The panes are the browser modules in `apps/demo/browser/`, the markup in `apps/d
 
 ## Restyling with custom properties
 
-`style.css` defines these custom properties on `:root`, each again under `prefers-color-scheme: dark`. Set them in the app's own stylesheet to restyle the panes. Several default to a mix of `currentColor`, which each element resolves against its own text colour.
+`style.css` defines these custom properties on `:root`. Each colour, line and shadow property is defined again under `prefers-color-scheme: dark`; the fonts and corner radii have one value for both. Set them in the app's own stylesheet to restyle the panes. Several default to a mix of `currentColor`, which each element resolves against its own text colour.
+
+A property set on the app's own `:root`, outside any layer, replaces the demo's light and dark values alike. An app that wants a different colour in dark mode sets it again in its own `@media (prefers-color-scheme: dark)` block.
 
 | Property | What it styles |
 |---|---|
@@ -37,13 +39,13 @@ The panes are the browser modules in `apps/demo/browser/`, the markup in `apps/d
 | `--working-bar` | The moving part of the bar shown while an action runs |
 | `--working-bar-track` | The rest of that bar |
 | `--status-text` | The status lines that say each step, the page's and each pane's |
-| `--status-font` | Those status lines' font |
+| `--status-font` | Those status lines' font. Unset by default, so they take the font of the page or pane around them |
 
 ## Why an app's own rules win
 
 Every rule in `style.css` sits in one cascade layer, `@layer passkey-demo`. A rule outside any layer beats every layered rule whatever its specificity, so an app's plain `dialog { ... }` overrides the demo's `#settings` rules with no id to match. An app that puts its own rules in a layer has to declare that layer after `passkey-demo` for its rules to win.
 
-The browser's own `[hidden]` rule is the exception, and it works against you. Any author `display` outranks it, layered or not, so a rule that sets `display` on an element shown and hidden with the `hidden` attribute makes the element show while hidden. Scope such a rule with `:not([hidden])`, as the demo's `#signed-in:not([hidden])` does. Without that scope, a 44 px target rule on the app bar's buttons once showed Sign in to a member already signed in.
+The browser's own `[hidden]` rule is the exception, and it works against you. Any author `display` outranks it, layered or not, so a rule that sets `display` on an element shown and hidden with the `hidden` attribute makes the element show while hidden. Scope such a rule with `:not([hidden])`, as the demo's `#signed-in:not([hidden])` does.
 
 ## Checking the page has what the modules need
 
@@ -67,6 +69,6 @@ The demo runs the same check on its own page in `apps/demo/test/browser-contract
 
 ## Adding an app's own operator section
 
-The operator section of Settings, `section#operator`, ends with an empty `<div id="operator-app-section">`. The demo never writes into it, clears it or hides it. An app puts its own section there, such as a list of its projects, and wires it with its own script. The section shows only to operators, because the demo hides the whole of `section#operator` from anyone else.
+The operator section of Settings, `section#operator`, ends with an empty `<div id="operator-app-section">`. The demo never writes into it, clears it or hides it. The contract check confirms the slot is inside `section#operator`, not that it comes last, so keep it as the section's last child when editing the markup. An app puts its own section there, such as a list of its projects, and wires it with its own script. The section shows only to operators, because the demo hides the whole of `section#operator` from anyone else.
 
-An app section's actions run on the server through the library's operator pipeline: operator role, step-up, log entry, then the action ([ADR 0011](adr/0011-library-owns-the-operator-pipeline.md)). The section shows only what those actions return. What an operator may see follows [ADR 0010](adr/0010-what-an-operator-sees.md): names already shown to others can be listed, while an item's state and counts are shown one item at a time and logged against it.
+An app section's actions run on the server through the library's operator pipeline: operator role, step-up, log entry, then the action ([ADR 0011](adr/0011-library-owns-the-operator-pipeline.md)). The section shows only what those actions return. [ADR 0010](adr/0010-what-an-operator-sees.md) sets what an operator may see of members: names already shown to others can be listed, while a member's state and counts are shown one member at a time and logged against that member. An app section's own items follow the same tiers: a list of names already shown to others is fine, while an item's state and counts are shown one item at a time and logged against it.

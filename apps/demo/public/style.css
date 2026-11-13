@@ -35,7 +35,7 @@
     --working-bar: var(--accent);
     --working-bar-track: color-mix(in srgb, var(--working-bar) 25%, transparent);
     --status-text: currentColor;
-    --status-font: var(--font);
+    /* --status-font is left unset, so the status lines take the font around them. */
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -75,7 +75,7 @@
   /* The status lines: the app's, and each pane's. */
   [role="status"] {
     color: var(--status-text);
-    font-family: var(--status-font);
+    font-family: var(--status-font, inherit);
   }
   /* Explanations and hints, beside what they explain. */
   [id$="-info"],
