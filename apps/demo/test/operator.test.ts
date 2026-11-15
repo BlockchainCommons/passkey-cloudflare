@@ -727,7 +727,9 @@ describe("operator routes", () => {
     const { operator, person, personName, personId } = await deployment();
     const { credentials } = await person.json(person.get("/me/credentials"));
     const { cose } = credentials[0].publicKey;
-    const { x, y } = coseKeyToJwk(cose) as { x: string; y: string };
+    const jwk = coseKeyToJwk(cose);
+    if (jwk.kty !== "EC") throw new Error("expected the default ES256 passkey");
+    const { x, y } = jwk;
 
     const answers = [
       await operator.post("/operator/members"),

@@ -1,5 +1,5 @@
 import { env, runInDurableObject } from "cloudflare:test";
-import { coseKeyToJwk, credentialLabels, type RecordId } from "passkey-cloudflare";
+import { coseKeyToJwk, credentialLabels, type CredentialPublicKey, type RecordId } from "passkey-cloudflare";
 import type { StoredCredential } from "passkey-cloudflare/testing";
 import { seedBip39, seedWords } from "passkey-cloudflare/gordian";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -28,7 +28,7 @@ afterEach(() => {
  * Whether a listed public key verifies a signature made with this stored
  * credential's private key, imported through its JWK.
  */
-async function verifiesFor(listed: { cose: string; algorithm: number }, credential: StoredCredential) {
+async function verifiesFor(listed: CredentialPublicKey, credential: StoredCredential) {
   const params =
     listed.algorithm === -7
       ? { import: { name: "ECDSA", namedCurve: "P-256" }, sign: { name: "ECDSA", hash: "SHA-256" } }

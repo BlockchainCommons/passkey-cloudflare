@@ -1,4 +1,5 @@
-import { coseKeyToJwk } from "passkey-cloudflare";
+import { CEREMONY_POLICY, coseKeyToJwk } from "passkey-cloudflare";
+import { fromBase64Url, toBase64Url } from "passkey-cloudflare/browser";
 import { describe, expect, it } from "vitest";
 import vectors from "./fixtures/cose-jwk-vectors.json";
 
@@ -8,13 +9,6 @@ import vectors from "./fixtures/cose-jwk-vectors.json";
 
 const bytes = (hex: string) => new Uint8Array(hex.match(/../g)!.map((b) => parseInt(b, 16)));
 const toHex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
-const fromB64u = (s: string) =>
-  Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (ch) => ch.charCodeAt(0));
-const b64u = (b: Uint8Array) =>
-  btoa(String.fromCharCode(...b))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
 
 // A minimal CBOR map encoder for the malformed keys below: small integer keys,
 // small integer or byte string values.
@@ -27,8 +21,7 @@ function coseMap(entries: [number, number | Uint8Array][]): Uint8Array {
 }
 
 describe("coseKeyToJwk", () => {
-  it("covers every algorithm the ceremonies offer", async () => {
-    const { CEREMONY_POLICY } = await import("passkey-cloudflare");
+  it("covers every algorithm the ceremonies offer", () => {
     expect(vectors.cases.map((c) => c.algorithm).sort()).toEqual([...CEREMONY_POLICY.algorithms].sort());
   });
 
@@ -42,7 +35,7 @@ describe("coseKeyToJwk", () => {
     });
 
     it(`converts ${c.id} from base64url`, () => {
-      expect(coseKeyToJwk(b64u(bytes(c.coseHex)))).toEqual(c.jwk);
+      expect(coseKeyToJwk(toBase64Url(bytes(c.coseHex)))).toEqual(c.jwk);
     });
 
     it(`gives ${c.id} a JWK Web Crypto imports`, async () => {
@@ -50,7 +43,9 @@ describe("coseKeyToJwk", () => {
       const key = await crypto.subtle.importKey("jwk", coseKeyToJwk(bytes(c.coseHex)), algorithm, true, ["verify"]);
       const raw = new Uint8Array((await crypto.subtle.exportKey("raw", key)) as ArrayBuffer);
       const published =
-        c.jwk.kty === "EC" ? "04" + toHex(fromB64u(c.jwk.x)) + toHex(fromB64u(c.jwk.y!)) : toHex(fromB64u(c.jwk.x));
+        c.jwk.kty === "EC"
+          ? "04" + toHex(fromBase64Url(c.jwk.x)) + toHex(fromBase64Url(c.jwk.y!))
+          : toHex(fromBase64Url(c.jwk.x));
       expect(toHex(raw)).toBe(published);
     });
   }
