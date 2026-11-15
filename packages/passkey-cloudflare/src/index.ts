@@ -14,6 +14,7 @@ export {
 export { isRecordId, RECOVERY_CODE_COUNT, type RecordId } from "./identity/secrets.ts";
 export { CredentialIndex, credentialIndex } from "./identity/credential-index.ts";
 export { CEREMONY_POLICY, type RelyingParty } from "./identity/webauthn.ts";
+export { coseKeyToJwk, type CredentialJwk, type CredentialPublicKey } from "./cose-key.ts";
 
 // Application-tier building blocks
 export { ChallengeStore, challengeStores, CHALLENGE_LIFETIME_MS } from "./app-tier/challenges.ts";

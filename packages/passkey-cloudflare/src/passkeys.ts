@@ -7,6 +7,7 @@ import { memberNameRegistry } from "./app-tier/member-names.ts";
 import { missingSourceWarning } from "./app-tier/missing-source-warning.ts";
 import { isValidMemberName, memberNameKey } from "./member-name-rules.ts";
 import { DEFAULT_RATE_LIMITS, rateLimiters, type Limit, type RateLimits } from "./app-tier/rate-limit.ts";
+import type { CredentialPublicKey } from "./cose-key.ts";
 import { credentialBinding } from "./credential-binding.ts";
 import type { CeremonyFailure } from "./failures.ts";
 import type { PasskeyBindings } from "./durable-objects.ts";
@@ -144,6 +145,11 @@ export interface CredentialListing {
   provider: string | null;
   backupEligible: boolean;
   backedUp: boolean;
+  /**
+   * The public key as the authenticator gave it at registration. Only the
+   * record's own sessions list it; `coseKeyToJwk` converts it to a JWK.
+   */
+  publicKey: CredentialPublicKey;
 }
 
 export interface RevokedPasskey {
@@ -696,6 +702,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
         provider: providerName(row.aaguid, row.transports),
         backupEligible: row.backupEligible,
         backedUp: row.backedUp,
+        publicKey: row.publicKey,
       }));
     },
 

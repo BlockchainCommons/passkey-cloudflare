@@ -1,6 +1,7 @@
 import { env, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import {
+  coseKeyToJwk,
   operatorLog,
   RECOVERY_CODE_COUNT,
   type OperatorLog,
@@ -718,5 +719,31 @@ describe("operator member list", () => {
     expect(await stale.json()).toEqual({ error: "step-up-required" });
     await operator.stepUp();
     expect(await log()).toEqual([]);
+  });
+});
+
+describe("operator routes", () => {
+  it("never answer with a member's public key, in either form", async () => {
+    const { operator, person, personName, personId } = await deployment();
+    const { credentials } = await person.json(person.get("/me/credentials"));
+    const { cose } = credentials[0].publicKey;
+    const { x, y } = coseKeyToJwk(cose) as { x: string; y: string };
+
+    const answers = [
+      await operator.post("/operator/members"),
+      await operator.post("/operator/lookup", { memberName: personName }),
+      await operator.post("/operator/rebind-links", { recordId: personId }),
+      await operator.post("/operator/suspend", { recordId: personId }),
+      await operator.post("/operator/resume", { recordId: personId }),
+      await operator.post("/operator/remove", { recordId: personId }),
+      await operator.post("/operator/allow-name", { memberName: personName }),
+      await operator.get("/operator/log"),
+    ];
+
+    for (const answer of answers) {
+      expect(answer.status).toBe(200);
+      const body = await answer.text();
+      for (const keyMaterial of [cose, x, y]) expect(body).not.toContain(keyMaterial);
+    }
   });
 });

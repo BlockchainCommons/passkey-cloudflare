@@ -39,6 +39,11 @@ export interface PasskeyListing {
   provider: string | null;
   backupEligible: boolean;
   backedUp: boolean;
+  /**
+   * The passkey's public key as its authenticator gave it: the COSE_Key,
+   * base64url, and its COSE algorithm (the library's `CredentialPublicKey`).
+   */
+  publicKey: { cose: string; algorithm: number };
 }
 
 /** A session as its owner's settings list it. */

@@ -1,5 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { FAILURE_SCHEMA, insertFailure, type CeremonyFailure } from "../failures.ts";
+import { toBase64Url } from "../base64url.ts";
+import type { CredentialPublicKey } from "../cose-key.ts";
 import { addColumnIfMissing } from "../sql.ts";
 import type { RecordId } from "./secrets.ts";
 import {
@@ -78,6 +80,8 @@ export interface CredentialSummary {
   transports: string[];
   backupEligible: boolean;
   backedUp: boolean;
+  /** The public key as stored: its COSE_Key, base64url, and COSE algorithm. */
+  publicKey: CredentialPublicKey;
 }
 
 /** Why a session may not perform an action. */
@@ -412,8 +416,10 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
         transports: string;
         registration_flags: number;
         last_flags: number | null;
+        public_key: ArrayBuffer;
+        algorithm: number;
       }>(
-        "SELECT id, created_at, last_used_at, aaguid, transports, registration_flags, last_flags FROM credentials ORDER BY created_at",
+        "SELECT id, created_at, last_used_at, aaguid, transports, registration_flags, last_flags, public_key, algorithm FROM credentials ORDER BY created_at",
       )
       .toArray()
       .map((row) => ({
@@ -424,6 +430,7 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
         transports: parseTransports(row.transports),
         backupEligible: (row.registration_flags & FLAG_BACKUP_ELIGIBLE) !== 0,
         backedUp: ((row.last_flags ?? row.registration_flags) & FLAG_BACKED_UP) !== 0,
+        publicKey: { cose: toBase64Url(new Uint8Array(row.public_key)), algorithm: row.algorithm },
       }));
     return { ok: true, credentials };
   }

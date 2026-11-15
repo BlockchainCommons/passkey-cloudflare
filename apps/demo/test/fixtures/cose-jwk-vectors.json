@@ -1,0 +1,58 @@
+{
+  "about": "COSE public keys (RFC 9052, RFC 9053) and the JWK each converts to. Each case is a published JWK public key; its COSE form is that key with its COSE algorithm, encoded by the dCBOR references. The expected JWK is the published one plus 'alg' (ES256 for COSE -7, EdDSA for COSE -8, RFC 8037).",
+  "references": {
+    "ts": {
+      "@blockchaincommons/dcbor": "1.0.0-beta.3"
+    },
+    "node": "node v26.13.0 crypto.createPublicKey",
+    "rust": {
+      "dcbor": "dcbor-cli 0.17.1"
+    }
+  },
+  "cases": [
+    {
+      "id": "es256-rfc7515-a3",
+      "source": "RFC 7515 appendix A.3.1 (the ES256 key, public part)",
+      "algorithm": -7,
+      "coseDiagnostic": "{1: 2, 3: -7, -1: 1, -2: h'7fcdce2770f6c45d4183cbee6fdb4b7b580733357be9ef13bacf6e3c7bd15445', -3: h'c7f144cd1bbd9b7e872cdfedb9eeb9f4b3695d6ea90b24ad8a4623288588e5ad'}",
+      "coseHex": "a50102032620012158207fcdce2770f6c45d4183cbee6fdb4b7b580733357be9ef13bacf6e3c7bd15445225820c7f144cd1bbd9b7e872cdfedb9eeb9f4b3695d6ea90b24ad8a4623288588e5ad",
+      "jwk": {
+        "kty": "EC",
+        "crv": "P-256",
+        "x": "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU",
+        "y": "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0",
+        "alg": "ES256"
+      },
+      "checks": {
+        "cose": {
+          "rust": "agrees"
+        },
+        "jwk": {
+          "node": "agrees"
+        }
+      }
+    },
+    {
+      "id": "eddsa-rfc8037-a2",
+      "source": "RFC 8037 appendix A.2 (the Ed25519 public key)",
+      "algorithm": -8,
+      "coseDiagnostic": "{1: 1, 3: -8, -1: 6, -2: h'd75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a'}",
+      "coseHex": "a4010103272006215820d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "jwk": {
+        "kty": "OKP",
+        "crv": "Ed25519",
+        "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo",
+        "alg": "EdDSA"
+      },
+      "checks": {
+        "cose": {
+          "rust": "agrees"
+        },
+        "jwk": {
+          "node": "agrees"
+        }
+      }
+    }
+  ],
+  "disagreements": []
+}

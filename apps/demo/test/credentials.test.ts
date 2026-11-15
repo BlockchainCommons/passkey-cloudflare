@@ -1,5 +1,6 @@
 import { env, runInDurableObject } from "cloudflare:test";
-import { credentialLabels, type RecordId } from "passkey-cloudflare";
+import { coseKeyToJwk, credentialLabels, type RecordId } from "passkey-cloudflare";
+import type { StoredCredential } from "passkey-cloudflare/testing";
 import { seedBip39, seedWords } from "passkey-cloudflare/gordian";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { prepared, refusal, testApp, uniqueName } from "./harness.ts";
@@ -22,6 +23,21 @@ async function dropLabelBindings(storagePrefix: string, recordId: string) {
 afterEach(() => {
   vi.restoreAllMocks();
 });
+
+/**
+ * Whether a listed public key verifies a signature made with this stored
+ * credential's private key, imported through its JWK.
+ */
+async function verifiesFor(listed: { cose: string; algorithm: number }, credential: StoredCredential) {
+  const params =
+    listed.algorithm === -7
+      ? { import: { name: "ECDSA", namedCurve: "P-256" }, sign: { name: "ECDSA", hash: "SHA-256" } }
+      : { import: { name: "Ed25519" }, sign: { name: "Ed25519" } };
+  const key = await crypto.subtle.importKey("jwk", coseKeyToJwk(listed.cose), params.import, false, ["verify"]);
+  const message = new TextEncoder().encode("signed by the passkey");
+  const signature = await crypto.subtle.sign(params.sign, credential.privateKey, message);
+  return crypto.subtle.verify(params.sign, key, signature, message);
+}
 
 function aaguidBytes(uuid: string): Uint8Array {
   return new Uint8Array(uuid.replace(/-/g, "").match(/../g)!.map((h) => parseInt(h, 16)));
@@ -81,7 +97,7 @@ describe("passkeys", () => {
     expect((await browser.login(second!.id)).recordId).toBe(recordId);
   });
 
-  it("are listed with label, dates, password manager and sync status, but no key material", async () => {
+  it("are listed with label, dates, password manager, sync status and public key", async () => {
     let now = Date.now();
     const app = testApp({ clock: () => now });
     const browser = app.browser({ aaguid: aaguidBytes(APPLE_PASSWORDS), backupEligible: true });
@@ -100,8 +116,43 @@ describe("passkeys", () => {
         provider: "Apple Passwords",
         backupEligible: true,
         backedUp: true,
+        publicKey: { cose: expect.stringMatching(/^[A-Za-z0-9_-]+$/), algorithm: -7 },
       },
     ]);
+  });
+
+  it.each([
+    ["ES256", -7],
+    ["Ed25519", -8],
+  ] as const)("are listed with their %s public key as stored, every one of the record's", async (algorithm, cose) => {
+    const browser = testApp().browser({ algorithm });
+    await browser.register(uniqueName());
+    await browser.stepUp();
+    await browser.enrol();
+
+    const { credentials } = await browser.json(browser.get("/me/credentials"));
+
+    expect(credentials).toHaveLength(2);
+    const stored = browser.authenticator.credentials;
+    for (const [i, listed] of credentials.entries()) {
+      expect(listed.publicKey.algorithm).toBe(cose);
+      expect(await verifiesFor(listed.publicKey, stored[i]!)).toBe(true);
+      expect(await verifiesFor(listed.publicKey, stored[1 - i]!)).toBe(false);
+    }
+  });
+
+  it("are listed with no other record's public key", async () => {
+    const app = testApp();
+    const mine = app.browser();
+    const theirs = app.browser();
+    await mine.register(uniqueName());
+    await theirs.register(uniqueName());
+
+    const { credentials } = await mine.json(mine.get("/me/credentials"));
+
+    expect(credentials).toHaveLength(1);
+    expect(await verifiesFor(credentials[0].publicKey, mine.authenticator.credentials[0]!)).toBe(true);
+    expect(await verifiesFor(credentials[0].publicKey, theirs.authenticator.credentials[0]!)).toBe(false);
   });
 
   it("from an unknown password manager are listed without a provider name", async () => {
