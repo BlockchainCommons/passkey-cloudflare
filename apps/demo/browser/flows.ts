@@ -249,6 +249,13 @@ export class Flows {
     return { ...rotated, result: "rotated" };
   }
 
+  /** Approve `text`: a passkey signs its SHA-256 digest. The session gains nothing. */
+  async approve(text: string): Promise<Told> {
+    const approved = await this.client.approve(text);
+    if (approved.result !== "ok") return notDone(approved, "The approval was refused.");
+    return told("Approved. Your passkey signed the text's digest; anyone with its public key can check the signature.");
+  }
+
   logout(): Promise<void> {
     return this.client.logout();
   }

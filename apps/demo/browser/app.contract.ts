@@ -16,7 +16,7 @@ export const ADD_PASSKEY_HINTS = [
  * The topics an info toggle explains: a button `<topic>-info-toggle` of class
  * `info-toggle` that controls the text `<topic>-info`, hidden until pressed.
  */
-export const INFO_TOPICS = ["name", "passkeys", "codes", "sessions", "record-id", "operator"] as const;
+export const INFO_TOPICS = ["name", "passkeys", "codes", "approve", "sessions", "record-id", "operator"] as const;
 
 /**
  * The panes with a close button. The codes pane has none: it closes only once
@@ -41,6 +41,8 @@ export const contract: PageContract = {
     "copy-record-id",
     "rotate-codes",
     "rotate-now",
+    "approve",
+    "approve-text",
     "logout",
     "logout-everywhere",
     "logout-elsewhere",

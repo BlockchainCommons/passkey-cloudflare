@@ -18,6 +18,7 @@ import type {
   RegistrationResponseJSON,
 } from "passkey-cloudflare/browser";
 import type {
+  Approved,
   IssuedCodes,
   ListedMember,
   Me,
@@ -141,6 +142,24 @@ export class DemoClient {
     if (used.result === "not-found") return CANCELLED;
     const verified = await this.post("/auth/step-up/verify", { response: used.response });
     return verified.ok ? { result: "ok" } : refused(verified);
+  }
+
+  /**
+   * The approval's verify request, with a passkey's assertion over the
+   * SHA-256 of `text`. With `credentialIds`, only those passkeys may sign.
+   */
+  async approveRequest(text: string, credentialIds?: string[]): Promise<Prepared | Cancelled | Refused> {
+    const options = await this.post("/me/approve/options", credentialIds ? { text, credentialIds } : { text });
+    if (!options.ok) return refused(options);
+    const used = await this.authenticator.get(await read(options), "use");
+    if (used.result === "not-found") return CANCELLED;
+    return { result: "prepared", path: "/me/approve/verify", body: { text, response: used.response } };
+  }
+
+  /** Approve `text` with one of the signed-in record's passkeys. It grants the session nothing. */
+  async approve(text: string, credentialIds?: string[]): Promise<Ok<Approved> | Cancelled | Refused> {
+    const prepared = await this.approveRequest(text, credentialIds);
+    return prepared.result === "prepared" ? this.send<Approved>(prepared) : prepared;
   }
 
   /**

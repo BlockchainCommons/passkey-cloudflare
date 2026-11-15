@@ -22,10 +22,15 @@ export class ChallengeStore<Env = unknown> extends DurableObject<Env> {
     )`);
   }
 
+  /**
+   * Hold a challenge until it is consumed or expires. Issuing a hash already
+   * held replaces it: a random challenge never repeats, and an approval's
+   * hash repeats only when one session asks again to approve the same digest.
+   */
   async issue(hash: string, purpose: Ceremony, payload: unknown, now: number): Promise<void> {
     const expiresAt = now + CHALLENGE_LIFETIME_MS;
     this.sql.exec(
-      "INSERT INTO challenges (hash, purpose, payload, expires_at) VALUES (?, ?, ?, ?)",
+      "INSERT OR REPLACE INTO challenges (hash, purpose, payload, expires_at) VALUES (?, ?, ?, ?)",
       hash,
       purpose,
       JSON.stringify(payload ?? null),

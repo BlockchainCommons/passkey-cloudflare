@@ -1,7 +1,7 @@
 // Uniform refusal: every refused ceremony looks the same from outside. The
 // cause is kept only in the internal failure record.
 
-export type Ceremony = "register" | "login" | "enrol" | "recover" | "step-up" | "rebind";
+export type Ceremony = "register" | "login" | "enrol" | "recover" | "step-up" | "rebind" | "approve";
 
 /** Thrown inside a ceremony to refuse it. It never leaves the library. */
 export class CeremonyRefusal extends Error {

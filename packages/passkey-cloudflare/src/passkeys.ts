@@ -37,6 +37,8 @@ import {
 import {
   claimedChallenge,
   creationOptions,
+  FLAG_BACKED_UP,
+  FLAG_BACKUP_ELIGIBLE,
   isUserVerified,
   newChallenge,
   requestOptions,
@@ -161,6 +163,55 @@ export interface RevokedPasskey {
   credentialId: string;
   /** The RP ID the credential was made for. */
   rpId: string;
+}
+
+/**
+ * A completed approval: the assertion as the browser sent it, which is a
+ * signature over the app's digest, and what a verifier needs to check it.
+ */
+export interface Approval {
+  /** The signing credential's ID, base64url. */
+  credentialId: string;
+  /** The signing credential's public key as stored; `coseKeyToJwk` converts it to a JWK. */
+  publicKey: CredentialPublicKey;
+  /** The assertion's authenticator data, base64url, as the browser sent it. */
+  authenticatorData: string;
+  /**
+   * The assertion's client data, base64url, byte for byte as the browser sent
+   * it, which may hold fields beyond those WebAuthn names. Its `challenge` is
+   * the digest.
+   */
+  clientDataJSON: string;
+  /** The signature over the authenticator data and the client data's SHA-256, base64url. */
+  signature: string;
+  userVerified: boolean;
+  backupEligible: boolean;
+  backedUp: boolean;
+}
+
+/** WebAuthn asks that a challenge hold at least 16 bytes. */
+export const MIN_APPROVAL_DIGEST_BYTES = 16;
+/** Room for any digest and for a short to-be-signed blob, such as SSHSIG's. */
+export const MAX_APPROVAL_DIGEST_BYTES = 1024;
+
+/** The digest as base64url, the form the challenge takes. Throws if the app passed no usable digest. */
+function approvalDigest(digest: Uint8Array): string {
+  if (!(digest instanceof Uint8Array)) throw new TypeError("an approval digest must be a Uint8Array");
+  if (digest.length < MIN_APPROVAL_DIGEST_BYTES || digest.length > MAX_APPROVAL_DIGEST_BYTES) {
+    throw new RangeError(
+      `an approval digest must hold ${MIN_APPROVAL_DIGEST_BYTES} to ${MAX_APPROVAL_DIGEST_BYTES} bytes, not ${digest.length}`,
+    );
+  }
+  return toBase64Url(digest);
+}
+
+/**
+ * Where an approval's pending challenge is kept. The challenge is the app's
+ * digest, which two sessions may both be asked to sign, so the key binds it
+ * to the session that asked.
+ */
+function approvalChallengeHash(sessionId: string, digest: string): Promise<string> {
+  return sha256Hex(`approve:${sessionId}:${digest}`);
 }
 
 export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig) {
@@ -616,6 +667,95 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
           now: ctx.now,
         });
         if (!done.ok) refuse(done.cause);
+      });
+    },
+
+    /**
+     * Options for an approval: the live session's record signs `digest`, which
+     * is the challenge byte for byte. With `credentialIds`, only those of the
+     * record's credentials may sign; a listed ID the record does not hold is
+     * refused as not found. The pending challenge is bound to this session.
+     */
+    async approvalOptions(
+      ctx: RequestContext,
+      sessionValue: string | null | undefined,
+      digest: Uint8Array,
+      credentialIds?: readonly string[],
+    ) {
+      const challengeText = approvalDigest(digest);
+      if (credentialIds && credentialIds.length === 0) {
+        throw new RangeError("an approval's credential list must name at least one credential");
+      }
+      return issueOptions(ctx, "approve", null, async (trail) => {
+        const presented = await presentedSession(sessionValue);
+        const found = await record(presented.recordId).credentialDescriptors(presented.tokenHash, ctx.now, "live");
+        if (!found.ok) throw new PasskeyError(found.cause);
+        trail.recordId = presented.recordId;
+        const byId = new Map(found.descriptors.map((descriptor) => [descriptor.id, descriptor]));
+        const allowed = credentialIds
+          ? credentialIds.map((id) => {
+              const descriptor = byId.get(id);
+              if (!descriptor) throw new PasskeyError("not-found");
+              return descriptor;
+            })
+          : found.descriptors;
+        const hash = await approvalChallengeHash(found.sessionId, challengeText);
+        await challenges(hash).issue(
+          hash,
+          "approve",
+          { allow: credentialIds ? allowed.map((d) => d.id) : null },
+          ctx.now,
+        );
+        return requestOptions({ rp: config.rp, challenge: new Uint8Array(digest), allowCredentials: allowed });
+      });
+    },
+
+    /**
+     * Complete an approval of `digest` on this session, returning the
+     * assertion, which is a signature over the digest. It grants the session
+     * nothing: no step-up window opens.
+     */
+    async approve(
+      ctx: RequestContext,
+      sessionValue: string | null | undefined,
+      digest: Uint8Array,
+      response: AuthenticationResponseJSON,
+    ): Promise<CeremonyOutcome<Approval>> {
+      const challengeText = approvalDigest(digest);
+      return runCeremony(ctx, "approve", async (trail) => {
+        // Gated here, before the challenge is consumed.
+        const session = await liveSession(sessionValue, ctx.now);
+        trail.recordId = session.recordId;
+        // Keyed by this session and the app's digest, so another session's
+        // assertion, or one over another digest, finds nothing to consume.
+        const hash = await approvalChallengeHash(session.sessionId, challengeText);
+        const taken = await challenges(hash).consume(hash, "approve", ctx.now);
+        if (taken === null) throw new CeremonyRefusal("unknown-challenge");
+        const payload = JSON.parse(taken) as { allow: string[] | null };
+        const assertion = await verifyKnownAssertion(trail, response, challengeText);
+        if (assertion.recordId !== session.recordId) throw new CeremonyRefusal("wrong-record");
+        if (payload.allow && !payload.allow.includes(assertion.credentialId)) {
+          throw new CeremonyRefusal("credential-not-allowed");
+        }
+        const done = await record(session.recordId).completeApproval({
+          tokenHash: session.tokenHash,
+          sessionId: session.sessionId,
+          credentialId: assertion.credentialId,
+          signCount: assertion.signCount,
+          flags: assertion.flags,
+          now: ctx.now,
+        });
+        if (!done.ok) refuse(done.cause);
+        return {
+          credentialId: assertion.credentialId,
+          publicKey: done.publicKey,
+          authenticatorData: response.response.authenticatorData,
+          clientDataJSON: response.response.clientDataJSON,
+          signature: response.response.signature,
+          userVerified: isUserVerified(assertion.flags),
+          backupEligible: (assertion.flags & FLAG_BACKUP_ELIGIBLE) !== 0,
+          backedUp: (assertion.flags & FLAG_BACKED_UP) !== 0,
+        };
       });
     },
 

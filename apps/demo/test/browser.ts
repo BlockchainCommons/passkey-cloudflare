@@ -133,6 +133,10 @@ export class Browser {
     return accepted(await this.client.stepUp());
   }
 
+  async approve(text: string, credentialIds?: string[]) {
+    return accepted(await this.client.approve(text, credentialIds));
+  }
+
   /** Add a passkey, stepping up first if the session needs it. */
   async enrol(hint?: PublicKeyCredentialHint) {
     return accepted(await this.client.enrol(hint));

@@ -267,6 +267,9 @@ for (const hint of ADD_PASSKEY_HINTS) {
 }
 $("rotate-codes").addEventListener("click", passkeyAction(rotateCodes));
 $("rotate-now").addEventListener("click", passkeyAction(rotateCodes));
+$("approve").addEventListener("click", passkeyAction(async () => {
+  await settled(await flows.approve($("approve-text").textContent ?? ""));
+}));
 $("logout").addEventListener("click", guard(async () => {
   await flows.logout();
   await signedOut();

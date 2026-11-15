@@ -68,7 +68,10 @@ export { prefixedInstance, prefixedName } from "./storage-prefix.ts";
 // Ceremonies
 export {
   createPasskeys,
+  MAX_APPROVAL_DIGEST_BYTES,
+  MIN_APPROVAL_DIGEST_BYTES,
   PasskeyError,
+  type Approval,
   type CeremonyOutcome,
   type CredentialListing,
   type PasskeyConfig,

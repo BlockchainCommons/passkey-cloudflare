@@ -110,3 +110,18 @@ export interface OperatorActed {
   member: MemberView;
   link?: string;
 }
+
+/**
+ * A completed approval of the text the demo showed: the passkey's assertion
+ * over the SHA-256 of that text (the library's `Approval`).
+ */
+export interface Approved {
+  credentialId: string;
+  publicKey: { cose: string; algorithm: number };
+  authenticatorData: string;
+  clientDataJSON: string;
+  signature: string;
+  userVerified: boolean;
+  backupEligible: boolean;
+  backedUp: boolean;
+}

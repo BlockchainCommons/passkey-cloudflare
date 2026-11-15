@@ -127,6 +127,14 @@
       <button id="rotate-codes" type="button">Replace my recovery codes</button>
 
       <div class="section-heading">
+        <h3>Approve</h3>
+        <button id="approve-info-toggle" class="info-toggle" type="button" aria-label="About approving" aria-expanded="false" aria-controls="approve-info">&#9432;</button>
+      </div>
+      <p id="approve-info" hidden>An approval asks your passkey to sign the SHA-256 digest of a text, so the signature is proof, checkable by anyone with your passkey's public key, that you approved that text. It changes nothing about your session and the demo keeps nothing of it.</p>
+      <p>Text to approve: <q id="approve-text">I approve this demo text.</q></p>
+      <button id="approve" type="button">Approve with a passkey</button>
+
+      <div class="section-heading">
         <h3>Sessions</h3>
         <button id="sessions-info-toggle" class="info-toggle" type="button" aria-label="About sessions" aria-expanded="false" aria-controls="sessions-info">&#9432;</button>
       </div>

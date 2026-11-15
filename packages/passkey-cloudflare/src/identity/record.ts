@@ -394,6 +394,34 @@ export class IdentityRecord<Env = unknown> extends DurableObject<Env> {
     });
   }
 
+  /**
+   * Complete an approval on the session that asked for it: accept the
+   * verified assertion and return the signing credential's public key as
+   * stored. Unlike a step-up, it leaves the session as it was.
+   */
+  completeApproval(input: {
+    tokenHash: string;
+    sessionId: string;
+    credentialId: string;
+    signCount: number;
+    flags: number;
+    now: number;
+  }): RecordResult<{ publicKey: CredentialPublicKey }> {
+    const gate = this.gate(input.tokenHash, input.now, "live");
+    if (!gate.ok || gate.principal.sessionId !== input.sessionId) return { ok: false, cause: "wrong-session" };
+    return this.ctx.storage.transactionSync((): RecordResult<{ publicKey: CredentialPublicKey }> => {
+      const cause = this.acceptAssertion(input.credentialId, input.signCount, input.flags, input.now);
+      if (cause) return { ok: false, cause };
+      const row = this.sql
+        .exec<{ public_key: ArrayBuffer; algorithm: number }>(
+          "SELECT public_key, algorithm FROM credentials WHERE id = ?",
+          input.credentialId,
+        )
+        .one();
+      return { ok: true, publicKey: { cose: toBase64Url(new Uint8Array(row.public_key)), algorithm: row.algorithm } };
+    });
+  }
+
   /** Add a credential for a stepped-up session. */
   addCredential(input: { tokenHash: string; sessionId: string; credential: VerifiedCredential; now: number }): RecordResult {
     const gate = this.gate(input.tokenHash, input.now, "stepped-up");

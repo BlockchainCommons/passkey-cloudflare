@@ -15,7 +15,7 @@ import {
 } from "passkey-cloudflare";
 import { seedBip39, seedWords } from "passkey-cloudflare/gordian";
 import { error, json, originChecked, ownSession, type Call, type Handler, type PostRoute } from "./http.ts";
-import type { IssuedCodes, Me, PasskeyListing, Recovered, Registered, Revoked, SessionListing } from "./responses.ts";
+import type { Approved, IssuedCodes, Me, PasskeyListing, Recovered, Registered, Revoked, SessionListing } from "./responses.ts";
 import {
   operatorLogRoute,
   operatorMembersRoute,
@@ -48,6 +48,22 @@ export interface AppOptions {
    * the only source the production entry uses.
    */
   operatorRoles?: OperatorRolesFor;
+}
+
+/** The longest text the demo will ask a passkey to approve, in UTF-16 code units. */
+export const MAX_APPROVAL_TEXT_LENGTH = 1000;
+
+/** The demo's digest of a text to approve: SHA-256 of its UTF-8, or null if it is no usable text. */
+async function approvalDigest(text: unknown): Promise<Uint8Array | null> {
+  if (typeof text !== "string" || text.length === 0 || text.length > MAX_APPROVAL_TEXT_LENGTH) return null;
+  return new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
+}
+
+/** An optional list of credential IDs from a request body, or false if it is malformed. */
+function credentialIdList(value: unknown): string[] | undefined | false {
+  if (value === undefined) return undefined;
+  const ok = Array.isArray(value) && value.length > 0 && value.every((id) => typeof id === "string");
+  return ok ? value : false;
 }
 
 type AuthedHandler = (call: Call, principal: Principal) => Promise<Response>;
@@ -159,6 +175,20 @@ function routes(roles: OperatorRolesFor): Routes {
     "/auth/step-up/verify": ownSession(async ({ passkeys, ctx, request, body }) => {
       const outcome = await passkeys.stepUp(ctx, sessionValueFrom(request), body.response);
       return outcome.ok ? json({ ok: true }) : outcome.response;
+    }),
+
+    "/me/approve/options": ownSession(async ({ passkeys, ctx, request, body }) => {
+      const digest = await approvalDigest(body.text);
+      const credentialIds = credentialIdList(body.credentialIds);
+      if (!digest || credentialIds === false) return error(400, "malformed approval");
+      return optionsResponse(await passkeys.approvalOptions(ctx, sessionValueFrom(request), digest, credentialIds));
+    }),
+
+    "/me/approve/verify": ownSession(async ({ passkeys, ctx, request, body }) => {
+      const digest = await approvalDigest(body.text);
+      if (!digest) return error(400, "malformed approval");
+      const outcome = await passkeys.approve(ctx, sessionValueFrom(request), digest, body.response);
+      return outcome.ok ? json(outcome.value satisfies Approved) : outcome.response;
     }),
 
     "/me/credentials/enrol/options": ownSession(async ({ passkeys, ctx, request, body }) =>
