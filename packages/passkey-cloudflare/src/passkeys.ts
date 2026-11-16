@@ -195,7 +195,7 @@ export const MIN_APPROVAL_DIGEST_BYTES = 16;
 export const MAX_APPROVAL_DIGEST_BYTES = 1024;
 
 /** The digest as base64url, the form the challenge takes. Throws if the app passed no usable digest. */
-function approvalDigest(digest: Uint8Array): string {
+function checkedApprovalDigest(digest: Uint8Array): string {
   if (!(digest instanceof Uint8Array)) throw new TypeError("an approval digest must be a Uint8Array");
   if (digest.length < MIN_APPROVAL_DIGEST_BYTES || digest.length > MAX_APPROVAL_DIGEST_BYTES) {
     throw new RangeError(
@@ -682,7 +682,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       digest: Uint8Array,
       credentialIds?: readonly string[],
     ) {
-      const challengeText = approvalDigest(digest);
+      const challengeText = checkedApprovalDigest(digest);
       if (credentialIds && credentialIds.length === 0) {
         throw new RangeError("an approval's credential list must name at least one credential");
       }
@@ -721,7 +721,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
       digest: Uint8Array,
       response: AuthenticationResponseJSON,
     ): Promise<CeremonyOutcome<Approval>> {
-      const challengeText = approvalDigest(digest);
+      const challengeText = checkedApprovalDigest(digest);
       return runCeremony(ctx, "approve", async (trail) => {
         // Gated here, before the challenge is consumed.
         const session = await liveSession(sessionValue, ctx.now);

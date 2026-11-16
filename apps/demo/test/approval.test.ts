@@ -1,7 +1,7 @@
 import { env, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { coseKeyToJwk, identityRecords, type RecordId } from "passkey-cloudflare";
-import { fromBase64Url } from "passkey-cloudflare/browser";
+import { fromBase64Url, toBase64Url } from "passkey-cloudflare/browser";
 import { dumpDurableState, hex } from "./durable-state.ts";
 import { failuresOn } from "./failure-log.ts";
 import { Browser, prepared, refusal, testApp, uniqueName, type TestApp } from "./harness.ts";
@@ -13,14 +13,6 @@ const REFUSAL = '{"error":"ceremony refused"}';
 
 /** SHA-256 of "hello", from the NIST-style test vectors everyone quotes. */
 const HELLO_SHA256_HEX = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
-
-function hexToBase64Url(hex: string): string {
-  const bytes = hex.match(/../g)!.map((pair) => parseInt(pair, 16));
-  return btoa(String.fromCharCode(...bytes))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-}
 
 async function sha256(data: Uint8Array | string): Promise<Uint8Array> {
   const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
@@ -76,7 +68,7 @@ describe("approval options", () => {
 
     const options = await browser.json(browser.post("/me/approve/options", { text: "hello" }));
 
-    expect(options.challenge).toBe(hexToBase64Url(HELLO_SHA256_HEX));
+    expect(options.challenge).toBe(toBase64Url(new Uint8Array(HELLO_SHA256_HEX.match(/../g)!.map((pair) => parseInt(pair, 16)))));
   });
 
   it("allow every one of the record's passkeys, or only those listed", async () => {
@@ -139,7 +131,7 @@ describe("approval", () => {
     expect(approval.publicKey).toEqual(listed!.publicKey);
     // The challenge the passkey signed is the digest of the text.
     const clientData = JSON.parse(new TextDecoder().decode(fromBase64Url(approval.clientDataJSON)));
-    expect(clientData.challenge).toBe(hexToBase64Url(hex(await sha256(text))));
+    expect(clientData.challenge).toBe(toBase64Url(await sha256(text)));
     // And anyone holding the public key can check the signature, as WebAuthn defines it.
     const key = await crypto.subtle.importKey(
       "jwk",
@@ -196,10 +188,13 @@ describe("approval", () => {
     const app = testApp();
     const { browser, recordId } = await registered(app);
     const request = prepared(await browser.client.approveRequest(uniqueText()));
+    const counts = await signCounts(app, recordId);
 
     const refused = await browser.post(request.path, { ...(request.body as object), text: uniqueText() });
 
+    expect(refused.status).toBe(400);
     expect(await refused.text()).toBe(REFUSAL);
+    expect(await signCounts(app, recordId)).toEqual(counts);
     expect(await failuresOn(app.storagePrefix, recordId)).toEqual([{ ceremony: "approve", cause: "unknown-challenge" }]);
   });
 
@@ -267,6 +262,6 @@ describe("approval", () => {
     // The pending challenge was held while the approval ran, and is gone once it is consumed.
     expect(pending).not.toBe(pendingBefore);
     expect(await challengeRows()).toBe(pendingBefore);
-    for (const form of [text, hex(digest), hexToBase64Url(hex(digest))]) expect(after).not.toContain(form);
+    for (const form of [text, hex(digest), toBase64Url(digest)]) expect(after).not.toContain(form);
   });
 });
