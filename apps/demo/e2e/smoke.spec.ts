@@ -787,6 +787,22 @@ test("adding a passkey on a device that already has one says so, and adds nothin
   await expect(page.locator("#credential-rows tr")).toHaveCount(1);
 });
 
+test("approve signs the text shown with a passkey", async ({ page }) => {
+  await addAuthenticator(page);
+  await registerMember(page, `Approve${Date.now().toString(36)}`);
+  const verified: unknown[] = [];
+  page.on("request", (r) => {
+    if (r.url().endsWith("/me/approve/verify")) verified.push(r.postDataJSON());
+  });
+  await openSettings(page);
+
+  await page.getByRole("button", { name: "Approve with a passkey" }).click();
+  await expect(page.locator("#settings-status")).toHaveText(
+    "Approved. Your passkey signed the text's digest; anyone with its public key can check the signature.",
+  );
+  expect(verified).toEqual([expect.objectContaining({ text: "I approve this demo text." })]);
+});
+
 test("each add-passkey button sends its hint and adds a passkey", async ({ page }) => {
   const { cdp, authenticatorId } = await addAuthenticator(page);
   const options = postsTo(page, "/me/credentials/enrol/options");
@@ -1073,6 +1089,8 @@ const INFO = {
     "Held by is the password manager or security key that stores the passkey, when it can be identified. Synced means that manager can copy the passkey to your other devices. Revoking a passkey stops it signing in, though sessions it already started stay open, and you can't revoke your only one.",
   codes:
     "Recovery codes let you add a new passkey if you lose all of yours, and each one works once. Replacing them gives you a fresh set of 8, shown only once, and every old code stops working straight away, including copies kept elsewhere or split into shares.",
+  approve:
+    "An approval asks your passkey to sign the SHA-256 digest of a text, so the signature is proof, checkable by anyone with your passkey's public key, that you approved that text. It changes nothing about your session and the demo keeps nothing of it.",
   sessions:
     "A session keeps one browser signed in for 7 days. Log out ends this one, and Log out everywhere ends all of them, this one included. Log out everywhere else keeps this one and asks for your passkey first, so someone holding a stolen session can't shut you out.",
   recordId:
@@ -1124,6 +1142,7 @@ test("info buttons in settings explain each section, and the operator's shows on
   await openSettings(page);
   await expectInfoToggle(page, "About passkeys", INFO.passkeys);
   await expectInfoToggle(page, "About recovery codes", INFO.codes);
+  await expectInfoToggle(page, "About approving", INFO.approve);
   await expectInfoToggle(page, "About sessions", INFO.sessions);
   await page.getByText("Account details").click();
   await expectInfoToggle(page, "About the record id", INFO.recordId);

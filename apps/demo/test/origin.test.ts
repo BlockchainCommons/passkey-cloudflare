@@ -9,7 +9,7 @@ import { ORIGIN, testApp, uniqueName, type Browser } from "./harness.ts";
 // which rides on the session cookie a browser attaches by itself. A browser
 // never attaches an `Authorization: Bearer` header on its own, so a POST that
 // carries one and no cookie skips the check on the routes that act on the
-// caller's own session (log out, step up, add or revoke a passkey, rotate
+// caller's own session (log out, step up, approve, add or revoke a passkey, rotate
 // codes): a non-browser client sends no Origin. Anonymous ceremonies and
 // operator routes check it for every request, and a POST carrying both a
 // bearer header and a cookie is refused, since the library would take the
@@ -179,6 +179,9 @@ describe("a bearer-only POST with no Origin", () => {
     const enrolled = await client.enrol();
     if (enrolled.result !== "ok") throw new Error(enrolled.result);
     expect(await client.credentials()).toHaveLength(2);
+
+    // Approve a text: the approval ceremony.
+    expect((await client.approve("a bearer approval")).result).toBe("ok");
 
     const revoked = await client.revoke(enrolled.label);
     expect(revoked.result).toBe("ok");

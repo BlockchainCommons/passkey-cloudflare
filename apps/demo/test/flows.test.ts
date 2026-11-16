@@ -52,6 +52,27 @@ describe("the demo's flows", () => {
     expect(told).toEqual(Array(6).fill({ result: "told", message: "Cancelled.", declined: true }));
   });
 
+  it("tell an approval that was signed, declined or refused", async () => {
+    const { person } = await signedIn();
+    const text = "Ship the release";
+
+    expect(await flowsOn(person).approve(text)).toEqual({
+      result: "told",
+      message: "Approved. Your passkey signed the text's digest; anyone with its public key can check the signature.",
+      declined: false,
+    });
+    expect(await flowsOn(person, declining).approve(text)).toEqual({
+      result: "told",
+      message: "Cancelled.",
+      declined: true,
+    });
+    expect(
+      await flowsOn(person, {
+        get: softwareAuthenticator(person.authenticator, { tamper: { badSignature: true } }).get,
+      }).approve(text),
+    ).toEqual({ result: "told", message: "The approval was refused.", declined: false });
+  });
+
   it("tell a ceremony that made no passkey why, in its own words", async () => {
     const app = testApp();
     const name = uniqueName();

@@ -31,7 +31,11 @@ _Avoid_: device, key (for passkeys)
 A single-use deferred credential, shown once, that rebinds a new passkey to an existing identity record.
 
 **Ceremony**:
-One WebAuthn exchange (registration, login, enrolment, step-up, recovery or rebind) proving control of a credential.
+One WebAuthn exchange (registration, login, enrolment, step-up, approval, recovery or rebind) proving control of a credential.
+
+**Approval**:
+A ceremony in which a person's credential signs a digest the app chose, approving that one payload. It grants the session nothing more ([ADR 0012](docs/adr/0012-an-approval-signs-the-apps-digest.md)).
+_Avoid_: sign-off, signature request
 
 **Session**:
 A bearer token proving a principal for a bounded time.
