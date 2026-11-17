@@ -32,7 +32,11 @@ export type OperatorOutcome<Result, Refusal extends string = never> =
   | { ok: true; value: Result }
   | { ok: false; refusal: OperatorRefusal | Refusal };
 
-/** A name in an application's own namespace: its prefix, a colon, then the name (`forge:delete-project`). */
+/**
+ * A name in an application's own namespace: its prefix, a colon, then the name
+ * (`forge:delete-project`). The name follows the prefix's pattern, checked when
+ * each action runs: a lowercase letter, then lowercase letters, digits or hyphens.
+ */
 export type AppName<Prefix extends string> = `${Prefix}:${string}`;
 
 /** What an action found to act on: the target it logs, and the member it concerns where there is one. */
@@ -169,15 +173,16 @@ export function createOperators<const Prefix extends string>({
   }
   const log = operatorLog(binding, passkeys.storagePrefix);
 
-  /** Whether a name is in the application's own namespace, with a name after its prefix. */
+  /** Whether a name is in the application's own namespace, with a name after its prefix in the prefix's own pattern. */
   function isAppName(name: string): boolean {
-    return name.startsWith(`${appPrefix}:`) && name.length > appPrefix.length + 1;
+    return name.startsWith(`${appPrefix}:`) && APP_PREFIX.test(name.slice(appPrefix.length + 1));
   }
 
   /** Refuse a name the types should have kept out, such as one cast past them, before its entry is written. */
   function notAppName(what: string, name: string): TypeError {
     return new TypeError(
-      `An app's operator ${what} carries its prefix "${appPrefix}:" and a name: ${JSON.stringify(name)}`,
+      `An app's operator ${what} carries its prefix "${appPrefix}:" and a name: a lowercase letter, ` +
+        `then lowercase letters, digits or hyphens: ${JSON.stringify(name)}`,
     );
   }
 

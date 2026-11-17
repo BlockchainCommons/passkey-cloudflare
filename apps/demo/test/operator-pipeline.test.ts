@@ -249,6 +249,18 @@ describe("an app's own operator action", () => {
       ["forge:delete-project", "forge:"],
       ["forge:delete-project", "project"],
     ];
+    // After the prefix, a name follows the prefix's own pattern: a lowercase letter, then lowercase letters, digits or hyphens.
+    for (const name of [
+      "forge:a:b",
+      "forge: ",
+      "forge:delete project",
+      "forge:delete\u0007",
+      "forge:Delete",
+      "forge:1x",
+      "forge:-x",
+    ]) {
+      cases.push([name, "forge:project"], ["forge:delete-project", name]);
+    }
     for (const [action, kind] of cases) {
       await expect(named(action, kind), `${action} on ${kind}`).rejects.toThrow(/prefix/);
     }
