@@ -152,7 +152,7 @@ export interface OperatorsConfig<Prefix extends string = string> {
   appPrefix: Prefix;
 }
 
-const APP_PREFIX = /^[a-z][a-z0-9-]*$/;
+const LOWERCASE_NAME = /^[a-z][a-z0-9-]*$/;
 
 /**
  * The operator pipeline, and the library's operator actions on it. Each
@@ -166,7 +166,7 @@ export function createOperators<const Prefix extends string>({
   log: binding,
   appPrefix,
 }: OperatorsConfig<Prefix>) {
-  if (!APP_PREFIX.test(appPrefix)) {
+  if (!LOWERCASE_NAME.test(appPrefix)) {
     throw new TypeError(
       `An app prefix is a lowercase letter, then lowercase letters, digits or hyphens: ${JSON.stringify(appPrefix)}`,
     );
@@ -175,7 +175,7 @@ export function createOperators<const Prefix extends string>({
 
   /** Whether a name is in the application's own namespace, with a name after its prefix in the prefix's own pattern. */
   function isAppName(name: string): boolean {
-    return name.startsWith(`${appPrefix}:`) && APP_PREFIX.test(name.slice(appPrefix.length + 1));
+    return name.startsWith(`${appPrefix}:`) && LOWERCASE_NAME.test(name.slice(appPrefix.length + 1));
   }
 
   /** Refuse a name the types should have kept out, such as one cast past them, before its entry is written. */

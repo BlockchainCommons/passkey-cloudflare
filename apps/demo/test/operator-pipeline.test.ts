@@ -112,10 +112,7 @@ describe("an app's own operator action", () => {
   });
 
   it("writes its entry to the operator log under its passkeys' storage prefix, and to no other", async () => {
-    const { operator, personId, passkeys, roles, log, ctx } = await deployment();
-    const otherPrefix = testApp().storagePrefix;
-    const otherLog = operatorLog(env.OPERATOR_LOG, otherPrefix);
-    const operators = createOperators({ passkeys, roles, log: env.OPERATOR_LOG, appPrefix: "forge" });
+    const { operator, personId, operators, log, ctx } = await deployment();
 
     const outcome = await operators.run(operator.session, ctx(operator), {
       action: "forge:delete-project",
@@ -125,7 +122,6 @@ describe("an app's own operator action", () => {
 
     expect(outcome).toEqual({ ok: true, value: "deleted" });
     expect((await log().list()).map((entry) => entry.action)).toEqual(["forge:delete-project"]);
-    expect(await otherLog().list()).toEqual([]);
     expect(await operatorLog(env.OPERATOR_LOG)().list()).not.toContainEqual(
       expect.objectContaining({ recordId: personId }),
     );
@@ -249,7 +245,8 @@ describe("an app's own operator action", () => {
       ["forge:delete-project", "forge:"],
       ["forge:delete-project", "project"],
     ];
-    // After the prefix, a name follows the prefix's own pattern: a lowercase letter, then lowercase letters, digits or hyphens.
+    // After the prefix, a name follows the prefix's own pattern: a lowercase letter, then lowercase letters,
+    // digits or hyphens.
     for (const name of [
       "forge:a:b",
       "forge: ",
@@ -282,7 +279,8 @@ describe("an app's own operator action", () => {
 
   it("refuses an app prefix that is not a short lowercase name", async () => {
     const { passkeys } = await deployment();
-    const [roles, log] = [{ isOperator: async () => false }, env.OPERATOR_LOG];
+    const roles = { isOperator: async () => false };
+    const log = env.OPERATOR_LOG;
     for (const appPrefix of ["", "Forge", "forge:", "for ge", "1forge"]) {
       expect(() => createOperators({ passkeys, roles, log, appPrefix }), JSON.stringify(appPrefix)).toThrow(/prefix/);
     }

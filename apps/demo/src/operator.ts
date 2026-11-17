@@ -58,7 +58,12 @@ function answered<Result>(
 
 /** The library's operator actions for one request, with this app's roles and log. */
 function operatorsFor(roles: OperatorRolesFor, call: Call) {
-  return createOperators({ passkeys: call.passkeys, roles: roles(call), log: call.env.OPERATOR_LOG, appPrefix: "demo" });
+  return createOperators({
+    passkeys: call.passkeys,
+    roles: roles(call),
+    log: call.env.OPERATOR_LOG,
+    appPrefix: "demo",
+  });
 }
 
 /** An operator action's answer, with `ok` and the member as it now stands. */
