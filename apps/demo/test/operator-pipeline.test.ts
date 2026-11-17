@@ -8,6 +8,7 @@ import {
   type RecordId,
 } from "passkey-cloudflare";
 import { describe, expect, it } from "vitest";
+import { rejecting } from "./failing-namespaces.ts";
 import { ORIGIN, testApp, uniqueName, type Browser } from "./harness.ts";
 
 // The library's operator pipeline as an application uses it for an action of
@@ -128,6 +129,30 @@ describe("an app's own operator action", () => {
     expect(await operatorLog(env.OPERATOR_LOG)().list()).not.toContainEqual(
       expect.objectContaining({ recordId: personId }),
     );
+  });
+
+  it("does not run its work when its entry cannot be written", async () => {
+    const { operator, personId, passkeys, roles, log, ctx } = await deployment();
+    const operators = createOperators({
+      passkeys,
+      roles,
+      log: rejecting(env.OPERATOR_LOG, "append"),
+      appPrefix: "forge",
+    });
+    let worked = 0;
+
+    const outcome = operators.run(operator.session, ctx(operator), {
+      action: "forge:delete-project",
+      target: async () => ({ target: { kind: "forge:project", id: "project-1" }, recordId: personId }),
+      act: async () => {
+        worked++;
+        return "deleted";
+      },
+    });
+
+    await expect(outcome).rejects.toThrow(/append failed/);
+    expect(worked).toBe(0);
+    expect(await log().list()).toEqual([]);
   });
 
   it("shows in its member's history when it names one, and only in the full log when it does not", async () => {
