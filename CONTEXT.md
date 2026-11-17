@@ -10,7 +10,11 @@ _Avoid_: principle, user (when the subject may be an agent)
 
 **Person**:
 A principal that is a natural person and proves itself with passkeys. Every agent's controller is a person.
-_Avoid_: human, member, user
+_Avoid_: human, user; member (in the identity layer)
+
+**Member**:
+A person as the application knows them: the holder of a member name, whose state, counts and history an operator sees. The app-tier word for a person; the identity layer says person.
+_Avoid_: user, account
 
 **Member name**:
 The name a person chooses at registration, unique ignoring case and accents (José and jose are the same name), shown to others and used to find their identity record during recovery. It belongs to the app, not to the identity layer, and never changes once registered.
