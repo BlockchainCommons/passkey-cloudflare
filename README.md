@@ -76,7 +76,7 @@ The library proves that a request comes from someone holding a passkey bound to 
 * **The server** issues each ceremony's challenge and serves the page that runs it. An authenticator shows no content, so a passkey signs whatever the page asks for: a compromised server can show a person one payload to approve and ask their passkey to sign another.
 * **The browser** asserts the origin of each ceremony. The passkey provider (Apple Passwords, Google Password Manager, a password manager or a security key) holds the private key. For a synced passkey, so does the account it syncs through.
 
-Two links are proven by cryptography: that a passkey belongs to this deployment's relying party ID (which, once a passkey is bound, cannot change without every ceremony being refused; see Deploying), and that an approval's digest was signed by that passkey. Which identity record a passkey belongs to is recorded only in the server's storage. Nothing links an identity record to a natural person, and with no attestation (see What Has Been Tested), nothing proves which authenticator holds a passkey. User verification is requested but not yet required by any ceremony; whether step-up and passkey creation should require it is an open question. See [`docs/security-model.md`](docs/security-model.md) for each binding and what it rests on.
+Two links are proven by cryptography: that a passkey belongs to this deployment's relying party ID (which, once a passkey is bound, cannot change without every ceremony being refused; see Deploying), and that an approval's digest was signed by that passkey. Which identity record a passkey belongs to is recorded only in the server's storage. Nothing links an identity record to a natural person, and with no attestation (see What Has Been Tested), nothing proves which authenticator holds a passkey. User verification is requested but not yet required by any ceremony; whether step-up and passkey creation should require it is an open question. See [`docs/security-model.md`](docs/security-model.md) for each binding, what it rests on, and ways the same passkeys could prove more without the server.
 
 ## Gordian Principles
 
@@ -165,7 +165,7 @@ Docs include:
 - [`docs/adr/`](docs/adr/): Architectural decisions
 - [`docs/demo-panes.md`](docs/demo-panes.md): Copying and restyling the demo's panes
 - [`docs/refusal-floor.md`](docs/refusal-floor.md): How the refusal timing floor is measured
-- [`docs/security-model.md`](docs/security-model.md): What each binding of a passkey to an identity record rests on
+- [`docs/security-model.md`](docs/security-model.md): What each binding of a passkey to an identity record rests on, and ways the same passkeys could prove more without the server
 - [`docs/workers-free.md`](docs/workers-free.md): CPU time per request, and why Workers Free is not enough
 
 ## Installation & Testing Instructions
