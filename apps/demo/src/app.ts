@@ -1,7 +1,6 @@
 import {
   clearedSessionCookie,
   createPasskeys,
-  operatorLog,
   PasskeyError,
   SESSION_COOKIE,
   sessionValueFrom,
@@ -265,7 +264,7 @@ export function createApp(options: AppOptions = {}) {
       });
       const ctx = passkeys.context(request);
       try {
-        return await route(table, request, env, passkeys, ctx, operatorLog(env.OPERATOR_LOG, options.storagePrefix));
+        return await route(table, request, env, passkeys, ctx);
       } catch (e) {
         if (e instanceof PasskeyError) return error(STATUS[e.code], e.code);
         throw e;
@@ -280,7 +279,6 @@ async function route(
   env: Env,
   passkeys: Passkeys,
   ctx: RequestContext,
-  log: Call["log"],
 ): Promise<Response> {
   const url = new URL(request.url);
 
@@ -301,12 +299,12 @@ async function route(
       return error(400, "malformed JSON");
     }
     if (typeof body !== "object" || body === null) return error(400, "malformed JSON");
-    return entry.handler({ request, env, passkeys, ctx, body, log });
+    return entry.handler({ request, env, passkeys, ctx, body });
   }
   if (request.method === "GET" || request.method === "HEAD") {
     const handler = GET[url.pathname];
     if (!handler) return error(404, "not found");
-    return handler({ request, env, passkeys, ctx, body: {}, log });
+    return handler({ request, env, passkeys, ctx, body: {} });
   }
   return error(405, "method not allowed");
 }

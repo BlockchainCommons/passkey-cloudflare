@@ -1,4 +1,4 @@
-import type { OperatorLog, Passkeys, RequestContext } from "passkey-cloudflare";
+import type { Passkeys, RequestContext } from "passkey-cloudflare";
 
 /** One request, as a route handler sees it. */
 export interface Call {
@@ -7,8 +7,6 @@ export interface Call {
   passkeys: Passkeys;
   ctx: RequestContext;
   body: any;
-  /** The operator log, under the app's storage prefix. */
-  log: () => DurableObjectStub<OperatorLog>;
 }
 
 export type Handler = (call: Call) => Promise<Response>;

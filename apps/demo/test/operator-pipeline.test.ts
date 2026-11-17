@@ -35,18 +35,26 @@ async function deployment() {
     clock: () => now,
   });
   const log = operatorLog(env.OPERATOR_LOG, app.storagePrefix);
-  const operators = createOperators({
-    passkeys,
-    roles: { isOperator: async (recordId) => recordId === operatorId || recordId === unsteppedId },
-    log,
-    appPrefix: "forge",
-  });
+  const roles = { isOperator: async (recordId: RecordId) => recordId === operatorId || recordId === unsteppedId };
+  const operators = createOperators({ passkeys, roles, log: env.OPERATOR_LOG, appPrefix: "forge" });
   /** The request context for one browser's request, as the app would build it. */
   const ctx = (browser: Browser) =>
     passkeys.context(
       new Request(ORIGIN, { headers: { "CF-Connecting-IP": browser.ip, "User-Agent": browser.userAgent } }),
     );
-  return { operator, operatorId, unsteppedOperator, person, personName, personId, passkeys, operators, log, ctx };
+  return {
+    operator,
+    operatorId,
+    unsteppedOperator,
+    person,
+    personName,
+    personId,
+    passkeys,
+    roles,
+    operators,
+    log,
+    ctx,
+  };
 }
 
 describe("an app's own operator action", () => {
@@ -100,6 +108,26 @@ describe("an app's own operator action", () => {
     expect(refusals).toEqual(["not-logged-in", "not-operator", "not-stepped-up", "not-found", "forge:project-locked"]);
     expect(worked).toBe(0);
     expect(await log().list()).toEqual([]);
+  });
+
+  it("writes its entry to the operator log under its passkeys' storage prefix, and to no other", async () => {
+    const { operator, personId, passkeys, roles, log, ctx } = await deployment();
+    const otherPrefix = testApp().storagePrefix;
+    const otherLog = operatorLog(env.OPERATOR_LOG, otherPrefix);
+    const operators = createOperators({ passkeys, roles, log: env.OPERATOR_LOG, appPrefix: "forge" });
+
+    const outcome = await operators.run(operator.session, ctx(operator), {
+      action: "forge:delete-project",
+      target: async () => ({ target: { kind: "forge:project", id: "project-1" }, recordId: personId }),
+      act: async () => "deleted",
+    });
+
+    expect(outcome).toEqual({ ok: true, value: "deleted" });
+    expect((await log().list()).map((entry) => entry.action)).toEqual(["forge:delete-project"]);
+    expect(await otherLog().list()).toEqual([]);
+    expect(await operatorLog(env.OPERATOR_LOG)().list()).not.toContainEqual(
+      expect.objectContaining({ recordId: personId }),
+    );
   });
 
   it("shows in its member's history when it names one, and only in the full log when it does not", async () => {
@@ -216,8 +244,8 @@ describe("an app's own operator action", () => {
   });
 
   it("refuses an app prefix that is not a short lowercase name", async () => {
-    const { passkeys, log } = await deployment();
-    const roles = { isOperator: async () => false };
+    const { passkeys } = await deployment();
+    const [roles, log] = [{ isOperator: async () => false }, env.OPERATOR_LOG];
     for (const appPrefix of ["", "Forge", "forge:", "for ge", "1forge"]) {
       expect(() => createOperators({ passkeys, roles, log, appPrefix }), JSON.stringify(appPrefix)).toThrow(/prefix/);
     }

@@ -1,12 +1,13 @@
 import type { RecordSummary } from "../identity/record.ts";
 import { isRecordId, type RecordId } from "../identity/secrets.ts";
 import { PasskeyError, type Passkeys, type RequestContext } from "../passkeys.ts";
-import type {
-  BuiltInOperatorAction,
-  OperatorActionName,
-  OperatorLog,
-  OperatorLogEntry,
-  OperatorTargetKind,
+import {
+  operatorLog,
+  type BuiltInOperatorAction,
+  type OperatorActionName,
+  type OperatorLog,
+  type OperatorLogEntry,
+  type OperatorTargetKind,
 } from "./operator-log.ts";
 
 // Every operator action runs one pipeline: the caller's session, the operator
@@ -136,8 +137,8 @@ export interface OperatorsConfig<Prefix extends string = string> {
   passkeys: Passkeys;
   /** Who holds the operator role, for this request. */
   roles: OperatorRoles;
-  /** The operator log, under the app's storage prefix (`operatorLog(binding, storagePrefix)`). */
-  log: () => DurableObjectStub<OperatorLog>;
+  /** The `OPERATOR_LOG` binding. The log is opened under the storage prefix `passkeys` was built with. */
+  log: DurableObjectNamespace<OperatorLog>;
   /**
    * The prefix the application's own action names and target kinds carry: a
    * lowercase letter, then lowercase letters, digits or hyphens (`forge`).
@@ -158,7 +159,7 @@ const APP_PREFIX = /^[a-z][a-z0-9-]*$/;
 export function createOperators<const Prefix extends string>({
   passkeys,
   roles,
-  log,
+  log: binding,
   appPrefix,
 }: OperatorsConfig<Prefix>) {
   if (!APP_PREFIX.test(appPrefix)) {
@@ -166,6 +167,7 @@ export function createOperators<const Prefix extends string>({
       `An app prefix is a lowercase letter, then lowercase letters, digits or hyphens: ${JSON.stringify(appPrefix)}`,
     );
   }
+  const log = operatorLog(binding, passkeys.storagePrefix);
 
   /** Whether a name is in the application's own namespace, with a name after its prefix. */
   function isAppName(name: string): boolean {

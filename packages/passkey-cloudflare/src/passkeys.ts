@@ -488,6 +488,9 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
   }
 
   return {
+    /** The prefix on every Durable Object instance name these passkeys address, so stores beside them use the same. */
+    storagePrefix: config.storagePrefix,
+
     context(request: Request): RequestContext {
       const now = clock();
       return {
