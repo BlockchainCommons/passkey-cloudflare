@@ -67,6 +67,17 @@ and from the WebAuthn Level 3 credential record.
 * **One refusal for every failure.** A ceremony that fails for any reason gets the same response, sent no sooner than a timing floor measured on a deployed Worker. Only an internal ceremony failure log records the cause.
 * **Operators see state and counts, not device detail.** An operator who looks up a member sees when the record was created, whether it is suspended, how many passkeys, live sessions, and unused recovery codes it has, whether a rebind link is outstanding, and the operator log entries for that member. Operators can list every member name, with retired names marked, without a log entry; a member's state and counts are seen one member at a time, and each lookup is logged against that member ([ADR 0010](docs/adr/0010-what-an-operator-sees.md)). Device detail (passkey providers, last use, session browsers) is not shown to an operator, though it exists in storage, and every operator action is logged. This limits what an operator sees day to day, but it is no privacy guarantee: an operator runs the deployment and can read its storage directly.
 
+## Security Assumptions
+
+The library proves that a request comes from someone holding a passkey bound to an identity record. It rests on these parties, each trusted for something different:
+
+* **Cloudflare** runs the code and can see every request and all storage.
+* **The operator** runs the deployment. They can read storage directly (see Design Practices), and they can rebind a new passkey to an identity record after checking the person out of band. Every operator action is logged, but the log is written by the same deployment.
+* **The server** issues each ceremony's challenge and serves the page that runs it. An authenticator shows no content, so a passkey signs whatever the page asks for: a compromised server can show a person one payload to approve and ask their passkey to sign another.
+* **The browser** asserts the origin of each ceremony. The passkey provider (Apple Passwords, Google Password Manager, a password manager or a security key) holds the private key. For a synced passkey, so does the account it syncs through.
+
+Two links are proven by cryptography: that a passkey belongs to this deployment's relying party ID (which, once a passkey is bound, cannot change without every ceremony being refused; see Deploying), and that an approval's digest was signed by that passkey. Which identity record a passkey belongs to is recorded only in the server's storage. Nothing links an identity record to a natural person, and with no attestation (see What Has Been Tested), nothing proves which authenticator holds a passkey. User verification is requested but not yet required by any ceremony; whether step-up and passkey creation should require it is an open question. See [`docs/security-model.md`](docs/security-model.md) for each binding and what it rests on.
+
 ## Gordian Principles
 
 `passkey-cloudflare` is meant to display the [Gordian Principles](https://developer.blockchaincommons.com/principles/), which are philosophical and technical underpinnings to Blockchain Commons' Gordian technology:
@@ -153,6 +164,7 @@ Docs include:
 - [`docs/adr/`](docs/adr/): Architectural decisions
 - [`docs/demo-panes.md`](docs/demo-panes.md): Copying and restyling the demo's panes
 - [`docs/refusal-floor.md`](docs/refusal-floor.md): How the refusal timing floor is measured
+- [`docs/security-model.md`](docs/security-model.md): What each binding of a passkey to an identity record rests on
 - [`docs/workers-free.md`](docs/workers-free.md): CPU time per request, and why Workers Free is not enough
 
 ## Installation & Testing Instructions
