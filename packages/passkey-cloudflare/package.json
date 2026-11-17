@@ -8,6 +8,7 @@
     ".": "./src/index.ts",
     "./browser": "./src/browser/index.ts",
     "./gordian": "./src/gordian/index.ts",
+    "./ssh": "./src/ssh/index.ts",
     "./testing": "./src/testing/index.ts"
   },
   "scripts": {

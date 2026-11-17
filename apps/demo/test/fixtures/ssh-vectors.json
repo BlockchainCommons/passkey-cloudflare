@@ -1,0 +1,219 @@
+{
+  "about": "Passkey approvals and their OpenSSH forms: the sk-ecdsa-sha2-nistp256@openssh.com public key, the approval digest (the SSHSIG to-be-signed data, PROTOCOL.sshsig), and the armored webauthn-sk-ecdsa-sha2-nistp256@openssh.com signature (PROTOCOL.u2f). Every expected signature verifies with ssh-keygen -Y verify against its public key.",
+  "references": {
+    "openssh": "OpenSSH_10.5p1, LibreSSL 3.3.6",
+    "node": "node v26.13.0 crypto (P-256 keys and ECDSA for generated cases)",
+    "ts": {
+      "@blockchaincommons/dcbor": "1.0.0-beta.3"
+    },
+    "rust": {
+      "dcbor": "dcbor-cli 0.17.1"
+    },
+    "forge": "OpenIntegrityProject/open-integrity-forge ca4b236cccc277f42cee110e8a2714eaac306a5d"
+  },
+  "cases": [
+    {
+      "id": "chrome-passkey-git-commit",
+      "source": "Open Integrity Forge apps/forge/authority/test/fixtures/chrome-passkey at ca4b236cccc277f42cee110e8a2714eaac306a5d: a Chrome passkey signing a Git commit through a WebAuthn assertion",
+      "rpId": "localhost",
+      "namespace": "git",
+      "hash": "sha512",
+      "message": "tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904\nauthor Christopher Allen <ChristopherA@LifeWithAlacrity.com> 1791853988 +0000\ncommitter SHA256:qVxo94Wikj5Kb4G7AWqwDs6ouTYOrXMjD138JaulmIY <ChristopherA@LifeWithAlacrity.com> 1791853988 +0000\n\nInitialize repository and establish a SHA-1 root of trust\n\nSigned with a passkey through a WebAuthn assertion.\n\nSigned-off-by: SHA256:qVxo94Wikj5Kb4G7AWqwDs6ouTYOrXMjD138JaulmIY <ChristopherA@LifeWithAlacrity.com>\n",
+      "publicKey": {
+        "cose": "pQECAyYgASFYID1rkoLoLIJ9aO0q4sle9S-K63v0QUofp8zlQvZHYDpWIlggmoBMFm4WiNjlGj8mXgnTlN3O6uDU8jbwdobutQHbXo8",
+        "algorithm": -7
+      },
+      "approval": {
+        "authenticatorData": "SZYN5YgOjGh0NBcPZHZgW4_krrmihjLHmVzzuoMdl2MdAAAAAA",
+        "clientDataJSON": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiVTFOSVUwbEhBQUFBQTJkcGRBQUFBQUFBQUFBR2MyaGhOVEV5QUFBQVFLOVlucW9DSTlpRVZ2MnNoZFhfQ0Y3bU81cWJKOEhJa1BrRmM2ZWhYekRQNnFVNjlNM2ZWTEVKU1ZoTU1VQ3FTbHliM1liMU9IT1JVdlhZYTFMYlRNQSIsIm9yaWdpbiI6Imh0dHA6Ly9sb2NhbGhvc3Q6ODc5MCIsImNyb3NzT3JpZ2luIjpmYWxzZSwib3RoZXJfa2V5c19jYW5fYmVfYWRkZWRfaGVyZSI6ImRvIG5vdCBjb21wYXJlIGNsaWVudERhdGFKU09OIGFnYWluc3QgYSB0ZW1wbGF0ZS4gU2VlIGh0dHBzOi8vZ29vLmdsL3lhYlBleCJ9",
+        "signature": "MEYCIQD079Yzvp7J9NCoDJm_MgEVK16KJo6DrdV6Pa6WImxR8AIhAKxZRLu9kNXp-aqAQalipeT9PU2IOFf8BhYkJxhwNkBH"
+      },
+      "expected": {
+        "sshPublicKey": "sk-ecdsa-sha2-nistp256@openssh.com AAAAInNrLWVjZHNhLXNoYTItbmlzdHAyNTZAb3BlbnNzaC5jb20AAAAIbmlzdHAyNTYAAABBBD1rkoLoLIJ9aO0q4sle9S+K63v0QUofp8zlQvZHYDpWmoBMFm4WiNjlGj8mXgnTlN3O6uDU8jbwdobutQHbXo8AAAAJbG9jYWxob3N0",
+        "digestHex": "53534853494700000003676974000000000000000673686135313200000040af589eaa0223d88456fdac85d5ff085ee63b9a9b27c1c890f90573a7a15f30cfeaa53af4cddf54b10949584c3140aa4a5c9bdd86f538739152f5d86b52db4cc0",
+        "signature": "-----BEGIN SSH SIGNATURE-----\nU1NIU0lHAAAAAQAAAIQAAAAic2stZWNkc2Etc2hhMi1uaXN0cDI1NkBvcGVuc3NoLmNvbQ\nAAAAhuaXN0cDI1NgAAAEEEPWuSgugsgn1o7SriyV71L4rre/RBSh+nzOVC9kdgOlaagEwW\nbhaI2OUaPyZeCdOU3c7q4NTyNvB2hu61AdtejwAAAAlsb2NhbGhvc3QAAAADZ2l0AAAAAA\nAAAAZzaGE1MTIAAAHqAAAAK3dlYmF1dGhuLXNrLWVjZHNhLXNoYTItbmlzdHAyNTZAb3Bl\nbnNzaC5jb20AAABKAAAAIQD079Yzvp7J9NCoDJm/MgEVK16KJo6DrdV6Pa6WImxR8AAAAC\nEArFlEu72Q1en5qoBBqWKl5P09TYg4V/wGFiQnGHA2QEcdAAAAAAAAABVodHRwOi8vbG9j\nYWxob3N0Ojg3OTAAAAFHeyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiVT\nFOSVUwbEhBQUFBQTJkcGRBQUFBQUFBQUFBR2MyaGhOVEV5QUFBQVFLOVlucW9DSTlpRVZ2\nMnNoZFhfQ0Y3bU81cWJKOEhJa1BrRmM2ZWhYekRQNnFVNjlNM2ZWTEVKU1ZoTU1VQ3FTbH\nliM1liMU9IT1JVdlhZYTFMYlRNQSIsIm9yaWdpbiI6Imh0dHA6Ly9sb2NhbGhvc3Q6ODc5\nMCIsImNyb3NzT3JpZ2luIjpmYWxzZSwib3RoZXJfa2V5c19jYW5fYmVfYWRkZWRfaGVyZS\nI6ImRvIG5vdCBjb21wYXJlIGNsaWVudERhdGFKU09OIGFnYWluc3QgYSB0ZW1wbGF0ZS4g\nU2VlIGh0dHBzOi8vZ29vLmdsL3lhYlBleCJ9AAAAAA==\n-----END SSH SIGNATURE-----\n"
+      },
+      "checks": {
+        "cose": {
+          "ts": "agrees",
+          "rust": "agrees"
+        },
+        "sshKeygen": "Good \"git\" signature for signer with ECDSA-SK key SHA256:qVxo94Wikj5Kb4G7AWqwDs6ouTYOrXMjD138JaulmIY"
+      }
+    },
+    {
+      "id": "generated-sha512-git",
+      "source": "generated: user present and verified, sha512, namespace git",
+      "rpId": "passkeys.example.org",
+      "namespace": "git",
+      "hash": "sha512",
+      "message": "tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904\n\nAn empty commit\n",
+      "publicKey": {
+        "cose": "pQECAyYgASFYIIZSE5KUq4wyfL3B6NG45TRbSldbnKlmrxj-C0uIiQQ2Ilgg72BoLr9oLCqzoakEwRCv46UAwtyUvg1hYL9CtILMujU",
+        "algorithm": -7
+      },
+      "approval": {
+        "authenticatorData": "M4JAFg5TsvNpw_sbzFyIQUZ85W-KZfMNrvwC2g8dyBkFAAAABw",
+        "clientDataJSON": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiVTFOSVUwbEhBQUFBQTJkcGRBQUFBQUFBQUFBR2MyaGhOVEV5QUFBQVFET3F6SmFBTHlKT1Jzb3ZzRzE3V1N4Q0hCT0pHUlBQX01EVndEaG50c2RZWDM1eWtJS0JpLWRrZTR1RGFBeW1OcDh5YXF1anJiMGxrUS1NOXFIUDNmRSIsIm9yaWdpbiI6Imh0dHBzOi8vcGFzc2tleXMuZXhhbXBsZS5vcmciLCJjcm9zc09yaWdpbiI6ZmFsc2V9",
+        "signature": "MEUCIC9JESMcXPgT5GtxeMRkC4UAM5WTkHzrSDZsAEo4J2quAiEA3v4_aP5aJUTJiAtlcita4pYXWfBqg6IR18ouIhZaeP4"
+      },
+      "expected": {
+        "sshPublicKey": "sk-ecdsa-sha2-nistp256@openssh.com AAAAInNrLWVjZHNhLXNoYTItbmlzdHAyNTZAb3BlbnNzaC5jb20AAAAIbmlzdHAyNTYAAABBBIZSE5KUq4wyfL3B6NG45TRbSldbnKlmrxj+C0uIiQQ272BoLr9oLCqzoakEwRCv46UAwtyUvg1hYL9CtILMujUAAAAUcGFzc2tleXMuZXhhbXBsZS5vcmc=",
+        "digestHex": "5353485349470000000367697400000000000000067368613531320000004033aacc96802f224e46ca2fb06d7b592c421c13891913cffcc0d5c03867b6c7585f7e729082818be7647b8b83680ca6369f326aaba3adbd25910f8cf6a1cfddf1",
+        "signature": "-----BEGIN SSH SIGNATURE-----\nU1NIU0lHAAAAAQAAAI8AAAAic2stZWNkc2Etc2hhMi1uaXN0cDI1NkBvcGVuc3NoLmNvbQ\nAAAAhuaXN0cDI1NgAAAEEEhlITkpSrjDJ8vcHo0bjlNFtKV1ucqWavGP4LS4iJBDbvYGgu\nv2gsKrOhqQTBEK/jpQDC3JS+DWFgv0K0gsy6NQAAABRwYXNza2V5cy5leGFtcGxlLm9yZw\nAAAANnaXQAAAAAAAAABnNoYTUxMgAAAYoAAAArd2ViYXV0aG4tc2stZWNkc2Etc2hhMi1u\naXN0cDI1NkBvcGVuc3NoLmNvbQAAAEkAAAAgL0kRIxxc+BPka3F4xGQLhQAzlZOQfOtINm\nwASjgnaq4AAAAhAN7+P2j+WiVEyYgLZXIrWuKWF1nwaoOiEdfKLiIWWnj+BQAAAAcAAAAc\naHR0cHM6Ly9wYXNza2V5cy5leGFtcGxlLm9yZwAAAOF7InR5cGUiOiJ3ZWJhdXRobi5nZX\nQiLCJjaGFsbGVuZ2UiOiJVMU5JVTBsSEFBQUFBMmRwZEFBQUFBQUFBQUFHYzJoaE5URXlB\nQUFBUURPcXpKYUFMeUpPUnNvdnNHMTdXU3hDSEJPSkdSUFBfTURWd0RobnRzZFlYMzV5a0\nlLQmktZGtlNHVEYUF5bU5wOHlhcXVqcmIwbGtRLU05cUhQM2ZFIiwib3JpZ2luIjoiaHR0\ncHM6Ly9wYXNza2V5cy5leGFtcGxlLm9yZyIsImNyb3NzT3JpZ2luIjpmYWxzZX0AAAAA\n-----END SSH SIGNATURE-----\n"
+      },
+      "checks": {
+        "cose": {
+          "ts": "agrees",
+          "rust": "agrees"
+        },
+        "sshKeygen": "Good \"git\" signature for signer with ECDSA-SK key SHA256:ZeakOLgv1UO+M9ou6RHVU86VuE3YcukfQy+/vp5/EFs"
+      }
+    },
+    {
+      "id": "generated-padded-r-and-s",
+      "source": "generated: r and s both with the high bit set, so DER and mpint each carry a zero byte before them",
+      "rpId": "passkeys.example.org",
+      "namespace": "git",
+      "hash": "sha512",
+      "message": "padded",
+      "publicKey": {
+        "cose": "pQECAyYgASFYIEqp1qi9p2dCM22oiliFtj4yaZVIerWA8vwZcwUHBgUYIlgg2LG7p4Rrs3xqU3VxxurkGrZlo_mlUSih6Ta-fAyQ_vQ",
+        "algorithm": -7
+      },
+      "approval": {
+        "authenticatorData": "M4JAFg5TsvNpw_sbzFyIQUZ85W-KZfMNrvwC2g8dyBkFAAAACA",
+        "clientDataJSON": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiVTFOSVUwbEhBQUFBQTJkcGRBQUFBQUFBQUFBR2MyaGhOVEV5QUFBQVFLLV9qSGJqa1p3dGJsN0NfZmNvaUE3TWVQbEtJaHN3N08tWFBpTnNLOVpSRDY2ZDFXbE50ZVl0MVhINTZieXFHaWRuLW41UDNIYXFrc2F6a2NUWGhGdyIsIm9yaWdpbiI6Imh0dHBzOi8vcGFzc2tleXMuZXhhbXBsZS5vcmciLCJjcm9zc09yaWdpbiI6ZmFsc2V9",
+        "signature": "MEYCIQDwjKyOv91aRnaICauC31RPUkvqEXdaM397IjIQRZG8cAIhAKFyk3FgdmT-caOEsQPrxc-eisCdE_DlQEExS28yzVVy"
+      },
+      "expected": {
+        "sshPublicKey": "sk-ecdsa-sha2-nistp256@openssh.com AAAAInNrLWVjZHNhLXNoYTItbmlzdHAyNTZAb3BlbnNzaC5jb20AAAAIbmlzdHAyNTYAAABBBEqp1qi9p2dCM22oiliFtj4yaZVIerWA8vwZcwUHBgUY2LG7p4Rrs3xqU3VxxurkGrZlo/mlUSih6Ta+fAyQ/vQAAAAUcGFzc2tleXMuZXhhbXBsZS5vcmc=",
+        "digestHex": "53534853494700000003676974000000000000000673686135313200000040afbf8c76e3919c2d6e5ec2fdf728880ecc78f94a221b30ecef973e236c2bd6510fae9dd5694db5e62dd571f9e9bcaa1a2767fa7e4fdc76aa92c6b391c4d7845c",
+        "signature": "-----BEGIN SSH SIGNATURE-----\nU1NIU0lHAAAAAQAAAI8AAAAic2stZWNkc2Etc2hhMi1uaXN0cDI1NkBvcGVuc3NoLmNvbQ\nAAAAhuaXN0cDI1NgAAAEEESqnWqL2nZ0IzbaiKWIW2PjJplUh6tYDy/BlzBQcGBRjYsbun\nhGuzfGpTdXHG6uQatmWj+aVRKKHpNr58DJD+9AAAABRwYXNza2V5cy5leGFtcGxlLm9yZw\nAAAANnaXQAAAAAAAAABnNoYTUxMgAAAYsAAAArd2ViYXV0aG4tc2stZWNkc2Etc2hhMi1u\naXN0cDI1NkBvcGVuc3NoLmNvbQAAAEoAAAAhAPCMrI6/3VpGdogJq4LfVE9SS+oRd1ozf3\nsiMhBFkbxwAAAAIQChcpNxYHZk/nGjhLED68XPnorAnRPw5UBBMUtvMs1VcgUAAAAIAAAA\nHGh0dHBzOi8vcGFzc2tleXMuZXhhbXBsZS5vcmcAAADheyJ0eXBlIjoid2ViYXV0aG4uZ2\nV0IiwiY2hhbGxlbmdlIjoiVTFOSVUwbEhBQUFBQTJkcGRBQUFBQUFBQUFBR2MyaGhOVEV5\nQUFBQVFLLV9qSGJqa1p3dGJsN0NfZmNvaUE3TWVQbEtJaHN3N08tWFBpTnNLOVpSRDY2ZD\nFXbE50ZVl0MVhINTZieXFHaWRuLW41UDNIYXFrc2F6a2NUWGhGdyIsIm9yaWdpbiI6Imh0\ndHBzOi8vcGFzc2tleXMuZXhhbXBsZS5vcmciLCJjcm9zc09yaWdpbiI6ZmFsc2V9AAAAAA\n==\n-----END SSH SIGNATURE-----\n"
+      },
+      "checks": {
+        "cose": {
+          "ts": "agrees",
+          "rust": "agrees"
+        },
+        "sshKeygen": "Good \"git\" signature for signer with ECDSA-SK key SHA256:GX4mbN9JWaFgzUJYVwziym30fgzMwJIUE0IPIkuLnb8"
+      }
+    },
+    {
+      "id": "generated-short-r",
+      "source": "generated: r shorter than 32 bytes, so its mpint is short too",
+      "rpId": "passkeys.example.org",
+      "namespace": "git",
+      "hash": "sha512",
+      "message": "short r",
+      "publicKey": {
+        "cose": "pQECAyYgASFYIBqQyRTtpf_yYAKH6Ad95DxeAi46bOJv928dz2hZqs0aIlggPuGRaNFqqNznZPLbTjfxZmo04AVRyzHky7sLDJD3wdo",
+        "algorithm": -7
+      },
+      "approval": {
+        "authenticatorData": "M4JAFg5TsvNpw_sbzFyIQUZ85W-KZfMNrvwC2g8dyBkFAAAACQ",
+        "clientDataJSON": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiVTFOSVUwbEhBQUFBQTJkcGRBQUFBQUFBQUFBR2MyaGhOVEV5QUFBQVFGbkI5ZGswaW0yY1ZSX3lTcVBEclVLV09mMzh3YWZ1NDJwdkRObUtIOGpKUUVlOVN1amJORUlzRlA1LVh1U1FGOWFQdm5MQW5kUlFmZGgxdTB5WHNuZyIsIm9yaWdpbiI6Imh0dHBzOi8vcGFzc2tleXMuZXhhbXBsZS5vcmciLCJjcm9zc09yaWdpbiI6ZmFsc2V9",
+        "signature": "MEMCH0EyvUngobEz3bpCs8aXmr84BEVeumHifIF6nHruYTYCIEP3IEW_DGauU-X1wHBmvSKIkdYLdCQ8b04fhiqlj0vt"
+      },
+      "expected": {
+        "sshPublicKey": "sk-ecdsa-sha2-nistp256@openssh.com AAAAInNrLWVjZHNhLXNoYTItbmlzdHAyNTZAb3BlbnNzaC5jb20AAAAIbmlzdHAyNTYAAABBBBqQyRTtpf/yYAKH6Ad95DxeAi46bOJv928dz2hZqs0aPuGRaNFqqNznZPLbTjfxZmo04AVRyzHky7sLDJD3wdoAAAAUcGFzc2tleXMuZXhhbXBsZS5vcmc=",
+        "digestHex": "5353485349470000000367697400000000000000067368613531320000004059c1f5d9348a6d9c551ff24aa3c3ad429639fdfcc1a7eee36a6f0cd98a1fc8c94047bd4ae8db34422c14fe7e5ee49017d68fbe72c09dd4507dd875bb4c97b278",
+        "signature": "-----BEGIN SSH SIGNATURE-----\nU1NIU0lHAAAAAQAAAI8AAAAic2stZWNkc2Etc2hhMi1uaXN0cDI1NkBvcGVuc3NoLmNvbQ\nAAAAhuaXN0cDI1NgAAAEEEGpDJFO2l//JgAofoB33kPF4CLjps4m/3bx3PaFmqzRo+4ZFo\n0Wqo3Odk8ttON/FmajTgBVHLMeTLuwsMkPfB2gAAABRwYXNza2V5cy5leGFtcGxlLm9yZw\nAAAANnaXQAAAAAAAAABnNoYTUxMgAAAYgAAAArd2ViYXV0aG4tc2stZWNkc2Etc2hhMi1u\naXN0cDI1NkBvcGVuc3NoLmNvbQAAAEcAAAAfQTK9SeChsTPdukKzxpeavzgERV66YeJ8gX\nqceu5hNgAAACBD9yBFvwxmrlPl9cBwZr0iiJHWC3QkPG9OH4YqpY9L7QUAAAAJAAAAHGh0\ndHBzOi8vcGFzc2tleXMuZXhhbXBsZS5vcmcAAADheyJ0eXBlIjoid2ViYXV0aG4uZ2V0Ii\nwiY2hhbGxlbmdlIjoiVTFOSVUwbEhBQUFBQTJkcGRBQUFBQUFBQUFBR2MyaGhOVEV5QUFB\nQVFGbkI5ZGswaW0yY1ZSX3lTcVBEclVLV09mMzh3YWZ1NDJwdkRObUtIOGpKUUVlOVN1am\nJORUlzRlA1LVh1U1FGOWFQdm5MQW5kUlFmZGgxdTB5WHNuZyIsIm9yaWdpbiI6Imh0dHBz\nOi8vcGFzc2tleXMuZXhhbXBsZS5vcmciLCJjcm9zc09yaWdpbiI6ZmFsc2V9AAAAAA==\n-----END SSH SIGNATURE-----\n"
+      },
+      "checks": {
+        "cose": {
+          "ts": "agrees",
+          "rust": "agrees"
+        },
+        "sshKeygen": "Good \"git\" signature for signer with ECDSA-SK key SHA256:r7Ft12GB+7EGnTlUTBqUtNaVgZ+Vn7AIxYDEzB8Luos"
+      }
+    },
+    {
+      "id": "generated-short-s",
+      "source": "generated: s shorter than 32 bytes, so its mpint is short too",
+      "rpId": "passkeys.example.org",
+      "namespace": "git",
+      "hash": "sha512",
+      "message": "short s",
+      "publicKey": {
+        "cose": "pQECAyYgASFYIB_RTBgmp6p_ulvkPZpX6U2R2at4Rxada8kFxZprTS5ZIlggDTgLtxK3yXQtuOcijXMgjwSzXoREKft2oeyS_aym5Cg",
+        "algorithm": -7
+      },
+      "approval": {
+        "authenticatorData": "M4JAFg5TsvNpw_sbzFyIQUZ85W-KZfMNrvwC2g8dyBkFAAAACg",
+        "clientDataJSON": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiVTFOSVUwbEhBQUFBQTJkcGRBQUFBQUFBQUFBR2MyaGhOVEV5QUFBQVFIZ3I2WXF1QlpVNkVvaVk5VTltNjhYa21ZMF9LNnJLUFlVVTNuRFdiYjBUb3UyTE9ocU1ySjZOaUV6ZkV1dTRwMXMxNTQtNmNNeDU4N0JiS3cycVpYNCIsIm9yaWdpbiI6Imh0dHBzOi8vcGFzc2tleXMuZXhhbXBsZS5vcmciLCJjcm9zc09yaWdpbiI6ZmFsc2V9",
+        "signature": "MEQCIQCmiIkPyl-m9aD9K1ThBh9wvPlMk450sfSNq8nLJDB-YgIfHkOeCeEirfq5gpUbUYdcpb8t9B1J4aKOql1M9V2E8A"
+      },
+      "expected": {
+        "sshPublicKey": "sk-ecdsa-sha2-nistp256@openssh.com AAAAInNrLWVjZHNhLXNoYTItbmlzdHAyNTZAb3BlbnNzaC5jb20AAAAIbmlzdHAyNTYAAABBBB/RTBgmp6p/ulvkPZpX6U2R2at4Rxada8kFxZprTS5ZDTgLtxK3yXQtuOcijXMgjwSzXoREKft2oeyS/aym5CgAAAAUcGFzc2tleXMuZXhhbXBsZS5vcmc=",
+        "digestHex": "53534853494700000003676974000000000000000673686135313200000040782be98aae05953a128898f54f66ebc5e4998d3f2baaca3d8514de70d66dbd13a2ed8b3a1a8cac9e8d884cdf12ebb8a75b35e78fba70cc79f3b05b2b0daa657e",
+        "signature": "-----BEGIN SSH SIGNATURE-----\nU1NIU0lHAAAAAQAAAI8AAAAic2stZWNkc2Etc2hhMi1uaXN0cDI1NkBvcGVuc3NoLmNvbQ\nAAAAhuaXN0cDI1NgAAAEEEH9FMGCanqn+6W+Q9mlfpTZHZq3hHFp1ryQXFmmtNLlkNOAu3\nErfJdC245yKNcyCPBLNehEQp+3ah7JL9rKbkKAAAABRwYXNza2V5cy5leGFtcGxlLm9yZw\nAAAANnaXQAAAAAAAAABnNoYTUxMgAAAYkAAAArd2ViYXV0aG4tc2stZWNkc2Etc2hhMi1u\naXN0cDI1NkBvcGVuc3NoLmNvbQAAAEgAAAAhAKaIiQ/KX6b1oP0rVOEGH3C8+UyTjnSx9I\n2rycskMH5iAAAAHx5DngnhIq36uYKVG1GHXKW/LfQdSeGijqpdTPVdhPAFAAAACgAAABxo\ndHRwczovL3Bhc3NrZXlzLmV4YW1wbGUub3JnAAAA4XsidHlwZSI6IndlYmF1dGhuLmdldC\nIsImNoYWxsZW5nZSI6IlUxTklVMGxIQUFBQUEyZHBkQUFBQUFBQUFBQUdjMmhoTlRFeUFB\nQUFRSGdyNllxdUJaVTZFb2lZOVU5bTY4WGttWTBfSzZyS1BZVVUzbkRXYmIwVG91MkxPaH\nFNcko2TmlFemZFdXU0cDFzMTU0LTZjTXg1ODdCYkt3MnFaWDQiLCJvcmlnaW4iOiJodHRw\nczovL3Bhc3NrZXlzLmV4YW1wbGUub3JnIiwiY3Jvc3NPcmlnaW4iOmZhbHNlfQAAAAA=\n-----END SSH SIGNATURE-----\n"
+      },
+      "checks": {
+        "cose": {
+          "ts": "agrees",
+          "rust": "agrees"
+        },
+        "sshKeygen": "Good \"git\" signature for signer with ECDSA-SK key SHA256:rnokEQRq3v/zkRgXM2IW/B3emUjlUFUMgYc806oM9sg"
+      }
+    },
+    {
+      "id": "generated-sha256-file",
+      "source": "generated: sha256, namespace file, user present only, extra clientDataJSON fields, counter 0",
+      "rpId": "example.com",
+      "namespace": "file",
+      "hash": "sha256",
+      "message": "a file approved by a passkey\n",
+      "publicKey": {
+        "cose": "pQECAyYgASFYII2gldmunEaALeFz2SmjN9NtVLXmm_JA_coqNnnFDIzFIlggtNjrJQnARFcCAUrW6VRXvGvlWJsaZLUTTsFcGsvdtNc",
+        "algorithm": -7
+      },
+      "approval": {
+        "authenticatorData": "o3mm9u6vuaVeN4wRgDTidR5oL6ufLTCrE9ISVYbOGUcBAAAAAA",
+        "clientDataJSON": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiVTFOSVUwbEhBQUFBQkdacGJHVUFBQUFBQUFBQUJuTm9ZVEkxTmdBQUFDQS1XTnlCWmhFQ1Jua2pDVzBJcGpDLVNpTndoTmNVOFYycUpzOGlYNEtNc2ciLCJvcmlnaW4iOiJodHRwczovL2FwcC5leGFtcGxlLmNvbSIsImNyb3NzT3JpZ2luIjpmYWxzZSwib3RoZXJfa2V5c19jYW5fYmVfYWRkZWRfaGVyZSI6ImRvIG5vdCBjb21wYXJlIGNsaWVudERhdGFKU09OIGFnYWluc3QgYSB0ZW1wbGF0ZS4ifQ",
+        "signature": "MEQCIE7yG2y1wPGGj8HwoZ-P_cwUFY_XKqi6GWyiYZgHhtBHAiBqvsgF3VnW6gtzeY6kXkXQbi-cB9KRU0La7SA7XCLZSQ"
+      },
+      "expected": {
+        "sshPublicKey": "sk-ecdsa-sha2-nistp256@openssh.com AAAAInNrLWVjZHNhLXNoYTItbmlzdHAyNTZAb3BlbnNzaC5jb20AAAAIbmlzdHAyNTYAAABBBI2gldmunEaALeFz2SmjN9NtVLXmm/JA/coqNnnFDIzFtNjrJQnARFcCAUrW6VRXvGvlWJsaZLUTTsFcGsvdtNcAAAALZXhhbXBsZS5jb20=",
+        "digestHex": "5353485349470000000466696c650000000000000006736861323536000000203e58dc81661102467923096d08a630be4a237084d714f15daa26cf225f828cb2",
+        "signature": "-----BEGIN SSH SIGNATURE-----\nU1NIU0lHAAAAAQAAAIYAAAAic2stZWNkc2Etc2hhMi1uaXN0cDI1NkBvcGVuc3NoLmNvbQ\nAAAAhuaXN0cDI1NgAAAEEEjaCV2a6cRoAt4XPZKaM3021Uteab8kD9yio2ecUMjMW02Osl\nCcBEVwIBStbpVFe8a+VYmxpktRNOwVway9201wAAAAtleGFtcGxlLmNvbQAAAARmaWxlAA\nAAAAAAAAZzaGEyNTYAAAGpAAAAK3dlYmF1dGhuLXNrLWVjZHNhLXNoYTItbmlzdHAyNTZA\nb3BlbnNzaC5jb20AAABIAAAAIE7yG2y1wPGGj8HwoZ+P/cwUFY/XKqi6GWyiYZgHhtBHAA\nAAIGq+yAXdWdbqC3N5jqReRdBuL5wH0pFTQtrtIDtcItlJAQAAAAAAAAAXaHR0cHM6Ly9h\ncHAuZXhhbXBsZS5jb20AAAEGeyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIj\noiVTFOSVUwbEhBQUFBQkdacGJHVUFBQUFBQUFBQUJuTm9ZVEkxTmdBQUFDQS1XTnlCWmhF\nQ1Jua2pDVzBJcGpDLVNpTndoTmNVOFYycUpzOGlYNEtNc2ciLCJvcmlnaW4iOiJodHRwcz\novL2FwcC5leGFtcGxlLmNvbSIsImNyb3NzT3JpZ2luIjpmYWxzZSwib3RoZXJfa2V5c19j\nYW5fYmVfYWRkZWRfaGVyZSI6ImRvIG5vdCBjb21wYXJlIGNsaWVudERhdGFKU09OIGFnYW\nluc3QgYSB0ZW1wbGF0ZS4ifQAAAAA=\n-----END SSH SIGNATURE-----\n"
+      },
+      "checks": {
+        "cose": {
+          "ts": "agrees",
+          "rust": "agrees"
+        },
+        "sshKeygen": "Good \"file\" signature for signer with ECDSA-SK key SHA256:eVMfU6avrz8GR+q1y0dE788iPyy8LSNEtFZb35uFXOk"
+      }
+    },
+    {
+      "id": "generated-extensions",
+      "source": "generated: authenticator data with extensions (flag ED and a CBOR map), carried after the counter",
+      "rpId": "passkeys.example.org",
+      "namespace": "git",
+      "hash": "sha512",
+      "message": "with extensions",
+      "publicKey": {
+        "cose": "pQECAyYgASFYICO1MpHtoxULEExs_n74EpNE7Vo3YC-H3_CBRgeG0_-1IlggXgoBHD_UXIE20UAU6xr2LVhU1kg5Zv2H_ejIO9cH-iI",
+        "algorithm": -7
+      },
+      "approval": {
+        "authenticatorData": "M4JAFg5TsvNpw_sbzFyIQUZ85W-KZfMNrvwC2g8dyBmFAAAAC6FrY3JlZFByb3RlY3QC",
+        "clientDataJSON": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiVTFOSVUwbEhBQUFBQTJkcGRBQUFBQUFBQUFBR2MyaGhOVEV5QUFBQVFJRGZEWFFXS2hldi05aDBiSjRlQl9RUE1FNjlJUzZlVzZ1WUxPMUlCX182TWxHSlNSaGlMY0FqQ1ZuRGM1Tk0wQ3UydnVycHNvX2NXU25RRnNjMkdjZyIsIm9yaWdpbiI6Imh0dHBzOi8vcGFzc2tleXMuZXhhbXBsZS5vcmciLCJjcm9zc09yaWdpbiI6ZmFsc2V9",
+        "signature": "MEQCIE8PS0HrYySurufHsMyM-duZo5Dvs0xf-uAmOYv2EhxYAiBqBanZ8_EZVRRAVP5y7p2SzdybqOCjlnxXZQfXpCqxUg"
+      },
+      "expected": {
+        "sshPublicKey": "sk-ecdsa-sha2-nistp256@openssh.com AAAAInNrLWVjZHNhLXNoYTItbmlzdHAyNTZAb3BlbnNzaC5jb20AAAAIbmlzdHAyNTYAAABBBCO1MpHtoxULEExs/n74EpNE7Vo3YC+H3/CBRgeG0/+1XgoBHD/UXIE20UAU6xr2LVhU1kg5Zv2H/ejIO9cH+iIAAAAUcGFzc2tleXMuZXhhbXBsZS5vcmc=",
+        "digestHex": "5353485349470000000367697400000000000000067368613531320000004080df0d74162a17affbd8746c9e1e07f40f304ebd212e9e5bab982ced4807fffa3251894918622dc0230959c373934cd02bb6beeae9b28fdc5929d016c73619c8",
+        "signature": "-----BEGIN SSH SIGNATURE-----\nU1NIU0lHAAAAAQAAAI8AAAAic2stZWNkc2Etc2hhMi1uaXN0cDI1NkBvcGVuc3NoLmNvbQ\nAAAAhuaXN0cDI1NgAAAEEEI7Uyke2jFQsQTGz+fvgSk0TtWjdgL4ff8IFGB4bT/7VeCgEc\nP9RcgTbRQBTrGvYtWFTWSDlm/Yf96Mg71wf6IgAAABRwYXNza2V5cy5leGFtcGxlLm9yZw\nAAAANnaXQAAAAAAAAABnNoYTUxMgAAAZcAAAArd2ViYXV0aG4tc2stZWNkc2Etc2hhMi1u\naXN0cDI1NkBvcGVuc3NoLmNvbQAAAEgAAAAgTw9LQetjJK6u58ewzIz525mjkO+zTF/64C\nY5i/YSHFgAAAAgagWp2fPxGVUUQFT+cu6dks3cm6jgo5Z8V2UH16QqsVKFAAAACwAAABxo\ndHRwczovL3Bhc3NrZXlzLmV4YW1wbGUub3JnAAAA4XsidHlwZSI6IndlYmF1dGhuLmdldC\nIsImNoYWxsZW5nZSI6IlUxTklVMGxIQUFBQUEyZHBkQUFBQUFBQUFBQUdjMmhoTlRFeUFB\nQUFRSURmRFhRV0toZXYtOWgwYko0ZUJfUVBNRTY5SVM2ZVc2dVlMTzFJQl9fNk1sR0pTUm\nhpTGNBakNWbkRjNU5NMEN1MnZ1cnBzb19jV1NuUUZzYzJHY2ciLCJvcmlnaW4iOiJodHRw\nczovL3Bhc3NrZXlzLmV4YW1wbGUub3JnIiwiY3Jvc3NPcmlnaW4iOmZhbHNlfQAAAA6ha2\nNyZWRQcm90ZWN0Ag==\n-----END SSH SIGNATURE-----\n"
+      },
+      "checks": {
+        "cose": {
+          "ts": "agrees",
+          "rust": "agrees"
+        },
+        "sshKeygen": "Good \"git\" signature for signer with ECDSA-SK key SHA256:SZM5TrdC2xwTPdJ40OGshc9qfjHyWEHElcMLfZpTfT0"
+      }
+    }
+  ]
+}

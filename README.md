@@ -151,10 +151,11 @@ Toward 0.1.0, we are tightening verification and refusal handling, running a sec
 
 ## Repository Layout
 
-- `packages/passkey-cloudflare`: the library. It deploys inside an application's own Worker. It has four entry points:
+- `packages/passkey-cloudflare`: the library. It deploys inside an application's own Worker. It has five entry points:
   - the main entry point: `createPasskeys`, which runs the ceremonies, the Durable Object classes an application binds (listed in `PASSKEY_DURABLE_OBJECTS`), and the building blocks around them, such as rate limits, member names, passkey labels, session cookies and the uniform refusal.
   - `/browser`: the browser half of each ceremony. It turns the options-JSON that the application fetched into a WebAuthn call and returns the response JSON to post back, and makes no requests of its own.
   - `/gordian`: hand-written dCBOR, Bytewords and Envelope encoders, the `ur:seed` form recovery codes take, and their BIP39 words.
+  - `/ssh`: OpenSSH forms of a passkey and an approval: an ES256 passkey's `sk-ecdsa-sha2-nistp256@openssh.com` public key, the SSHSIG data an application passes as the approval digest, and the armored `webauthn-sk-ecdsa-sha2-nistp256@openssh.com` signature the approval becomes, which `ssh-keygen -Y verify` and `git verify-commit` check.
   - `/testing`: a software authenticator for tests, which must never be used as a real authenticator.
 - `apps/demo`: the demo Worker, deployed at https://passkeydemo.gordianstack.com: a placeholder app with sign-in and settings in panes over it. An app can copy those panes and restyle them: see [`docs/demo-panes.md`](docs/demo-panes.md).
 
@@ -173,7 +174,7 @@ The test scripts run TypeScript files directly, which needs Node 23.6 or later.
 
 ```sh
 npm install
-npm test                               # the demo's HTTP surface inside the Workers runtime, then a check of the deployed bundle
+npm test                               # the demo's HTTP surface inside the Workers runtime, a check of the deployed bundle, then ssh-keygen on the SSH signatures
 npm run typecheck
 npx playwright install chromium        # once
 npm run test:e2e -w demo               # the browser smoke test, against wrangler dev
