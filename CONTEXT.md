@@ -9,7 +9,7 @@ The authenticated subject of a request: either a person or an agent.
 _Avoid_: principle, user (when the subject may be an agent)
 
 **Person**:
-A principal that is a natural person and proves itself with passkeys. Every agent's controller is a person.
+A principal that is a natural person and proves itself with passkeys. Every agent's controller is a person ([ADR 0014](docs/adr/0014-an-agents-controller-is-a-person-fixed-at-creation.md)).
 _Avoid_: human, user; member (in the identity layer)
 
 **Member**:
@@ -17,7 +17,7 @@ A person as the application knows them: the holder of a member name, whose state
 _Avoid_: user, account
 
 **Member name**:
-The name a person chooses at registration, unique ignoring case and accents (José and jose are the same name), shown to others and used to find their identity record during recovery. It belongs to the app, not to the identity layer, and never changes once registered.
+The name a person chooses at registration, unique ignoring case and accents (José and jose are the same name), shown to others and used to find their identity record during recovery. It belongs to the app, not to the identity layer, and never changes once registered ([ADR 0015](docs/adr/0015-the-member-name-belongs-to-the-app-tier-and-never-changes.md)).
 _Avoid_: handle, username, display name
 
 **Retired name**:
@@ -28,7 +28,7 @@ The durable identity of one principal, which survives the loss of any single cre
 _Avoid_: account, user, profile
 
 **Credential**:
-One passkey bound to one identity record. A person's record holds one or more and never zero.
+One passkey bound to one identity record. A person's record holds one or more and never zero ([ADR 0013](docs/adr/0013-an-identity-record-never-holds-zero-credentials.md)).
 _Avoid_: device, key (for passkeys)
 
 **Recovery code**:
@@ -59,7 +59,7 @@ A principal that acts on behalf of a person, such as a service or an LLM, with i
 _Avoid_: entity, bot, delegate
 
 **Controller**:
-The person an agent derives its authority from. Fixed when the agent is created and never changed.
+The person an agent derives its authority from. Fixed when the agent is created and never changed ([ADR 0014](docs/adr/0014-an-agents-controller-is-a-person-fixed-at-creation.md)).
 _Avoid_: owner (reserved for canvases), principal (when meaning the person behind an agent)
 
 **Capability**:

@@ -58,7 +58,7 @@ gist](https://gist.github.com/ChristopherA/dfb0f82a1223a95fa199837142e0f989))
 and from the WebAuthn Level 3 credential record.
 
 * **Identity separate from permission.** The library answers only which principal is presenting. Roles, suspension and member names belong to the application tier. Authorization policy can change without touching credential checks.
-* **Plural passkeys from the first registration.** A person can enroll more passkeys at any time, and the last one cannot be removed. Each passkey gets its own label of three Bytewords (such as `able-acid-also`), shown in the password manager beside the member name, so a person can tell their passkeys apart.
+* **Plural passkeys from the first registration.** A person can enroll more passkeys at any time, and the last one cannot be removed ([ADR 0013](docs/adr/0013-an-identity-record-never-holds-zero-credentials.md)). Each passkey gets its own label of three Bytewords (such as `able-acid-also`), shown in the password manager beside the member name, so a person can tell their passkeys apart.
 * **No fallback to a weaker credential.** Recovery uses a single-use code and a new passkey, in one transaction. No password, email, or SMS path exists.
 * **Recovery codes are stored only as hashes.** A code is shown once and checked by its hash. Input is liberal: a code is accepted as a UR, as Bytewords, as its 12 BIP39 words, or as its bare 16 bytes.
 * **Step-up for what can lock the owner out.** Adding or revoking a passkey, rotating recovery codes, and ending other sessions each need a fresh passkey check, not just a live session.
@@ -139,7 +139,7 @@ Not tested: Windows (including Windows Hello), Android, Linux and Firefox. Passk
 - Workers Free (see [`docs/workers-free.md`](docs/workers-free.md)).
 - A prompt to add another passkey when one stops being backed up.
 - Password-manager icons beside passkey names.
-- Changing a member name after registration.
+- Changing a member name after registration ([ADR 0015](docs/adr/0015-the-member-name-belongs-to-the-app-tier-and-never-changes.md)).
 
 ### Current Work
 
