@@ -202,7 +202,8 @@ describe("approval", () => {
     const app = testApp();
     const { browser, recordId } = await registered(app);
     await browser.enrol();
-    const [first, second] = browser.authenticator.credentials.map((c) => c.id);
+    // The approval lists one of the IDs the record's own listing gives.
+    const [first, second] = (await browser.client.credentials()).map((c) => c.credentialId);
     const text = uniqueText();
     const options = await browser.json(browser.post("/me/approve/options", { text, credentialIds: [first] }));
     // A client that ignores allowCredentials and signs with the other passkey.
@@ -217,6 +218,18 @@ describe("approval", () => {
     expect(await failuresOn(app.storagePrefix, recordId)).toEqual([
       { ceremony: "approve", cause: "credential-not-allowed" },
     ]);
+  });
+
+  it("accept only the passkeys named by IDs from the record's own listing", async () => {
+    const app = testApp();
+    const { browser } = await registered(app);
+    await browser.enrol();
+    const listed = (await browser.client.credentials()).map((c) => c.credentialId);
+    expect(listed.sort()).toEqual(browser.authenticator.credentials.map((c) => c.id).sort());
+
+    for (const credentialId of listed) {
+      expect((await browser.approve(uniqueText(), [credentialId])).credentialId).toBe(credentialId);
+    }
   });
 
   it("advance the sign count, and refuse a count that goes backwards", async () => {

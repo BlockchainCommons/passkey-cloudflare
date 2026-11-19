@@ -33,6 +33,8 @@ export interface Recovered {
 
 /** A passkey as its owner's settings list it. */
 export interface PasskeyListing {
+  /** The credential's ID, base64url, as `Approved.credentialId` gives it; an approval's `credentialIds` takes it. */
+  credentialId: string;
   label: string;
   createdAt: number;
   lastUsedAt: number | null;

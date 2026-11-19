@@ -110,6 +110,7 @@ describe("passkeys", () => {
 
     expect(credentials).toEqual([
       {
+        credentialId: browser.authenticator.credentials[0]!.id,
         label: expect.stringMatching(/^[a-z]{4}-[a-z]{4}-[a-z]{4}$/),
         createdAt: registeredAt,
         lastUsedAt: registeredAt + MINUTE,
@@ -135,6 +136,7 @@ describe("passkeys", () => {
     expect(credentials).toHaveLength(2);
     const stored = browser.authenticator.credentials;
     for (const [i, listed] of credentials.entries()) {
+      expect(listed.credentialId).toBe(stored[i]!.id);
       expect(listed.publicKey.algorithm).toBe(cose);
       expect(await verifiesFor(listed.publicKey, stored[i]!)).toBe(true);
       expect(await verifiesFor(listed.publicKey, stored[1 - i]!)).toBe(false);

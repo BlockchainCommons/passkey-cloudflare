@@ -137,6 +137,12 @@ interface Trail {
 }
 
 export interface CredentialListing {
+  /**
+   * The credential's ID, base64url, as `Approval.credentialId` gives it.
+   * Pass it in `approvalOptions`'s `credentialIds` to let only this passkey
+   * sign an approval.
+   */
+  credentialId: string;
   label: string;
   createdAt: number;
   lastUsedAt: number | null;
@@ -839,6 +845,7 @@ export function createPasskeys(bindings: PasskeyBindings, config: PasskeyConfig)
         ctx.now,
       );
       return rows.map((row) => ({
+        credentialId: row.id,
         label: byCredential[row.id]!,
         createdAt: row.createdAt,
         lastUsedAt: row.lastUsedAt,
